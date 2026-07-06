@@ -6,9 +6,169 @@
   <span class="context-bar-current"><i class="bi bi-calendar2-event-fill"></i> Sessions du jour</span>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+  /* ─── Session Cards ───────────────────────────────────────── */
+  .session-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.18s, transform 0.18s;
+    overflow: hidden;
+    position: relative;
+  }
+  .session-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+  .session-card.status-done  { border-left: 5px solid #10b981; }
+  .session-card.status-cancelled { border-left: 5px solid #ef4444; background: #fff5f5; }
+  .session-card.status-planned   { border-left: 5px solid #3b82f6; }
+  .session-card.status-done .card-body-inner  { background: #f0fdf4; }
+
+  .session-card .card-body-inner {
+    padding: 16px 20px;
+  }
+
+  .session-time-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+  .session-group-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+  .session-meta {
+    font-size: 13px;
+    color: var(--text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .session-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .session-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-alt);
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .btn-attendance {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 9px 20px;
+    font-size: 14.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    text-decoration: none;
+    transition: background 0.15s, box-shadow 0.15s;
+    white-space: nowrap;
+  }
+  .btn-attendance:hover {
+    background: var(--primary-dark);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(37,99,216,0.3);
+  }
+  .session-card.status-done .btn-attendance {
+    background: #10b981;
+  }
+  .session-card.status-done .btn-attendance:hover {
+    background: #059669;
+    box-shadow: 0 4px 12px rgba(16,185,129,0.3);
+  }
+
+  /* ─── Date nav bar ─────────────────────────────────────────── */
+  .date-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-xs);
+  }
+  .date-nav-label {
+    flex: 1;
+    text-align: center;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .date-nav-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: background 0.12s, color 0.12s;
+    flex-shrink: 0;
+  }
+  .date-nav-btn:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+
+  /* ─── Quick stats row ──────────────────────────────────────── */
+  .quick-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .qs-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    text-align: center;
+    box-shadow: var(--shadow-xs);
+  }
+  .qs-num {
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .qs-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  @media (max-width: 576px) {
+    .quick-stats { grid-template-columns: repeat(2, 1fr); }
+    .date-nav-label { font-size: 14px; }
+    .session-time-badge { font-size: 17px; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 
-<!-- Header -->
+<!-- ── Header ─────────────────────────────────────────────────────── -->
 <div class="page-header d-flex align-items-start justify-content-between gap-3 flex-wrap">
   <div>
     {% if mode == 'uncompleted' %}
@@ -16,221 +176,202 @@
         <i class="bi bi-exclamation-triangle-fill me-2" style="color:#ef4444;"></i>
         Séances en retard
       </h1>
-      <p class="page-subtitle">Séances passées pour lesquelles les présences n'ont pas encore été enregistrées</p>
+      <p class="page-subtitle">Présences non encore enregistrées pour ces séances passées</p>
     {% else %}
       <h1 class="page-title">
         <i class="bi bi-calendar2-event-fill me-2" style="color:var(--primary);"></i>
-        Sessions du {{ view_date|date:"l d F Y" }}
+        Sessions du {% if is_today %}<span style="color:var(--success);">Aujourd'hui</span>{% else %}{{ view_date|date:"l d F Y" }}{% endif %}
       </h1>
-      <div class="mt-1">
-        {% if is_today %}
-          <span class="badge badge-success"><i class="bi bi-calendar-check"></i> Aujourd'hui</span>
-        {% elif view_date > today %}
-          <span class="badge badge-info"><i class="bi bi-calendar-plus"></i> À venir</span>
-        {% else %}
-          <span class="badge badge-secondary"><i class="bi bi-calendar-x"></i> Passé</span>
-        {% endif %}
-      </div>
+      {% if is_today %}
+        <p class="page-subtitle">Toutes les sessions programmées pour aujourd'hui</p>
+      {% endif %}
     {% endif %}
   </div>
-
-  <!-- Date navigation -->
-  {% if mode != 'uncompleted' %}
-    <div class="d-flex gap-2 flex-shrink-0">
-      <a href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ prev_day|date:'Y-m-d' }}"
-         class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-chevron-left"></i>
-      </a>
-      {% if not is_today %}
-        <a href="?{% if querystring %}{{ querystring }}{% endif %}"
-           class="btn btn-outline-primary btn-sm">
-          <i class="bi bi-calendar-check"></i> Aujourd'hui
-        </a>
-      {% endif %}
-      <a href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ next_day|date:'Y-m-d' }}"
-         class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-chevron-right"></i>
-      </a>
-    </div>
+  {% if mode == 'uncompleted' %}
+    <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-secondary flex-shrink-0">
+      <i class="bi bi-arrow-left"></i> Retour
+    </a>
   {% endif %}
 </div>
 
-<!-- Tab toggle -->
-<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-  <div class="btn-group flex-wrap">
-    <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-primary {% if not mode %}active{% endif %}">
-      <i class="bi bi-calendar-day"></i> Par date
+<!-- ── Date nav (only in normal mode) ────────────────────────────── -->
+{% if mode != 'uncompleted' %}
+<div class="date-nav">
+  <a class="date-nav-btn" href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ prev_day|date:'Y-m-d' }}" title="Jour précédent">
+    <i class="bi bi-chevron-left"></i>
+  </a>
+  <div class="date-nav-label">
+    {{ view_date|date:"l d F Y" }}
+    {% if is_today %}
+      <span class="badge badge-success ms-2" style="font-size:12px;vertical-align:middle;">Aujourd'hui</span>
+    {% elif view_date > today %}
+      <span class="badge badge-info ms-2" style="font-size:12px;vertical-align:middle;">À venir</span>
+    {% else %}
+      <span class="badge badge-secondary ms-2" style="font-size:12px;vertical-align:middle;">Passé</span>
+    {% endif %}
+  </div>
+  <a class="date-nav-btn" href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ next_day|date:'Y-m-d' }}" title="Jour suivant">
+    <i class="bi bi-chevron-right"></i>
+  </a>
+  {% if not is_today %}
+    <a href="?{% if querystring %}{{ querystring }}{% endif %}" class="btn btn-sm btn-outline-primary ms-2">
+      <i class="bi bi-calendar-check"></i> Aujourd'hui
     </a>
-    <a href="{% url 'core:sessions_today' %}?mode=uncompleted" class="btn btn-outline-primary {% if mode == 'uncompleted' %}active{% endif %}">
-      <i class="bi bi-exclamation-triangle"></i> En retard
-      {% if past_uncompleted_count %}
-        <span class="badge bg-danger ms-1">{{ past_uncompleted_count }}</span>
-      {% endif %}
-    </a>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ── Mode toggle ─────────────────────────────────────────────── -->
+<div class="d-flex align-items-center gap-2 mb-4 flex-wrap">
+  <a href="{% url 'core:sessions_today' %}" class="btn btn-sm {% if not mode %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+    <i class="bi bi-calendar-day"></i> Par date
+  </a>
+  <a href="{% url 'core:sessions_today' %}?mode=uncompleted" class="btn btn-sm {% if mode == 'uncompleted' %}btn-danger{% else %}btn-outline-danger{% endif %}">
+    <i class="bi bi-exclamation-triangle"></i> Séances en retard
+    {% if past_uncompleted_count %}
+      <span class="badge bg-danger ms-1" style="background:#ef4444!important;">{{ past_uncompleted_count }}</span>
+    {% endif %}
+  </a>
+</div>
+
+<!-- ── Quick stats ────────────────────────────────────────────────── -->
+<div class="quick-stats mb-3">
+  <div class="qs-card">
+    <div class="qs-num" style="color:var(--text-primary);">{{ stats.total }}</div>
+    <div class="qs-label">Total</div>
+  </div>
+  <div class="qs-card">
+    <div class="qs-num" style="color:#3b82f6;">{{ stats.planned }}</div>
+    <div class="qs-label">Prévues</div>
+  </div>
+  <div class="qs-card">
+    <div class="qs-num" style="color:#10b981;">{{ stats.done }}</div>
+    <div class="qs-label">Terminées</div>
+  </div>
+  <div class="qs-card">
+    <div class="qs-num" style="color:#ef4444;">{{ stats.cancelled }}</div>
+    <div class="qs-label">Annulées</div>
   </div>
 </div>
 
-<!-- Stats -->
-<div class="row g-4 mb-4">
-  <div class="col-sm-6 col-xl-3">
-    <div class="stat-card">
-      <div class="d-flex align-items-center justify-content-between">
-        <div>
-          <div class="stat-card-label">Total</div>
-          <div class="stat-card-value">{{ stats.total }}</div>
-        </div>
-        <div class="stat-card-icon" style="background:var(--primary-light);">
-          <i class="bi bi-calendar3" style="color:var(--primary);"></i>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    <div class="stat-card">
-      <div class="d-flex align-items-center justify-content-between">
-        <div>
-          <div class="stat-card-label">Prévues</div>
-          <div class="stat-card-value">{{ stats.planned }}</div>
-        </div>
-        <div class="stat-card-icon" style="background:#dbeafe;">
-          <i class="bi bi-clock" style="color:#3b82f6;"></i>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    <div class="stat-card">
-      <div class="d-flex align-items-center justify-content-between">
-        <div>
-          <div class="stat-card-label">Terminées</div>
-          <div class="stat-card-value">{{ stats.done }}</div>
-        </div>
-        <div class="stat-card-icon" style="background:#d1fae5;">
-          <i class="bi bi-check-circle" style="color:#10b981;"></i>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-xl-3">
-    <div class="stat-card">
-      <div class="d-flex align-items-center justify-content-between">
-        <div>
-          <div class="stat-card-label">Annulées</div>
-          <div class="stat-card-value">{{ stats.cancelled }}</div>
-        </div>
-        <div class="stat-card-icon" style="background:#fee2e2;">
-          <i class="bi bi-x-circle" style="color:#ef4444;"></i>
-        </div>
-      </div>
-    </div>
-  </div>
+<!-- ── Progress Bar ────────────────────────────────────────────────── -->
+{% if stats.total > 0 %}
+<div class="progress mb-4" style="height: 14px; border-radius: 6px; background-color: var(--border); overflow: hidden;">
+  <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" 
+       id="session-progress-bar" style="width: 0%; transition: width 0.5s ease; font-size: 11px; font-weight: 700; line-height: 14px;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
 </div>
+{% endif %}
 
-<!-- Active filters -->
+
+<!-- ── Active filters ──────────────────────────────────────────────── -->
 {% if filters_active %}
   <div class="d-flex gap-2 flex-wrap mb-4">
     <small class="text-secondary align-self-center">Filtres actifs :</small>
     {% if request.GET.room %}
-      <span class="filter-pill">Salle: {{ filter.form.room.value }}<a href="?date={{ view_date|date:'Y-m-d' }}{% for key, value in request.GET.items %}{% if key != 'room' and key != 'date' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">×</a></span>
+      <span class="filter-pill">Salle<a href="?date={{ view_date|date:'Y-m-d' }}{% for key, value in request.GET.items %}{% if key != 'room' and key != 'date' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">×</a></span>
     {% endif %}
     {% if request.GET.teacher %}
-      <span class="filter-pill">Professeur filtré<a href="?date={{ view_date|date:'Y-m-d' }}{% for key, value in request.GET.items %}{% if key != 'teacher' and key != 'date' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">×</a></span>
+      <span class="filter-pill">Professeur<a href="?date={{ view_date|date:'Y-m-d' }}{% for key, value in request.GET.items %}{% if key != 'teacher' and key != 'date' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">×</a></span>
     {% endif %}
     {% if request.GET.status %}
       <span class="filter-pill">Statut: {{ request.GET.status }}<a href="?date={{ view_date|date:'Y-m-d' }}{% for key, value in request.GET.items %}{% if key != 'status' and key != 'date' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">×</a></span>
     {% endif %}
-    {% if request.GET.group_name %}
-      <span class="filter-pill">"{{ request.GET.group_name }}"<a href="?date={{ view_date|date:'Y-m-d' }}{% for key, value in request.GET.items %}{% if key != 'group_name' and key != 'date' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">×</a></span>
-    {% endif %}
   </div>
 {% endif %}
 
-<!-- Sessions table -->
-<div class="card">
-  {% if sessions %}
-    <div class="table-responsive">
-      <table class="table table-hover mb-0">
-        <thead>
-          <tr>
-            {% if mode == 'uncompleted' %}
-              <th><i class="bi bi-calendar-event"></i> Date</th>
-            {% endif %}
-            <th><i class="bi bi-clock"></i> Horaire</th>
-            <th><i class="bi bi-book"></i> Groupe</th>
-            <th><i class="bi bi-door-open"></i> Salle</th>
-            <th><i class="bi bi-person"></i> Professeur</th>
-            <th><i class="bi bi-people"></i> Élèves</th>
-            <th><i class="bi bi-flag"></i> Statut</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for session in sessions %}
-            <tr>
-              {% if mode == 'uncompleted' %}
-                <td>
-                  <strong>{{ session.date|date:"d/m/Y" }}</strong><br>
-                  <small class="text-muted">{{ session.date|date:"l" }}</small>
-                </td>
-              {% endif %}
-              <td>
-                <strong style="color:var(--primary);">
+<!-- ── Session cards ──────────────────────────────────────────────── -->
+{% if sessions %}
+  {% if stats.done == stats.total and stats.total > 0 %}
+    <div class="alert alert-success d-flex align-items-center gap-2 mb-4" style="border-left:5px solid #10b981;">
+      <i class="bi bi-check-circle-fill" style="font-size:1.3rem;color:#10b981;"></i>
+      <strong>Toutes les sessions sont terminées !</strong> Excellent travail pour aujourd'hui.
+    </div>
+  {% endif %}
+  <div class="row g-3">
+    {% for session in sessions %}
+      <div class="col-12 col-lg-6">
+        <div class="session-card status-{% if session.status == 'DONE' %}done{% elif session.status == 'CANCELLED' %}cancelled{% else %}planned{% endif %}">
+          <div class="card-body-inner">
+
+            <!-- Time & Group name -->
+            <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+              <div>
+                {% if mode == 'uncompleted' %}
+                  <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:2px;">
+                    <i class="bi bi-calendar-event"></i>
+                    {{ session.date|date:"d/m/Y" }} — {{ session.date|date:"l" }}
+                  </div>
+                {% endif %}
+                <div class="session-time-badge">
+                  <i class="bi bi-clock" style="font-size:16px;color:var(--primary);"></i>
                   {{ session.start_time|time:"H:i" }} – {{ session.end_time|time:"H:i" }}
-                </strong><br>
-                <small class="text-muted">{{ session.duration_hours|floatformat:1 }}h</small>
-              </td>
-              <td>
-                <strong>
+                  <span style="font-size:13px;font-weight:500;color:var(--text-muted);">({{ session.duration_hours|floatformat:1 }}h)</span>
+                </div>
+                <div class="session-group-name">
                   <a href="{% url 'core:group_detail' session.group.id %}" class="text-decoration-none" style="color:inherit;">
                     {{ session.group.name }}
                   </a>
-                </strong><br>
-                <small class="text-muted">
-                  {{ session.group.subject }}
-                  {% if session.group.level %}
-                    — <a href="{% url 'core:level_detail' session.group.level.id %}" class="text-decoration-none fw-bold" style="color:var(--primary);">{{ session.group.level.name }}</a>
-                  {% endif %}
-                </small>
-              </td>
-
-              <td>
-                <span class="badge badge-secondary">
-                  <i class="bi bi-door-open"></i> {{ session.room.name }}
-                </span>
-              </td>
-              <td>{{ session.group.teacher.name }}</td>
-              <td>
-                <span class="badge badge-info">
-                  <i class="bi bi-people"></i> {{ session.group.students.count }}
-                </span>
-              </td>
-              <td>
-                {% if session.status == 'DONE' %}
-                  <span class="badge badge-success"><i class="bi bi-check-circle-fill"></i> Terminée</span>
-                {% elif session.status == 'CANCELLED' %}
-                  <span class="badge badge-danger"><i class="bi bi-x-circle-fill"></i> Annulée</span>
-                {% else %}
-                  <span class="badge badge-primary"><i class="bi bi-clock-fill"></i> Prévue</span>
-                {% endif %}
-              </td>
-              <td>
-                <div class="d-flex gap-2">
-                  <a href="{% url 'core:session_attendance' session.id %}"
-                     class="btn btn-sm btn-outline-primary" title="Présences">
-                    <i class="bi bi-check2-circle"></i>
-                  </a>
-                  <a href="{% url 'core:whatsapp_session_reminder' session.id %}"
-                     class="btn btn-sm btn-outline-secondary" title="Rappel WhatsApp" style="color:#25d366;border-color:#25d366;">
-                    <i class="bi bi-whatsapp"></i>
-                  </a>
                 </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% else %}
+              </div>
+              <!-- Status badge -->
+              {% if session.status == 'DONE' %}
+                <span class="badge badge-success flex-shrink-0" style="font-size:13px;padding:5px 10px;">
+                  <i class="bi bi-check-circle-fill"></i> Terminée
+                </span>
+              {% elif session.status == 'CANCELLED' %}
+                <span class="badge badge-danger flex-shrink-0" style="font-size:13px;padding:5px 10px;">
+                  <i class="bi bi-x-circle-fill"></i> Annulée
+                </span>
+              {% else %}
+                <span class="badge badge-primary flex-shrink-0" style="font-size:13px;padding:5px 10px;">
+                  <i class="bi bi-clock-fill"></i> Prévue
+                </span>
+              {% endif %}
+            </div>
+
+            <!-- Meta info -->
+            <div class="session-meta">
+              <span class="session-meta-item">
+                <i class="bi bi-book" style="color:var(--primary);"></i>
+                {{ session.group.subject }}
+                {% if session.group.level %}
+                  — <a href="{% url 'core:level_detail' session.group.level.id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ session.group.level.name }}</a>
+                {% endif %}
+              </span>
+              <span class="session-meta-item">
+                <i class="bi bi-door-open" style="color:var(--text-muted);"></i>
+                <span class="badge badge-secondary">{{ session.room.name }}</span>
+              </span>
+              <span class="session-meta-item">
+                <i class="bi bi-person" style="color:var(--text-muted);"></i>
+                {{ session.group.teacher.name }}
+              </span>
+              <span class="session-meta-item">
+                <i class="bi bi-people" style="color:var(--text-muted);"></i>
+                <span class="badge badge-info">{{ session.group.students.count }} élèves</span>
+              </span>
+            </div>
+
+          </div>
+          <!-- Footer actions -->
+          <div class="session-footer">
+            <a href="{% url 'core:session_attendance' session.id %}" class="btn-attendance">
+              <i class="bi bi-{% if session.status == 'DONE' %}clipboard-check{% else %}check2-circle{% endif %}"></i>
+              {% if session.status == 'DONE' %}Modifier les présences{% else %}Marquer les présences{% endif %}
+            </a>
+            <a href="{% url 'core:whatsapp_session_reminder' session.id %}"
+               class="btn btn-sm btn-outline-secondary" title="Rappel WhatsApp"
+               style="color:#25d366;border-color:#25d366;">
+              <i class="bi bi-whatsapp"></i> Rappel
+            </a>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+{% else %}
+  <div class="card">
     <div class="card-body empty-state">
       <div class="empty-state-icon"><i class="bi bi-calendar-x"></i></div>
       <div class="empty-state-title">
@@ -242,6 +383,42 @@
         </div>
       {% endif %}
     </div>
-  {% endif %}
-</div>
+  </div>
+{% endif %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const total = parseInt("{{ stats.total }}") || 0;
+  const done = parseInt("{{ stats.done }}") || 0;
+  const cancelled = parseInt("{{ stats.cancelled }}") || 0;
+  const completed = done + cancelled;
+  if (total > 0) {
+    const percent = Math.round((completed / total) * 100);
+    const pb = document.getElementById('session-progress-bar');
+    if (pb) {
+      pb.style.width = percent + '%';
+      pb.setAttribute('aria-valuenow', percent);
+      pb.innerText = percent + '%';
+    }
+  }
+
+  // Keyboard shortcut: T to reset/go to today's date
+  document.addEventListener('keydown', function (e) {
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT' || activeEl.isContentEditable)) {
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) {
+      return;
+    }
+    if (e.key.toLowerCase() === 't') {
+      e.preventDefault();
+      window.location.href = "{% url 'core:sessions_today' %}";
+    }
+  });
+});
+</script>
+{% endblock %}
+
 {% endblock %}

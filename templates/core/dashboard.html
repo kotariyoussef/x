@@ -300,17 +300,25 @@
 {% block content %}
 
 {% if stats.alerts.past_planned_count %}
-<div class="alert alert-warning d-flex align-items-center justify-content-between mb-4 shadow-sm"
-  style="border-left: 5px solid #f59e0b;">
-  <div class="d-flex align-items-center gap-2">
-    <i class="bi bi-exclamation-triangle-fill" style="font-size: 1.3rem; color: #f59e0b;"></i>
-    <span>
-      Il y a <strong>{{ stats.alerts.past_planned_count }} séance{{ stats.alerts.past_planned_count|pluralize }}
-        passée{{ stats.alerts.past_planned_count|pluralize }}</strong> non complétée{{ stats.alerts.past_planned_count|pluralize }} (présences non renseignées).
-    </span>
+<div class="alert d-flex align-items-center justify-content-between mb-4"
+  style="background:#fff7ed;border:1.5px solid #fed7aa;border-left:6px solid #f59e0b;border-radius:var(--radius-md);padding:16px 20px;">
+  <div class="d-flex align-items-center gap-3">
+    <div
+      style="width:44px;height:44px;background:#fef3c7;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <i class="bi bi-exclamation-triangle-fill" style="font-size:1.4rem;color:#f59e0b;"></i>
+    </div>
+    <div>
+      <div style="font-weight:700;font-size:15.5px;color:#92400e;">
+        {{ stats.alerts.past_planned_count }} séance{{ stats.alerts.past_planned_count|pluralize }} sans présences
+        enregistrées
+      </div>
+      <div style="font-size:13.5px;color:#b45309;">Des séances passées n'ont pas encore été pointées — régularisez
+        maintenant</div>
+    </div>
   </div>
-  <a href="{% url 'core:sessions_today' %}?mode=uncompleted" class="btn btn-warning btn-sm fw-600">
-    Régulariser
+  <a href="{% url 'core:sessions_today' %}?mode=uncompleted" class="btn btn-warning btn-sm fw-600 flex-shrink-0"
+    style="font-size:14px;padding:8px 18px;">
+    <i class="bi bi-clipboard-check"></i> Régulariser
   </a>
 </div>
 {% endif %}
@@ -322,7 +330,7 @@
     <p class="page-subtitle">Bienvenue sur votre espace de gestion — {{ SCHOOL_NAME }}</p>
   </div>
   <div class="d-flex gap-2">
-    
+
     <a href="{% url 'core:sessions_today' %}" class="btn btn-primary">
       <i class="bi bi-calendar2-event"></i> Sessions du jour
     </a>
@@ -538,11 +546,11 @@
             </td>
             <td>
               <div class="d-flex gap-2">
-                <a href="/students/{{ item.student.id }}/" class="btn btn-sm btn-outline-primary"
+                <a href="{% url 'core:student_page' item.student.id %}" class="btn btn-sm btn-outline-primary"
                   title="Voir le profil">
                   <i class="bi bi-eye"></i>
                 </a>
-                <a href="/cashier/payment/create/?student_id={{ item.student.id }}" class="btn btn-sm btn-success"
+                <a href="{% url 'core:payment_create' %}?student_id={{ item.student.id }}" class="btn btn-sm btn-success"
                   title="Encaisser">
                   <i class="bi bi-cash-coin"></i> Payer
                 </a>

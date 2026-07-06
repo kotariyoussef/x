@@ -250,21 +250,29 @@ def get_unpaid_students(month_date: Optional[date] = None) -> List[dict]:
         month_date = timezone.now().date()
     month_date = month_date.replace(day=1)
 
-    students = Student.objects.filter(is_active=True).prefetch_related('payments')
+    from django.db.models import Prefetch, Sum
+    from .models import Student, Enrollment, Payment
+
+    enrollments_qs = Enrollment.objects.filter(is_active=True).select_related('course_group').prefetch_related('course_group__schedules')
+    students = Student.objects.filter(is_active=True).prefetch_related(
+        Prefetch('enrollment_set', queryset=enrollments_qs, to_attr='active_enrollments')
+    )
+
+    payments_summary = Payment.objects.filter(
+        month_covered=month_date,
+        status__in=PAID_STATUSES
+    ).values('student_id').annotate(total_paid=Sum('amount'))
+    
+    paid_map = {p['student_id']: p['total_paid'] for p in payments_summary}
 
     unpaid_students = []
 
     for student in students:
-        required = calculate_student_expected_fees_for_month(student, month_date)
+        required = Decimal('0.00')
+        for enrollment in student.active_enrollments:
+            required += calculate_enrollment_expected_fee(enrollment, month_date)
 
-        paid = Payment.objects.filter(
-            student=student,
-            month_covered=month_date,
-            status__in=PAID_STATUSES
-        ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-
-
-
+        paid = paid_map.get(student.id, Decimal('0.00'))
         remaining = max(required - paid, Decimal('0'))
 
         if paid >= required and required > 0:
@@ -284,6 +292,65 @@ def get_unpaid_students(month_date: Optional[date] = None) -> List[dict]:
             })
 
     return unpaid_students
+
+
+def populate_student_payment_and_fee_info(students_list, month_date=None):
+    """
+    Bulk populates payment and monthly fee information in-memory for a list of students
+    to avoid running N+1 queries during list views.
+    """
+    if not students_list:
+        return
+    
+    if month_date is None:
+        month_date = timezone.now().date()
+    month_date = month_date.replace(day=1)
+    
+    from .models import Enrollment, Payment
+    from django.db.models import Sum
+    
+    student_ids = [s.id for s in students_list]
+    
+    enrollments_qs = Enrollment.objects.filter(
+        student_id__in=student_ids,
+        is_active=True
+    ).select_related('course_group').prefetch_related('course_group__schedules')
+    
+    enrollments_by_student = {}
+    for enrollment in enrollments_qs:
+        enrollments_by_student.setdefault(enrollment.student_id, []).append(enrollment)
+        
+    payments_summary = Payment.objects.filter(
+        student_id__in=student_ids,
+        month_covered=month_date,
+        status__in=PAID_STATUSES
+    ).values('student_id').annotate(total_paid=Sum('amount'))
+    
+    paid_map = {p['student_id']: p['total_paid'] for p in payments_summary}
+    
+    for student in students_list:
+        active_enrollments = enrollments_by_student.get(student.id, [])
+        student.computed_active_enrollments = active_enrollments
+        
+        total_fees = sum((e.course_group.monthly_price for e in active_enrollments), Decimal('0.00'))
+        student.computed_total_monthly_fees = total_fees
+        
+        required = Decimal('0.00')
+        for enrollment in active_enrollments:
+            required += calculate_enrollment_expected_fee(enrollment, month_date)
+            
+        paid = paid_map.get(student.id, Decimal('0.00'))
+        
+        if required == 0:
+            status = 'OK'
+        elif paid >= required:
+            status = 'OK'
+        elif paid > 0:
+            status = 'PARTIAL'
+        else:
+            status = 'UNPAID'
+            
+        student.computed_payment_status = status
 
 
 # ==================== CALCULS PROFESSEURS ====================
@@ -1022,22 +1089,8 @@ def get_dashboard_stats() -> Dict:
     unpaid_count = len(unpaid)
     unpaid_amount = sum([u['remaining'] for u in unpaid])
     
-    # Conflits de planning
+    # Conflits de planning (unused on dashboard, set empty to avoid O(N^2) DB queries)
     conflicts = []
-    for sch in CourseGroupSchedule.objects.filter(course_group__is_active=True):
-        sch_conflicts = check_schedule_conflicts(
-            sch.room,
-            sch.day,
-            sch.start_time,
-            sch.end_time,
-            sch.id
-        )
-        if sch_conflicts:
-            conflicts.append({
-                'course': sch.course_group,
-                'schedule': sch,
-                'conflicts_with': sch_conflicts
-            })
             
     # Past planned sessions (uncompleted)
     from .models import Session

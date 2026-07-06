@@ -345,6 +345,10 @@ def students_list(request):
     paginator = Paginator(filtered_qs, per_page)
     students = paginator.get_page(page)
     
+    # Bulk-populate payment/monthly fee stats in memory for the current page of students
+    from .utils import populate_student_payment_and_fee_info
+    populate_student_payment_and_fee_info(students.object_list)
+    
     # Build querystring for pagination (exclude 'page' parameter)
     qs_dict = request.GET.copy()
     qs_dict.pop('page', None)
@@ -516,22 +520,23 @@ def sessions_today(request):
     
     # Apply filters
     session_filter = SessionFilter(request.GET, queryset=sessions_qs)
-    sessions = session_filter.qs
+    sessions = list(session_filter.qs)
     
-    # Calculate statistics
+    # Calculate statistics in memory to avoid multiple COUNT database queries
+    total_count = len(sessions)
     if mode == 'uncompleted':
         stats = {
-            'total': sessions.count(),
-            'planned': sessions.count(),
+            'total': total_count,
+            'planned': total_count,
             'done': 0,
             'cancelled': 0,
         }
     else:
         stats = {
-            'total': sessions.count(),
-            'planned': sessions.filter(status='PLANNED').count(),
-            'done': sessions.filter(status='DONE').count(),
-            'cancelled': sessions.filter(status='CANCELLED').count(),
+            'total': total_count,
+            'planned': sum(1 for s in sessions if s.status == 'PLANNED'),
+            'done': sum(1 for s in sessions if s.status == 'DONE'),
+            'cancelled': sum(1 for s in sessions if s.status == 'CANCELLED'),
         }
     
     # Check if any filters are active (excluding date parameter)

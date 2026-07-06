@@ -1,0 +1,95 @@
+# =========================
+# Python / Django
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Django stuff
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Media files
+media/
+
+# Static files collected by collectstatic
+staticfiles/
+
+# Environment variables
+.env
+.env.*
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Migrations (optional - usually keep them in Git)
+# */migrations/*
+# !*/migrations/__init__.py
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Type checker
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# PyCharm
+*.iml
+
+# VS Code settings (optional)
+.settings/
+
+# Docker (optional)
+*.pid
+
+# Secrets
+*.pem
+*.key
+
+__pycache__/
+*.py[cod]
+
+venv/
+.venv/
+
+db.sqlite3
+
+node_modules/
+
+whatsapp_service/.wwebjs_cache/
+whatsapp_service/whatsapp_session/
+
+.env
+.env.*

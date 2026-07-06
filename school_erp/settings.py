@@ -30,7 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-@(cwmj-)e)39(8ty(k5us(ywqt!(5u2zc^oes3$b4exz&p@7b*'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = [
     '[IP_ADDRESS]',
@@ -170,47 +170,47 @@ UNFOLD = {
                     }
                 ],
             },
-            # {
-            #     "title": "Analytiques & Rapports",
-            #     "separator": True,
-            #     "items": [
-            #         {
-            #             "title": "Cockpit Directeur",
-            #             "icon": "dashboard",
-            #             "link": reverse_lazy("admin:analytics_dashboard"),
-            #         },
-            #         {
-            #             "title": "Analyse de Revenus",
-            #             "icon": "payments",
-            #             "link": reverse_lazy("admin:analytics_revenue"),
-            #         },
-            #         {
-            #             "title": "Suivi des Absences",
-            #             "icon": "fact_check",
-            #             "link": reverse_lazy("admin:analytics_attendance"),
-            #         },
-            #         {
-            #             "title": "Rétention & Départs",
-            #             "icon": "trending_down",
-            #             "link": reverse_lazy("admin:analytics_students"),
-            #         },
-            #         {
-            #             "title": "Occupation des Salles",
-            #             "icon": "meeting_room",
-            #             "link": reverse_lazy("admin:analytics_rooms"),
-            #         },
-            #         {
-            #             "title": "Paie Enseignants",
-            #             "icon": "calculate",
-            #             "link": reverse_lazy("admin:analytics_teachers"),
-            #         },
-            #         {
-            #             "title": "Santé Opérationnelle",
-            #             "icon": "analytics",
-            #             "link": reverse_lazy("admin:analytics_operational"),
-            #         },
-            #     ],
-            # }
+            {
+                "title": "Analytiques & Rapports",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Cockpit Directeur",
+                        "icon": "dashboard",
+                        "link": reverse_lazy("admin:analytics_dashboard"),
+                    },
+                    {
+                        "title": "Analyse de Revenus",
+                        "icon": "payments",
+                        "link": reverse_lazy("admin:analytics_revenue"),
+                    },
+                    {
+                        "title": "Suivi des Absences",
+                        "icon": "fact_check",
+                        "link": reverse_lazy("admin:analytics_attendance"),
+                    },
+                    {
+                        "title": "Rétention & Départs",
+                        "icon": "trending_down",
+                        "link": reverse_lazy("admin:analytics_students"),
+                    },
+                    {
+                        "title": "Occupation des Salles",
+                        "icon": "meeting_room",
+                        "link": reverse_lazy("admin:analytics_rooms"),
+                    },
+                    {
+                        "title": "Paie Enseignants",
+                        "icon": "calculate",
+                        "link": reverse_lazy("admin:analytics_teachers"),
+                    },
+                    {
+                        "title": "Santé Opérationnelle",
+                        "icon": "analytics",
+                        "link": reverse_lazy("admin:analytics_operational"),
+                    },
+                ],
+            }
         ],
     },
 }

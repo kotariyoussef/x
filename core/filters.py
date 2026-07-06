@@ -74,11 +74,45 @@ class StudentFilter(django_filters.FilterSet):
         if not value:
             return queryset
         
-        # We need to filter in Python since payment_status is a method
-        # Get all students and filter by their payment status
+        from django.db.models import Prefetch, Sum
+        from django.utils import timezone
+        from decimal import Decimal
+        from core.utils import calculate_enrollment_expected_fee, PAID_STATUSES
+        from core.models import Enrollment, Payment
+
+        current_month = timezone.now().date().replace(day=1)
+        
+        # Prefetch active enrollments and schedules to avoid any DB queries inside calculate_enrollment_expected_fee
+        enrollments_qs = Enrollment.objects.filter(is_active=True).select_related('course_group').prefetch_related('course_group__schedules')
+        students_prefetched = queryset.prefetch_related(
+            Prefetch('enrollment_set', queryset=enrollments_qs, to_attr='active_enrollments')
+        )
+
+        # Get all payments for this month in a single query
+        payments_summary = Payment.objects.filter(
+            month_covered=current_month,
+            status__in=PAID_STATUSES
+        ).values('student_id').annotate(total_paid=Sum('amount'))
+        
+        paid_map = {p['student_id']: p['total_paid'] for p in payments_summary}
+
         student_ids = []
-        for student in queryset:
-            status = student.payment_status()
+        for student in students_prefetched:
+            required = Decimal('0.00')
+            for enrollment in student.active_enrollments:
+                required += calculate_enrollment_expected_fee(enrollment, current_month)
+
+            paid = paid_map.get(student.id, Decimal('0.00'))
+
+            if required == 0:
+                status = 'OK'
+            elif paid >= required:
+                status = 'OK'
+            elif paid > 0:
+                status = 'PARTIAL'
+            else:
+                status = 'UNPAID'
+
             if value == 'ok' and status == 'OK':
                 student_ids.append(student.id)
             elif value == 'partial' and status == 'PARTIAL':

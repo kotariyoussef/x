@@ -5,7 +5,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Système de gestion scolaire — {{ SCHOOL_NAME }}">
   <title>{% block title %}{{ SCHOOL_NAME }}{% endblock %}</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="{% static 'favicon.png' %}">
 
   <!-- Google Fonts — Inter -->
   <link rel="stylesheet" href="{% static 'fonts/fonts.css' %}">
@@ -15,10 +19,7 @@
   <link rel="stylesheet" href="{% static 'bootstrap-icons.css' %}">
   <link href="{% static 'select2.min.css' %}" rel="stylesheet">
 
-  <!-- Vendor JS (head — needed before body) -->
-  <script src="{% static 'jquery-3.6.0.min.js' %}"></script>
-  <script src="{% static 'bootstrap.bundle.min.js' %}"></script>
-  <script src="{% static 'select2.min.js' %}"></script>
+  <!-- NOTE: Vendor JS moved to bottom of <body> for faster page paint -->
 
   <style>
     /* ─── Design Tokens ──────────────────────────────────────────── */
@@ -29,7 +30,8 @@
       --primary: #2563eb;
       --primary-dark: #1d4ed8;
       --primary-light: #eff6ff;
-      --primary-rgb: 37, 99, 216;
+      --primary-rgb: 37, 99, 235;
+      /* fixed: was 37,99,216 — now matches --primary */
 
       /* Surfaces */
       --body-bg: #f0f4f8;
@@ -83,6 +85,29 @@
       -webkit-font-smoothing: antialiased;
     }
 
+    /* Visually-hidden helper for screen-reader-only text */
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* Visible keyboard-focus ring for interactive elements that don't
+       already define their own focus style */
+    a:focus-visible,
+    button:focus-visible,
+    .nav-item-link:focus-visible,
+    .mobile-menu-btn:focus-visible {
+      outline: 2px solid #60a5fa;
+      outline-offset: 2px;
+    }
+
     /* ─── Layout Shell ───────────────────────────────────────────── */
     .app-shell {
       display: flex;
@@ -97,10 +122,10 @@
       position: sticky;
       top: 0;
       z-index: 1040;
-      box-shadow: 0 2px 12px rgba(33, 96, 255, 0.18);
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.28);
       display: flex;
       align-items: center;
-      padding: 0 24px;
+      padding: 0 20px;
       gap: 0;
     }
 
@@ -145,7 +170,10 @@
       scrollbar-width: none;
       -ms-overflow-style: none;
     }
-    .navbar-nav-main::-webkit-scrollbar { display: none; }
+
+    .navbar-nav-main::-webkit-scrollbar {
+      display: none;
+    }
 
     .nav-item-link {
       display: flex;
@@ -153,7 +181,7 @@
       gap: 7px;
       padding: 7px 13px;
       border-radius: var(--radius-sm);
-      color: rgba(255,255,255,0.72);
+      color: rgba(255, 255, 255, 0.72);
       text-decoration: none;
       font-size: 15px;
       font-weight: 500;
@@ -169,29 +197,30 @@
     }
 
     .nav-item-link:hover {
-      background: rgba(255,255,255,0.09);
+      background: rgba(255, 255, 255, 0.09);
       color: #ffffff;
     }
 
     .nav-item-link.active {
-      background: rgba(37,99,216,0.3);
+      background: rgba(37, 99, 216, 0.25);
       color: #ffffff;
+      box-shadow: inset 0 -2px 0 #60a5fa;
     }
 
     .nav-item-link.active i {
-      color: #60a5fa;
+      color: #93c5fd;
       opacity: 1;
     }
 
     .nav-section-divider {
       width: 1px;
       height: 22px;
-      background: rgba(255,255,255,0.12);
+      background: rgba(255, 255, 255, 0.12);
       margin: 0 6px;
       flex-shrink: 0;
     }
 
-    /* WhatsApp dropdown */
+    /* WhatsApp / Administration dropdown */
     .nav-dropdown {
       position: relative;
     }
@@ -199,7 +228,7 @@
     .nav-dropdown-menu {
       display: none;
       position: absolute;
-      top: calc(100% + 8px);
+      top: calc(100% + 6px);
       left: 0;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -208,6 +237,16 @@
       min-width: 200px;
       z-index: 1050;
       padding: 6px;
+      /* Invisible bridge so cursor moving to menu doesn't close it */
+    }
+
+    .nav-dropdown-menu::before {
+      content: '';
+      position: absolute;
+      top: -8px;
+      left: 0;
+      right: 0;
+      height: 8px;
     }
 
     .nav-dropdown-menu.open {
@@ -216,8 +255,15 @@
     }
 
     @keyframes dropdown-fade {
-      from { opacity: 0; transform: translateY(-4px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .nav-dropdown-item {
@@ -250,8 +296,15 @@
     }
 
     @keyframes badge-pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.65; }
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.65;
+      }
     }
 
     /* ─── Navbar right cluster ───────────────────────────────────── */
@@ -266,7 +319,7 @@
     .navbar-clock {
       font-size: 14.5px;
       font-weight: 500;
-      color: rgba(255,255,255,0.6);
+      color: rgba(255, 255, 255, 0.6);
       display: flex;
       align-items: center;
       gap: 5px;
@@ -280,36 +333,38 @@
     }
 
     .navbar-search-input {
-      height: 34px;
-      width: 210px;
-      border: 1px solid rgba(255,255,255,0.15);
+      height: 36px;
+      width: 240px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
       border-radius: var(--radius-sm);
-      background: rgba(255,255,255,0.1);
-      padding-left: 30px;
-      padding-right: 10px;
-      font-size: 15px;
+      background: rgba(255, 255, 255, 0.1);
+      padding-left: 32px;
+      padding-right: 48px;
+      font-size: 14.5px;
       color: #fff;
-      transition: border-color 0.15s, background 0.15s;
+      transition: border-color 0.15s, background 0.15s, width 0.2s;
     }
 
     .navbar-search-input::placeholder {
-      color: rgba(255,255,255,0.45);
+      color: rgba(255, 255, 255, 0.38);
+      font-size: 13.5px;
     }
 
     .navbar-search-input:focus {
-      border-color: var(--primary);
-      background: rgba(255,255,255,0.15);
-      box-shadow: 0 0 0 3px rgba(37,99,216,0.25);
+      border-color: rgba(99, 102, 241, 0.7);
+      background: rgba(255, 255, 255, 0.14);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
       outline: none;
+      width: 260px;
     }
 
     .navbar-search-icon {
       position: absolute;
-      left: 9px;
+      left: 10px;
       top: 50%;
       transform: translateY(-50%);
-      color: rgba(255,255,255,0.45);
-      font-size: 15px;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 14px;
       pointer-events: none;
     }
 
@@ -349,11 +404,16 @@
       outline: none;
     }
 
-    .navbar-search-no-results {
+    .navbar-search-no-results,
+    .navbar-search-error {
       padding: 12px 16px;
       font-size: 15.5px;
       color: var(--text-muted);
       text-align: center;
+    }
+
+    .navbar-search-error {
+      color: var(--danger);
     }
 
     /* Admin link in navbar */
@@ -363,9 +423,9 @@
       gap: 6px;
       padding: 6px 11px;
       border-radius: var(--radius-sm);
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.12);
-      color: rgba(255,255,255,0.7);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.7);
       text-decoration: none;
       font-size: 14.5px;
       font-weight: 500;
@@ -373,17 +433,17 @@
     }
 
     .navbar-admin-link:hover {
-      background: rgba(255,255,255,0.14);
+      background: rgba(255, 255, 255, 0.14);
       color: #fff;
     }
 
     /* ─── Mobile hamburger ───────────────────────────────────────── */
     .mobile-menu-btn {
       display: none;
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: var(--radius-sm);
-      color: rgba(255,255,255,0.8);
+      color: rgba(255, 255, 255, 0.8);
       padding: 6px 10px;
       font-size: 20px;
       cursor: pointer;
@@ -391,7 +451,7 @@
     }
 
     .mobile-menu-btn:hover {
-      background: rgba(255,255,255,0.14);
+      background: rgba(255, 255, 255, 0.14);
       color: #fff;
     }
 
@@ -404,15 +464,25 @@
       right: 0;
       background: #0f172a;
       z-index: 1035;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      padding: 12px 16px 20px;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
+      max-height: calc(100vh - var(--navbar-height));
+      overflow-y: auto;
+      /* Smooth slide-down animation */
+      transform-origin: top;
     }
 
     .mobile-nav-drawer.open {
       display: flex;
+      animation: drawer-slide-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes drawer-slide-in {
+      from { opacity: 0; transform: translateY(-10px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
     .mobile-nav-link {
@@ -421,7 +491,7 @@
       gap: 10px;
       padding: 10px 12px;
       border-radius: var(--radius-sm);
-      color: rgba(255,255,255,0.75);
+      color: rgba(255, 255, 255, 0.75);
       text-decoration: none;
       font-size: 16px;
       font-weight: 500;
@@ -436,7 +506,7 @@
 
     .mobile-nav-link:hover,
     .mobile-nav-link.active {
-      background: rgba(37,99,216,0.25);
+      background: rgba(37, 99, 216, 0.25);
       color: #fff;
     }
 
@@ -445,8 +515,45 @@
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: rgba(255,255,255,0.35);
+      color: rgba(255, 255, 255, 0.35);
       padding: 8px 12px 2px;
+    }
+
+    .mobile-search-wrap {
+      position: relative;
+    }
+
+    .mobile-search-results {
+      margin-top: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius-md);
+      max-height: 240px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .mobile-search-results.show {
+      display: block;
+    }
+
+    .mobile-search-item {
+      display: block;
+      padding: 10px 14px;
+      color: rgba(255, 255, 255, 0.85);
+      text-decoration: none;
+      font-size: 15px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .mobile-search-item:last-child {
+      border-bottom: none;
+    }
+
+    .mobile-search-item:hover,
+    .mobile-search-item:focus {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
     }
 
     /* ─── Content area ───────────────────────────────────────────── */
@@ -596,12 +703,38 @@
       border-radius: 5px;
     }
 
-    .badge-success { background: #dcfce7; color: #16a34a; }
-    .badge-danger  { background: #fee2e2; color: #dc2626; }
-    .badge-warning { background: #fef3c7; color: #d97706; }
-    .badge-info    { background: #dbeafe; color: #2563eb; }
-    .badge-primary { background: #e0e7ff; color: #4f46e5; }
-    .badge-secondary { background: #f3f4f6; color: #6b7280; }
+    .badge-success {
+      background: #dcfce7;
+      color: #16a34a;
+    }
+
+    .badge-danger {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .badge-warning {
+      background: #fef3c7;
+      color: #d97706;
+    }
+
+    .badge-info {
+      background: #dbeafe;
+      color: #2563eb;
+    }
+
+    .badge-primary {
+      background: #e0e7ff;
+      color: #4f46e5;
+    }
+
+    .badge-secondary {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+
+    /* ─── Utility ─────────────────────────────────────────────────── */
+    .fw-600 { font-weight: 600 !important; }
 
     /* ─── Buttons ────────────────────────────────────────────────── */
     .btn {
@@ -732,7 +865,9 @@
     }
 
     /* ─── Pagination ─────────────────────────────────────────────── */
-    .pagination { gap: 4px; }
+    .pagination {
+      gap: 4px;
+    }
 
     .page-link {
       font-size: 15px;
@@ -765,10 +900,25 @@
       padding: 12px 16px;
     }
 
-    .alert-success { background: #f0fdf4; color: #15803d; }
-    .alert-danger  { background: #fef2f2; color: #b91c1c; }
-    .alert-warning { background: #fffbeb; color: #92400e; }
-    .alert-info    { background: #eff6ff; color: #1d4ed8; }
+    .alert-success {
+      background: #f0fdf4;
+      color: #15803d;
+    }
+
+    .alert-danger {
+      background: #fef2f2;
+      color: #b91c1c;
+    }
+
+    .alert-warning {
+      background: #fffbeb;
+      color: #92400e;
+    }
+
+    .alert-info {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
 
     /* ─── Nav Tabs ───────────────────────────────────────────────── */
     .nav-tabs {
@@ -787,7 +937,9 @@
       transition: color 0.15s, border-color 0.15s;
     }
 
-    .nav-tabs .nav-link:hover { color: var(--text-primary); }
+    .nav-tabs .nav-link:hover {
+      color: var(--text-primary);
+    }
 
     .nav-tabs .nav-link.active {
       color: var(--primary);
@@ -821,7 +973,9 @@
       color: var(--text-primary);
     }
 
-    .dropdown-item.text-danger:hover { background: #fee2e2; }
+    .dropdown-item.text-danger:hover {
+      background: #fee2e2;
+    }
 
     .dropdown-divider {
       border-color: var(--border);
@@ -846,7 +1000,9 @@
       color: var(--text-primary);
     }
 
-    .modal-body { padding: 20px; }
+    .modal-body {
+      padding: 20px;
+    }
 
     .modal-footer {
       border-top: 1px solid var(--border);
@@ -873,7 +1029,9 @@
       margin-bottom: 6px;
     }
 
-    .empty-state-text { font-size: 15px; }
+    .empty-state-text {
+      font-size: 15px;
+    }
 
     /* ─── Filter pills ───────────────────────────────────────────── */
     .filter-pill {
@@ -899,7 +1057,9 @@
       transition: opacity 0.12s;
     }
 
-    .filter-pill a:hover { opacity: 1; }
+    .filter-pill a:hover {
+      opacity: 1;
+    }
 
     /* ─── Select2 overrides ──────────────────────────────────────── */
     .select2-container--default .select2-selection--single {
@@ -961,7 +1121,9 @@
       transition: color 0.12s;
     }
 
-    .context-bar a:hover { color: var(--primary); }
+    .context-bar a:hover {
+      color: var(--primary);
+    }
 
     .context-bar-sep {
       color: var(--text-muted);
@@ -974,7 +1136,9 @@
     }
 
     @media (max-width: 576px) {
-      .context-bar { padding: 0 14px; }
+      .context-bar {
+        padding: 0 14px;
+      }
     }
 
     /* ─── Footer ─────────────────────────────────────────────────── */
@@ -988,34 +1152,251 @@
     }
 
     /* ─── Scrollbar ──────────────────────────────────────────────── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-
-    /* ─── Responsive ─────────────────────────────────────────────── */
-    @media (max-width: 1100px) {
-      .nav-item-link .nav-label-text {
-        display: none;
-      }
-      .nav-item-link {
-        padding: 7px 10px;
-      }
-      .nav-section-divider { margin: 0 3px; }
-      .navbar-search-input { width: 160px; }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
     }
 
-    @media (max-width: 820px) {
-      .navbar-nav-main { display: none; }
-      .mobile-menu-btn { display: flex; align-items: center; }
-      .navbar-search-input { width: 140px; }
-      .navbar-clock { display: none; }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #d1d5db;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #9ca3af;
+    }
+
+    /* ─── Page load progress bar ─────────────────────────────────── */
+    #page-progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #6366f1, #2563eb, #06b6d4);
+      z-index: 9999;
+      transition: width 0.25s ease, opacity 0.4s ease;
+      width: 0%;
+      opacity: 0;
+      border-radius: 0 2px 2px 0;
+      box-shadow: 0 0 8px rgba(99, 102, 241, 0.6);
+    }
+
+    #page-progress.loading {
+      opacity: 1;
+    }
+
+    /* ─── FAB — Floating Action Button ──────────────────────────── */
+    .fab-wrap {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      z-index: 1030;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .fab-payment {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--success);
+      color: #fff;
+      border: none;
+      box-shadow: 0 4px 20px rgba(16, 185, 129, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.18s, box-shadow 0.18s, background 0.18s;
+      flex-shrink: 0;
+    }
+
+    .fab-payment:hover {
+      background: #059669;
+      transform: scale(1.08);
+      box-shadow: 0 8px 28px rgba(16, 185, 129, 0.55);
+      color: #fff;
+    }
+
+    .fab-payment:active {
+      transform: scale(0.95);
+    }
+
+    /* Slide-out label */
+    .fab-label {
+      background: #1e293b;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 8px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateX(8px);
+      transition: opacity 0.18s, transform 0.18s;
+    }
+
+    .fab-wrap:hover .fab-label {
+      opacity: 1;
+      transform: translateX(0);
     }
 
     @media (max-width: 576px) {
-      .page-content { padding: 16px 14px; }
-      .navbar-search { display: none; }
-      .app-footer { padding: 14px 16px; }
+      .fab-wrap {
+        bottom: 18px;
+        right: 16px;
+      }
+      .fab-payment {
+        width: 50px;
+        height: 50px;
+        font-size: 21px;
+      }
+      .fab-label {
+        display: none;
+      }
+    }
+
+    /* ─── Toast notifications ──────────────────────────────────────── */
+    #toast-container {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9998;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .erp-toast {
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14.5px;
+      font-weight: 500;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+      animation: toast-in 0.28s cubic-bezier(.34, 1.56, .64, 1);
+      max-width: 380px;
+      text-align: center;
+    }
+
+    /* 1500px — tighter spacing to prevent overflow on medium screens */
+    @media (max-width: 1500px) {
+      .top-navbar { padding: 0 16px; }
+
+      .navbar-brand-link { margin-right: 12px; }
+
+      .nav-item-link {
+        padding: 7px 8px;
+      }
+
+      .nav-section-divider {
+        margin: 0 3px;
+      }
+
+      .navbar-search-input {
+        width: 180px;
+      }
+      .navbar-search-input:focus {
+        width: 200px;
+      }
+    }
+
+    /* 1320px — labels hide, compact layout */
+    @media (max-width: 1320px) {
+      .nav-item-link .nav-label-text {
+        display: none;
+      }
+    }
+
+    /* 980px — hide brand text to reclaim space */
+    @media (max-width: 980px) {
+      .navbar-brand-text {
+        display: none;
+      }
+
+      .navbar-brand-link {
+        margin-right: 8px;
+      }
+
+      .navbar-search-input {
+        width: 150px;
+      }
+
+      .navbar-clock {
+        display: none;
+      }
+    }
+
+    /* 820px — collapse to hamburger */
+    @media (max-width: 820px) {
+      .navbar-nav-main {
+        display: none;
+      }
+
+      .mobile-menu-btn {
+        display: flex;
+        align-items: center;
+      }
+
+      /* Show search icon-button, hide inline search bar */
+      .navbar-search {
+        display: none;
+      }
+
+      .mobile-search-toggle {
+        display: flex;
+      }
+    }
+
+    /* Mobile search toggle button (only visible < 820px) */
+    .mobile-search-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.75);
+      cursor: pointer;
+      font-size: 17px;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+
+    .mobile-search-toggle:hover {
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+    }
+
+    /* 576px — smallest screens */
+    @media (max-width: 576px) {
+      .top-navbar { padding: 0 12px; }
+
+      .page-content {
+        padding: 16px 14px;
+      }
+
+      .app-footer {
+        padding: 14px 16px;
+      }
 
       .page-header.d-flex {
         flex-direction: column;
@@ -1023,19 +1404,27 @@
         gap: 12px;
       }
 
-      .card-body  { padding: 14px; }
-      .card-header { padding: 10px 14px; }
+      .card-body {
+        padding: 14px;
+      }
+
+      .card-header {
+        padding: 10px 14px;
+      }
 
       .card-footer.d-flex {
         flex-direction: column;
         align-items: stretch;
       }
+
       .card-footer.d-flex .ms-auto {
         margin-left: 0 !important;
         text-align: center;
       }
 
-      .page-title { font-size: 18px; }
+      .page-title {
+        font-size: 18px;
+      }
 
       .nav-tabs {
         flex-wrap: nowrap;
@@ -1043,20 +1432,98 @@
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
       }
-      .nav-tabs::-webkit-scrollbar { display: none; }
-      .nav-tabs .nav-link { white-space: nowrap; }
 
-      .modal-dialog { margin: 8px; }
-      .modal-content { border-radius: var(--radius-lg); }
+      .nav-tabs::-webkit-scrollbar {
+        display: none;
+      }
 
-      .empty-state { padding: 36px 16px; }
+      .nav-tabs .nav-link {
+        white-space: nowrap;
+      }
+
+      .modal-dialog {
+        margin: 8px;
+      }
+
+      .modal-content {
+        border-radius: var(--radius-lg);
+      }
+
+      .empty-state {
+        padding: 36px 16px;
+      }
+    }
+
+    .erp-toast.success {
+      border-left: 4px solid #10b981;
+    }
+
+    .erp-toast.error {
+      border-left: 4px solid #ef4444;
+    }
+
+    .erp-toast.info {
+      border-left: 4px solid #3b82f6;
+    }
+
+    .erp-toast.warning {
+      border-left: 4px solid #f59e0b;
+    }
+
+    @keyframes toast-in {
+      from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.95);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes toast-out {
+      to {
+        opacity: 0;
+        transform: translateY(8px) scale(0.96);
+      }
+    }
+
+    /* ─── Keyboard shortcut hint ─────────────────────────────────── */
+    .kbd-hint {
+      font-size: 11px;
+      padding: 1px 5px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.45);
+      font-family: monospace;
+      margin-left: 4px;
+    }
+
+
+    /* Respect users who've asked for reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
     }
   </style>
 
   {% block extra_css %}{% endblock %}
 </head>
 
+<!-- Page load progress bar -->
+<div id="page-progress" role="progressbar" aria-hidden="true"></div>
+
 <body>
+  <a class="visually-hidden" href="#main-content">Aller au contenu principal</a>
+
   <div class="app-shell">
 
     <!-- ── Top Navigation Bar ──────────────────────────────────────── -->
@@ -1065,99 +1532,120 @@
       <!-- Brand -->
       <a class="navbar-brand-link" href="{% url 'core:cockpit' %}">
         <div class="navbar-brand-icon">
-          <i class="bi bi-mortarboard-fill"></i>
+          <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>
         </div>
         <span class="navbar-brand-text">{{ SCHOOL_NAME }}</span>
       </a>
 
       <!-- Mobile hamburger (shown on small screens) -->
-      <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu">
-        <i class="bi bi-list"></i>
+      <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Ouvrir le menu" aria-expanded="false"
+        aria-controls="mobileNavDrawer">
+        <i class="bi bi-list" aria-hidden="true"></i>
       </button>
 
       <!-- Desktop navigation links -->
-      <nav class="navbar-nav-main" id="desktopNav">
+      <nav class="navbar-nav-main" id="desktopNav" aria-label="Navigation principale">
 
         <!-- Principal section -->
         <a class="nav-item-link {% active_if 'cockpit' %}" href="{% url 'core:cockpit' %}" title="Dashboard">
-          <i class="bi bi-speedometer2"></i>
+          <i class="bi bi-speedometer2" aria-hidden="true"></i>
           <span class="nav-label-text">Dashboard</span>
         </a>
 
-        <a class="nav-item-link {% active_if 'students_list' 'student_page' %}"
-          href="{% url 'core:students_list' %}" title="Élèves">
-          <i class="bi bi-people-fill"></i>
+        <a class="nav-item-link {% active_if 'students_list' 'student_page' %}" href="{% url 'core:students_list' %}"
+          title="Élèves">
+          <i class="bi bi-people-fill" aria-hidden="true"></i>
           <span class="nav-label-text">Élèves</span>
         </a>
 
         <a class="nav-item-link {% active_if 'payment_create' 'student_search' 'student_detail' %}"
           href="{% url 'core:payment_create' %}" title="Caisse">
-          <i class="bi bi-cash-coin"></i>
+          <i class="bi bi-cash-coin" aria-hidden="true"></i>
           <span class="nav-label-text">Caisse</span>
         </a>
 
         <!-- Planification section -->
         <a class="nav-item-link {% active_if 'sessions_today' 'session_attendance' %}"
-          href="{% url 'core:sessions_today' %}" title="Sessions du jour">
-          <i class="bi bi-calendar2-event-fill"></i>
+          href="{% url 'core:sessions_today' %}" title="Sessions du jour"
+          style="position:relative;">
+          <i class="bi bi-calendar2-event-fill" aria-hidden="true"></i>
           <span class="nav-label-text">Sessions</span>
+          {% if past_uncompleted_count %}
+            <span class="nav-badge-danger" style="font-size:11px;padding:1px 5px;">{{ past_uncompleted_count }}</span>
+          {% endif %}
         </a>
 
-        <a class="nav-item-link {% active_if 'sessions_schedule' %}"
-          href="{% url 'core:sessions_schedule' %}" title="Planification">
-          <i class="bi bi-calendar3"></i>
+        <a class="nav-item-link {% active_if 'sessions_schedule' %}" href="{% url 'core:sessions_schedule' %}"
+          title="Planification">
+          <i class="bi bi-calendar3" aria-hidden="true"></i>
           <span class="nav-label-text">Planification</span>
         </a>
 
         <a class="nav-item-link {% active_if 'whatsapp_dashboard' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' 'whatsapp_bulk_announcements' %}"
           href="{% url 'core:whatsapp_dashboard' %}" title="WhatsApp">
-          <i class="bi bi-whatsapp" style="position: relative;">
+          <i class="bi bi-whatsapp" style="position: relative;" aria-hidden="true">
             {% if whatsapp_connected %}
-              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #25d366; border-radius: 50%; display: inline-block;"></span>
+            <span
+              style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #25d366; border-radius: 50%; display: inline-block;"></span>
             {% else %}
-              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #9ca3af; border-radius: 50%; display: inline-block;"></span>
+            <span
+              style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #9ca3af; border-radius: 50%; display: inline-block;"></span>
             {% endif %}
           </i>
           <span class="nav-label-text">WhatsApp</span>
+          <span class="visually-hidden">{% if whatsapp_connected %}(connecté){% else %}(déconnecté){% endif %}</span>
         </a>
 
         <div class="nav-section-divider"></div>
 
         <!-- Administration Dropdown -->
         <div class="nav-dropdown">
-          <a class="nav-item-link {% active_if 'courses_list' 'levels_list' 'schedule_conflicts' 'teacher_payroll' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' %}" href="#" title="Administration">
-            <i class="bi bi-gear-fill"></i>
+          <a class="nav-item-link {% active_if 'courses_list' 'levels_list' 'schedule_conflicts' 'teacher_payroll' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' %}"
+            href="#" title="Administration" role="button" aria-haspopup="true" aria-expanded="false">
+            <i class="bi bi-gear-fill" aria-hidden="true"></i>
             <span class="nav-label-text">Administration</span>
-            <i class="bi bi-chevron-down" style="font-size: 0.9em;"></i>
+            <i class="bi bi-chevron-down" style="font-size: 0.9em;" aria-hidden="true"></i>
           </a>
           <div class="nav-dropdown-menu" style="min-width: 220px;">
             <a class="nav-dropdown-item {% active_if 'courses_list' %}" href="{% url 'core:courses_list' %}">
-              <i class="bi bi-book-fill" style="color: var(--primary);"></i> Groupes de cours
+              <i class="bi bi-book-fill" style="color: var(--primary);" aria-hidden="true"></i> Groupes de cours
             </a>
             <a class="nav-dropdown-item {% active_if 'levels_list' %}" href="{% url 'core:levels_list' %}">
-              <i class="bi bi-layers-fill" style="color: var(--info);"></i> Niveaux scolaires
+              <i class="bi bi-layers-fill" style="color: var(--info);" aria-hidden="true"></i> Niveaux scolaires
             </a>
             <a class="nav-dropdown-item {% active_if 'teacher_payroll' %}" href="{% url 'core:teacher_payroll' %}">
-              <i class="bi bi-calculator-fill" style="color: var(--success);"></i> Paie professeurs
+              <i class="bi bi-calculator-fill" style="color: var(--success);" aria-hidden="true"></i> Paie professeurs
             </a>
-            <a class="nav-dropdown-item {% active_if 'schedule_conflicts' %}" href="{% url 'core:schedule_conflicts' %}">
-              <i class="bi bi-exclamation-triangle-fill" style="color: var(--warning);"></i> Conflits d'horaires
+            <a class="nav-dropdown-item {% active_if 'schedule_conflicts' %}"
+              href="{% url 'core:schedule_conflicts' %}">
+              <i class="bi bi-exclamation-triangle-fill" style="color: var(--warning);" aria-hidden="true"></i> Conflits
+              d'horaires
               {% if conflict_count > 0 %}
-                <span class="nav-badge-danger ms-auto">{{ conflict_count }}</span>
+              <span class="nav-badge-danger ms-auto">{{ conflict_count }}</span>
+              <span class="visually-hidden">conflits en attente</span>
               {% endif %}
             </a>
             <div class="dropdown-divider"></div>
-            <a class="nav-dropdown-item {% active_if 'whatsapp_payment_reminders' %}" href="{% url 'core:whatsapp_payment_reminders' %}">
-              <i class="bi bi-whatsapp" style="color: #25d366;"></i> Rappel de paiement
+            <a class="nav-dropdown-item {% active_if 'whatsapp_payment_reminders' %}"
+              href="{% url 'core:whatsapp_payment_reminders' %}">
+              <i class="bi bi-whatsapp" style="color: #25d366;" aria-hidden="true"></i> Rappel de paiement
             </a>
-            <a class="nav-dropdown-item {% active_if 'whatsapp_absence_notifications' %}" href="{% url 'core:whatsapp_absence_notifications' %}">
-              <i class="bi bi-whatsapp" style="color: #25d366;"></i> Notifier sur l'absence
+            <a class="nav-dropdown-item {% active_if 'whatsapp_absence_notifications' %}"
+              href="{% url 'core:whatsapp_absence_notifications' %}">
+              <i class="bi bi-whatsapp" style="color: #25d366;" aria-hidden="true"></i> Notifier sur l'absence
             </a>
           </div>
         </div>
 
-        <!-- Analytics Dropdown -->
-        <!-- <div class="nav-dropdown">
+        <!--
+          Analytics dropdown — disabled for now.
+          Re-enable by uncommenting this block AND the matching
+          "Analytiques" section in the mobile drawer below, so the two
+          stay in sync. Kept out of a comment that also swallows a
+          real closing tag (see history) — the </nav> below is NOT
+          part of this comment.
+
+        <div class="nav-dropdown">
           <a class="nav-item-link {% active_if 'analytics_dashboard' 'analytics_revenue' 'analytics_attendance' 'analytics_students' 'analytics_rooms' 'analytics_teachers' 'analytics_operational' %}" href="#" title="Analytiques & Rapports">
             <i class="bi bi-bar-chart-line-fill"></i>
             <span class="nav-label-text">Analytiques</span>
@@ -1187,85 +1675,96 @@
             </a>
           </div>
         </div>
+        -->
 
-      </nav> -->
+      </nav>
 
       <!-- Right cluster: search + clock + admin -->
       <div class="navbar-right">
         <!-- Global search -->
-        <div class="navbar-search" style="position:relative;">
-          <i class="bi bi-search navbar-search-icon"></i>
-          <input type="text" id="global-search" class="navbar-search-input"
-            placeholder="Rechercher un élève…" autocomplete="off">
-          <div id="global-search-results" class="navbar-search-results"></div>
+        <div class="navbar-search">
+          <i class="bi bi-search navbar-search-icon" aria-hidden="true"></i>
+          <label for="global-search" class="visually-hidden">Rechercher un élève</label>
+          <input type="text" id="global-search" class="navbar-search-input" placeholder="Ctrl+K — Rechercher…" autocomplete="off"
+            role="combobox" aria-expanded="false" aria-controls="global-search-results" aria-autocomplete="list">
+          <span class="kbd-hint" aria-hidden="true">Ctrl+K</span>
+          <div id="global-search-results" class="navbar-search-results" role="listbox"></div>
         </div>
 
         <!-- Clock -->
         <div class="navbar-clock">
-          <i class="bi bi-clock"></i>
+          <i class="bi bi-clock" aria-hidden="true"></i>
           <span id="current-time"></span>
         </div>
 
-        <!-- Admin shortcut -->
-        <a class="navbar-admin-link" href="/admin/" target="_blank" title="Administration Django">
-          <i class="bi bi-gear-fill"></i>
+        <!-- Admin shortcut (staff only) -->
+        {% if user.is_staff %}
+        <a class="navbar-admin-link" href="/admin/" target="_blank" rel="noopener noreferrer"
+          title="Administration Django">
+          <i class="bi bi-gear-fill" aria-hidden="true"></i>
           <span class="nav-label-text">Admin</span>
         </a>
+        {% endif %}
+
+        <!-- Mobile search icon button (visible < 820px) -->
+        <button type="button" class="mobile-search-toggle" id="mobileSearchToggle" aria-label="Rechercher">
+          <i class="bi bi-search" aria-hidden="true"></i>
+        </button>
       </div>
 
     </header>
 
     <!-- ── Mobile navigation drawer ─────────────────────────────────── -->
-    <div class="mobile-nav-drawer" id="mobileNavDrawer">
+    <div class="mobile-nav-drawer" id="mobileNavDrawer" aria-label="Navigation mobile">
       <div class="mobile-nav-section-label">Principal</div>
       <a class="mobile-nav-link {% active_if 'cockpit' %}" href="{% url 'core:cockpit' %}">
-        <i class="bi bi-speedometer2"></i> Dashboard
+        <i class="bi bi-speedometer2" aria-hidden="true"></i> Dashboard
       </a>
-      <a class="mobile-nav-link {% active_if 'students_list' 'student_page' %}"
-        href="{% url 'core:students_list' %}">
-        <i class="bi bi-people-fill"></i> Élèves
+      <a class="mobile-nav-link {% active_if 'students_list' 'student_page' %}" href="{% url 'core:students_list' %}">
+        <i class="bi bi-people-fill" aria-hidden="true"></i> Élèves
       </a>
       <a class="mobile-nav-link {% active_if 'courses_list' %}" href="{% url 'core:courses_list' %}">
-        <i class="bi bi-book-fill"></i> Groupes
+        <i class="bi bi-book-fill" aria-hidden="true"></i> Groupes
       </a>
       <a class="mobile-nav-link {% active_if 'levels_list' %}" href="{% url 'core:levels_list' %}">
-        <i class="bi bi-layers-fill"></i> Niveaux
+        <i class="bi bi-layers-fill" aria-hidden="true"></i> Niveaux
       </a>
       <a class="mobile-nav-link {% active_if 'payment_create' 'student_search' 'student_detail' %}"
         href="{% url 'core:payment_create' %}">
-        <i class="bi bi-cash-coin"></i> Caisse
+        <i class="bi bi-cash-coin" aria-hidden="true"></i> Caisse
       </a>
 
       <div class="mobile-nav-section-label" style="margin-top:8px;">Planification</div>
       <a class="mobile-nav-link {% active_if 'sessions_today' 'session_attendance' %}"
         href="{% url 'core:sessions_today' %}">
-        <i class="bi bi-calendar2-event-fill"></i> Sessions du jour
+        <i class="bi bi-calendar2-event-fill" aria-hidden="true"></i> Sessions du jour
       </a>
-      <a class="mobile-nav-link {% active_if 'sessions_schedule' %}"
-        href="{% url 'core:sessions_schedule' %}">
-        <i class="bi bi-calendar3"></i> Planning
+      <a class="mobile-nav-link {% active_if 'sessions_schedule' %}" href="{% url 'core:sessions_schedule' %}">
+        <i class="bi bi-calendar3" aria-hidden="true"></i> Planning
       </a>
-      <a class="mobile-nav-link {% active_if 'schedule_conflicts' %}"
-        href="{% url 'core:schedule_conflicts' %}">
-        <i class="bi bi-exclamation-triangle-fill"></i> Conflits
+      <a class="mobile-nav-link {% active_if 'schedule_conflicts' %}" href="{% url 'core:schedule_conflicts' %}">
+        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Conflits
         {% if conflict_count > 0 %}
-          <span class="nav-badge-danger" style="margin-left:auto;">{{ conflict_count }}</span>
+        <span class="nav-badge-danger" style="margin-left:auto;">{{ conflict_count }}</span>
         {% endif %}
       </a>
-      <a class="mobile-nav-link {% active_if 'teacher_payroll' %}"
-        href="{% url 'core:teacher_payroll' %}">
-        <i class="bi bi-calculator-fill"></i> Paie professeurs
+      <a class="mobile-nav-link {% active_if 'teacher_payroll' %}" href="{% url 'core:teacher_payroll' %}">
+        <i class="bi bi-calculator-fill" aria-hidden="true"></i> Paie professeurs
       </a>
 
       <div class="mobile-nav-section-label" style="margin-top:8px;">Communication</div>
       <a class="mobile-nav-link {% active_if 'whatsapp_payment_reminders' %}"
         href="{% url 'core:whatsapp_payment_reminders' %}">
-        <i class="bi bi-whatsapp"></i> Rappels paiement
+        <i class="bi bi-whatsapp" aria-hidden="true"></i> Rappels paiement
       </a>
       <a class="mobile-nav-link {% active_if 'whatsapp_absence_notifications' %}"
         href="{% url 'core:whatsapp_absence_notifications' %}">
-        <i class="bi bi-whatsapp"></i> Absences
+        <i class="bi bi-whatsapp" aria-hidden="true"></i> Absences
       </a>
+
+      <!--
+        Analytics section — disabled to match the desktop dropdown above.
+        Re-enable both together, or leave both off.
 
       <div class="mobile-nav-section-label" style="margin-top:8px;">Analytiques</div>
       <a class="mobile-nav-link {% active_if 'analytics_dashboard' %}" href="{% url 'core:analytics_dashboard' %}">
@@ -1289,18 +1788,25 @@
       <a class="mobile-nav-link {% active_if 'analytics_operational' %}" href="{% url 'core:analytics_operational' %}">
         <i class="bi bi-activity"></i> Santé Opérationnelle
       </a>
+      -->
 
       <div class="mobile-nav-section-label" style="margin-top:8px;">Système</div>
-      <a class="mobile-nav-link" href="/admin/" target="_blank">
-        <i class="bi bi-gear-fill"></i> Administration
+      {% if user.is_staff %}
+      <a class="mobile-nav-link" href="/admin/" target="_blank" rel="noopener noreferrer">
+        <i class="bi bi-gear-fill" aria-hidden="true"></i> Administration
       </a>
+      {% endif %}
 
       <!-- Search in mobile -->
-      <div style="padding: 8px 4px 4px; position:relative;">
-        <i class="bi bi-search" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:rgba(255,255,255,0.4);font-size:13px;"></i>
+      <div class="mobile-search-wrap" style="padding: 8px 4px 4px;">
+        <i class="bi bi-search" aria-hidden="true"
+          style="position:absolute;left:16px;top:12px;color:rgba(255,255,255,0.4);font-size:13px;"></i>
+        <label for="mobile-search" class="visually-hidden">Rechercher un élève</label>
         <input type="text" id="mobile-search" class="navbar-search-input"
           style="width:100%;background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.15);"
-          placeholder="Rechercher un élève…" autocomplete="off">
+          placeholder="Rechercher un élève…" autocomplete="off" role="combobox" aria-expanded="false"
+          aria-controls="mobile-search-results" aria-autocomplete="list">
+        <div id="mobile-search-results" class="mobile-search-results" role="listbox"></div>
       </div>
     </div>
 
@@ -1308,52 +1814,84 @@
     <div class="main-area">
 
       <!-- Context bar (breadcrumb) -->
-      <div class="context-bar">
+      <nav class="context-bar" aria-label="Fil d'Ariane">
         <a href="{% url 'core:cockpit' %}">
-          <i class="bi bi-house-fill" style="font-size:13px;"></i>
+          <i class="bi bi-house-fill" style="font-size:13px;" aria-hidden="true"></i>
           Accueil
         </a>
         {% block breadcrumb %}
         {% endblock %}
-      </div>
+      </nav>
 
       <!-- Page content -->
-      <main class="page-content">
+      <main class="page-content" id="main-content">
         {% include 'core/_messages.html' %}
         {% block content %}{% endblock %}
       </main>
 
       <!-- Footer -->
       <footer class="app-footer">
-        <div style="margin-bottom: 4px;">&copy; 2026 {{ SCHOOL_NAME }} — Système de Gestion Scolaire</div>
+        <div style="margin-bottom: 4px;">&copy; {% now "Y" %} {{ SCHOOL_NAME }} — Système de Gestion Scolaire</div>
         <div style="font-size: 11px; opacity: 0.8;">
-          Construit par <strong style="color: var(--primary);">Youssef Kotari</strong> &amp; <strong style="color: var(--primary);">Yahya El-Hachimi</strong> · Développeur: <a href="tel:0661345595" style="color: var(--primary); text-decoration: none; font-weight: 600;">0661345595</a>
+          Construit par <strong style="color: var(--primary);">Youssef Kotari</strong> &amp; <strong
+            style="color: var(--primary);">Yahya El-Hachimi</strong> · Développeur: <a href="tel:0661345595"
+            style="color: var(--primary); text-decoration: none; font-weight: 600;">0661345595</a>
         </div>
       </footer>
 
     </div><!-- /main-area -->
   </div><!-- /app-shell -->
 
+  <!-- Floating Action Button — New Payment -->
+  <div class="fab-wrap">
+    <span class="fab-label" aria-hidden="true">💰 Nouveau paiement</span>
+    <a class="fab-payment" href="{% url 'core:payment_create' %}" title="Nouveau paiement (raccourci)"
+      aria-label="Nouveau paiement">
+      <i class="bi bi-cash-coin" aria-hidden="true"></i>
+    </a>
+  </div>
+
+  <!-- Toast notification container -->
+  <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Vendor JS (placed here so jQuery is available for the inline script below) -->
+  <script src="{% static 'jquery-3.6.0.min.js' %}"></script>
+  <script src="{% static 'bootstrap.bundle.min.js' %}"></script>
+  <script src="{% static 'select2.min.js' %}"></script>
+
   <script>
     $(function () {
-      // ── Global search ──────────────────────────────────────────────
-      function setupSearch($input, $results) {
+      // ── Global search (shared by desktop + mobile inputs) ───────────
+      // Keeps a per-input in-flight request so a slow earlier response
+      // can't clobber a faster, later one (out-of-order race fix).
+      function setupSearch($input, $results, itemClass) {
         let timeout = null;
         let activeIndex = -1;
+        let currentXhr = null;
+
+        function closeResults() {
+          $results.removeClass('show').hide().empty();
+          $input.attr('aria-expanded', 'false');
+          activeIndex = -1;
+        }
 
         $input.on('input', function () {
           const query = $(this).val().trim();
           clearTimeout(timeout);
+          if (currentXhr) {
+            currentXhr.abort();
+            currentXhr = null;
+          }
           activeIndex = -1;
 
           if (query.length < 1) {
-            $results.hide().empty();
+            closeResults();
             return;
           }
 
           timeout = setTimeout(function () {
-            $.ajax({
-              url: '/cashier/student-search/',
+            currentXhr = $.ajax({
+              url: '{% url "core:student_search" %}',
               data: { q: query },
               dataType: 'json',
               success: function (data) {
@@ -1361,23 +1899,31 @@
                 if (data.results && data.results.length > 0) {
                   data.results.forEach(function (item) {
                     $results.append(
-                      $('<a class="navbar-search-item"></a>')
-                        .attr('href', '/students/' + item.id + '/')
+                      $('<a></a>')
+                        .addClass(itemClass)
+                        .attr({ href: '/students/' + item.id + '/', role: 'option' })
                         .text(item.text)
                     );
                   });
-                  $results.show();
                 } else {
                   $results.append('<div class="navbar-search-no-results">Aucun élève trouvé</div>');
-                  $results.show();
                 }
+                $results.addClass('show').show();
+                $input.attr('aria-expanded', 'true');
+              },
+              error: function (jqXHR) {
+                if (jqXHR.statusText === 'abort') return;
+                $results.empty()
+                  .append('<div class="navbar-search-error">Erreur de recherche, réessayez</div>')
+                  .addClass('show').show();
+                $input.attr('aria-expanded', 'true');
               }
             });
           }, 150);
         });
 
         $input.on('keydown', function (e) {
-          const $items = $results.find('.navbar-search-item');
+          const $items = $results.find('a');
           if (!$items.length) return;
 
           if (e.key === 'ArrowDown') {
@@ -1392,23 +1938,29 @@
             e.preventDefault();
             window.location.href = $items.eq(activeIndex).attr('href');
           } else if (e.key === 'Escape') {
-            $results.hide().empty();
-            activeIndex = -1;
+            closeResults();
           }
         });
 
         $input.on('focus', function () {
           if ($(this).val().trim().length >= 1 && $results.children().length > 0) {
-            $results.show();
+            $results.addClass('show').show();
+            $input.attr('aria-expanded', 'true');
           }
         });
+
+        return closeResults;
       }
 
-      setupSearch($('#global-search'), $('#global-search-results'));
+      const closeDesktopSearch = setupSearch($('#global-search'), $('#global-search-results'), 'navbar-search-item');
+      const closeMobileSearch = setupSearch($('#mobile-search'), $('#mobile-search-results'), 'mobile-search-item');
 
       $(document).on('click', function (e) {
         if (!$(e.target).closest('.navbar-search').length) {
-          $('#global-search-results').hide();
+          closeDesktopSearch();
+        }
+        if (!$(e.target).closest('.mobile-search-wrap').length) {
+          closeMobileSearch();
         }
       });
 
@@ -1419,16 +1971,42 @@
       updateTime();
       setInterval(updateTime, 1000);
 
-      // ── Administration dropdown (click-toggle) ─────────────────────
+      // ── Administration dropdown (click-toggle + hover-open) ────────
+      let hoverTimer = null;
+
+      // Hover open with 200ms delay
+      $(document).on('mouseenter', '.nav-dropdown', function () {
+        const $menu = $(this).find('.nav-dropdown-menu');
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(function () {
+          $('.nav-dropdown-menu.open').not($menu).removeClass('open');
+          $('.nav-dropdown > .nav-item-link').attr('aria-expanded', 'false');
+          $menu.addClass('open');
+          $menu.closest('.nav-dropdown').find('> .nav-item-link').attr('aria-expanded', 'true');
+        }, 180);
+      });
+
+      $(document).on('mouseleave', '.nav-dropdown', function () {
+        clearTimeout(hoverTimer);
+        const $menu = $(this).find('.nav-dropdown-menu');
+        hoverTimer = setTimeout(function () {
+          $menu.removeClass('open');
+          $menu.closest('.nav-dropdown').find('> .nav-item-link').attr('aria-expanded', 'false');
+        }, 200);
+      });
+
       $(document).on('click', '.nav-dropdown > .nav-item-link', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        const $menu = $(this).siblings('.nav-dropdown-menu');
+        const $link = $(this);
+        const $menu = $link.siblings('.nav-dropdown-menu');
         const isOpen = $menu.hasClass('open');
         // Close all other open dropdowns first
         $('.nav-dropdown-menu.open').removeClass('open');
+        $('.nav-dropdown > .nav-item-link').attr('aria-expanded', 'false');
         if (!isOpen) {
           $menu.addClass('open');
+          $link.attr('aria-expanded', 'true');
         }
       });
 
@@ -1441,12 +2019,22 @@
       $(document).on('click', function (e) {
         if (!$(e.target).closest('.nav-dropdown').length) {
           $('.nav-dropdown-menu.open').removeClass('open');
+          $('.nav-dropdown > .nav-item-link').attr('aria-expanded', 'false');
+        }
+      });
+
+      // Close dropdown on Escape
+      $(document).on('keydown', function (e) {
+        if (e.key === 'Escape') {
+          $('.nav-dropdown-menu.open').removeClass('open');
+          $('.nav-dropdown > .nav-item-link').attr('aria-expanded', 'false');
         }
       });
 
       // Close dropdown when a menu item is clicked
       $(document).on('click', '.nav-dropdown-menu a', function () {
         $('.nav-dropdown-menu.open').removeClass('open');
+        $('.nav-dropdown > .nav-item-link').attr('aria-expanded', 'false');
       });
 
       // ── Mobile menu toggle ──────────────────────────────────────────
@@ -1454,23 +2042,83 @@
         const $drawer = $('#mobileNavDrawer');
         $drawer.toggleClass('open');
         const isOpen = $drawer.hasClass('open');
+        $(this).attr('aria-expanded', isOpen ? 'true' : 'false');
         $(this).find('i').removeClass('bi-list bi-x').addClass(isOpen ? 'bi-x' : 'bi-list');
+      });
+
+      // ── Mobile search icon toggle ────────────────────────────────────
+      $('#mobileSearchToggle').on('click', function () {
+        const $drawer = $('#mobileNavDrawer');
+        if (!$drawer.hasClass('open')) {
+          $drawer.addClass('open');
+          $('#mobileMenuBtn').attr('aria-expanded', 'true')
+            .find('i').removeClass('bi-list').addClass('bi-x');
+        }
+        setTimeout(function () {
+          const $ms = $('#mobile-search');
+          $ms.focus().select();
+          $ms[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 50);
       });
 
       // Close drawer when a link inside it is clicked
       $('#mobileNavDrawer a').on('click', function () {
         $('#mobileNavDrawer').removeClass('open');
-        $('#mobileMenuBtn i').removeClass('bi-x').addClass('bi-list');
+        $('#mobileMenuBtn').attr('aria-expanded', 'false')
+          .find('i').removeClass('bi-x').addClass('bi-list');
       });
 
       // Close drawer on outside click
       $(document).on('click', function (e) {
-        if (!$(e.target).closest('#mobileNavDrawer, #mobileMenuBtn').length) {
+        if (!$(e.target).closest('#mobileNavDrawer, #mobileMenuBtn, #mobileSearchToggle').length) {
           $('#mobileNavDrawer').removeClass('open');
-          $('#mobileMenuBtn i').removeClass('bi-x').addClass('bi-list');
+          $('#mobileMenuBtn').attr('aria-expanded', 'false')
+            .find('i').removeClass('bi-x').addClass('bi-list');
         }
       });
+
+      // ── Ctrl+K → focus global search ────────────────────────────
+      $(document).on('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+          e.preventDefault();
+          const $s = $('#global-search');
+          $s.focus().select();
+          // open mobile drawer if search hidden
+          if (!$s.is(':visible')) {
+            $('#mobileNavDrawer').addClass('open');
+            $('#mobileMenuBtn').attr('aria-expanded', 'true');
+            $('#mobile-search').focus().select();
+          }
+        }
+      });
+
+      // ── Page progress bar ────────────────────────────────────────
+      const $bar = $('#page-progress');
+      $(document).on('click', 'a[href]:not([target="_blank"]):not([href^="#"]):not([href^="javascript"])', function () {
+        $bar.addClass('loading').css('width', '30%');
+        setTimeout(() => $bar.css('width', '75%'), 180);
+        setTimeout(() => $bar.css('width', '92%'), 500);
+      });
+      // Mark complete on load
+      $bar.addClass('loading').css('width', '100%');
+      setTimeout(() => $bar.css('opacity', '0'), 300);
+      setTimeout(() => { $bar.css('width', '0').removeClass('loading'); $bar.css('opacity', ''); }, 700);
+
     });
+
+    // ── Global toast utility (window.erpToast) ──────────────────────
+    window.erpToast = function (msg, type = 'info', duration = 3200) {
+      const icons = { success: 'bi-check-circle-fill', error: 'bi-x-circle-fill', info: 'bi-info-circle-fill', warning: 'bi-exclamation-triangle-fill' };
+      const el = document.createElement('div');
+      el.className = 'erp-toast ' + type;
+      el.setAttribute('role', 'status');
+      el.innerHTML = `<i class="bi ${icons[type] || icons.info}" aria-hidden="true"></i> ${msg}`;
+      document.getElementById('toast-container').appendChild(el);
+      setTimeout(() => {
+        el.style.animation = 'toast-out 0.25s ease forwards';
+        setTimeout(() => el.remove(), 260);
+      }, duration);
+    };
   </script>
 
   {% block extra_js %}{% endblock %}
