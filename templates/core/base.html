@@ -1,0 +1,1479 @@
+{% load static nav_active %}
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ SCHOOL_NAME }}{% endblock %}</title>
+
+  <!-- Google Fonts — Inter -->
+  <link rel="stylesheet" href="{% static 'fonts/fonts.css' %}">
+
+  <!-- Vendor CSS -->
+  <link href="{% static 'bootstrap.min.css' %}" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'bootstrap-icons.css' %}">
+  <link href="{% static 'select2.min.css' %}" rel="stylesheet">
+
+  <!-- Vendor JS (head — needed before body) -->
+  <script src="{% static 'jquery-3.6.0.min.js' %}"></script>
+  <script src="{% static 'bootstrap.bundle.min.js' %}"></script>
+  <script src="{% static 'select2.min.js' %}"></script>
+
+  <style>
+    /* ─── Design Tokens ──────────────────────────────────────────── */
+    :root {
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+      /* Brand */
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --primary-light: #eff6ff;
+      --primary-rgb: 37, 99, 216;
+
+      /* Surfaces */
+      --body-bg: #f0f4f8;
+      --surface: #ffffff;
+      --surface-alt: #f9fafb;
+      --border: #e5e7eb;
+      --border-focus: #6366f1;
+
+      /* Text */
+      --text-primary: #111827;
+      --text-secondary: #6b7280;
+      --text-muted: #9ca3af;
+
+      /* Status */
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+
+      /* Elevation */
+      --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+      --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.04);
+      --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.05), 0 4px 6px rgba(0, 0, 0, 0.04);
+
+      /* Radius */
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 18px;
+
+      /* Nav */
+      --navbar-height: 64px;
+      --navbar-bg: #0f172a;
+    }
+
+    /* ─── Reset & Base ───────────────────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      font-family: var(--font-sans);
+      font-size: 16px;
+      background: var(--body-bg);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Layout Shell ───────────────────────────────────────────── */
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ─── Top Navbar ─────────────────────────────────────────────── */
+    .top-navbar {
+      background: var(--navbar-bg);
+      height: var(--navbar-height);
+      position: sticky;
+      top: 0;
+      z-index: 1040;
+      box-shadow: 0 2px 12px rgba(33, 96, 255, 0.18);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 0;
+    }
+
+    /* Brand */
+    .navbar-brand-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      flex-shrink: 0;
+      margin-right: 20px;
+    }
+
+    .navbar-brand-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--primary);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 19px;
+      flex-shrink: 0;
+    }
+
+    .navbar-brand-text {
+      font-size: 17px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+
+    /* ─── Nav links row ──────────────────────────────────────────── */
+    .navbar-nav-main {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex: 1;
+      overflow: visible;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .navbar-nav-main::-webkit-scrollbar { display: none; }
+
+    .nav-item-link {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 13px;
+      border-radius: var(--radius-sm);
+      color: rgba(255,255,255,0.72);
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .nav-item-link i {
+      font-size: 17px;
+      opacity: 0.8;
+    }
+
+    .nav-item-link:hover {
+      background: rgba(255,255,255,0.09);
+      color: #ffffff;
+    }
+
+    .nav-item-link.active {
+      background: rgba(37,99,216,0.3);
+      color: #ffffff;
+    }
+
+    .nav-item-link.active i {
+      color: #60a5fa;
+      opacity: 1;
+    }
+
+    .nav-section-divider {
+      width: 1px;
+      height: 22px;
+      background: rgba(255,255,255,0.12);
+      margin: 0 6px;
+      flex-shrink: 0;
+    }
+
+    /* WhatsApp dropdown */
+    .nav-dropdown {
+      position: relative;
+    }
+
+    .nav-dropdown-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      min-width: 200px;
+      z-index: 1050;
+      padding: 6px;
+    }
+
+    .nav-dropdown-menu.open {
+      display: block;
+      animation: dropdown-fade 0.15s ease;
+    }
+
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .nav-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      text-decoration: none;
+      font-size: 15.5px;
+      font-weight: 500;
+      transition: background 0.12s;
+    }
+
+    .nav-dropdown-item:hover {
+      background: var(--primary-light);
+      color: var(--primary-dark);
+    }
+
+    /* Badge in nav */
+    .nav-badge-danger {
+      font-size: 12px;
+      font-weight: 700;
+      background: #ef4444;
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 10px;
+      animation: badge-pulse 2s infinite;
+    }
+
+    @keyframes badge-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.65; }
+    }
+
+    /* ─── Navbar right cluster ───────────────────────────────────── */
+    .navbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 12px;
+      flex-shrink: 0;
+    }
+
+    .navbar-clock {
+      font-size: 14.5px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.6);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    /* Search bar in navbar */
+    .navbar-search {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .navbar-search-input {
+      height: 34px;
+      width: 210px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: var(--radius-sm);
+      background: rgba(255,255,255,0.1);
+      padding-left: 30px;
+      padding-right: 10px;
+      font-size: 15px;
+      color: #fff;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .navbar-search-input::placeholder {
+      color: rgba(255,255,255,0.45);
+    }
+
+    .navbar-search-input:focus {
+      border-color: var(--primary);
+      background: rgba(255,255,255,0.15);
+      box-shadow: 0 0 0 3px rgba(37,99,216,0.25);
+      outline: none;
+    }
+
+    .navbar-search-icon {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: rgba(255,255,255,0.45);
+      font-size: 15px;
+      pointer-events: none;
+    }
+
+    .navbar-search-results {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      z-index: 1050;
+      max-height: 280px;
+      overflow-y: auto;
+      display: none;
+      padding: 6px 0;
+    }
+
+    .navbar-search-item {
+      display: block;
+      width: 100%;
+      padding: 8px 14px;
+      font-size: 15.5px;
+      color: var(--text-primary);
+      text-decoration: none;
+      text-align: left;
+      background: transparent;
+      border: none;
+      transition: background 0.1s;
+    }
+
+    .navbar-search-item:hover,
+    .navbar-search-item.active {
+      background: var(--primary-light);
+      color: var(--primary-dark);
+      outline: none;
+    }
+
+    .navbar-search-no-results {
+      padding: 12px 16px;
+      font-size: 15.5px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* Admin link in navbar */
+    .navbar-admin-link {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: var(--radius-sm);
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+      font-size: 14.5px;
+      font-weight: 500;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .navbar-admin-link:hover {
+      background: rgba(255,255,255,0.14);
+      color: #fff;
+    }
+
+    /* ─── Mobile hamburger ───────────────────────────────────────── */
+    .mobile-menu-btn {
+      display: none;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius-sm);
+      color: rgba(255,255,255,0.8);
+      padding: 6px 10px;
+      font-size: 20px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .mobile-menu-btn:hover {
+      background: rgba(255,255,255,0.14);
+      color: #fff;
+    }
+
+    /* ─── Mobile nav drawer ──────────────────────────────────────── */
+    .mobile-nav-drawer {
+      display: none;
+      position: fixed;
+      top: var(--navbar-height);
+      left: 0;
+      right: 0;
+      background: #0f172a;
+      z-index: 1035;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      padding: 12px 16px;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .mobile-nav-drawer.open {
+      display: flex;
+    }
+
+    .mobile-nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      color: rgba(255,255,255,0.75);
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 500;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .mobile-nav-link i {
+      font-size: 19px;
+      width: 20px;
+      text-align: center;
+    }
+
+    .mobile-nav-link:hover,
+    .mobile-nav-link.active {
+      background: rgba(37,99,216,0.25);
+      color: #fff;
+    }
+
+    .mobile-nav-section-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      padding: 8px 12px 2px;
+    }
+
+    /* ─── Content area ───────────────────────────────────────────── */
+    .main-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ─── Content ────────────────────────────────────────────────── */
+    .page-content {
+      flex: 1;
+      padding: 28px 32px;
+      overflow-x: hidden;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ─── Page Header ────────────────────────────────────────────── */
+    .page-header {
+      margin-bottom: 24px;
+    }
+
+    .page-title {
+      font-size: 25px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.025em;
+      margin: 0;
+    }
+
+    .page-subtitle {
+      font-size: 15.5px;
+      color: var(--text-secondary);
+      margin: 4px 0 0;
+    }
+
+    /* ─── Cards ──────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+
+    .card-header {
+      background: transparent;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      font-weight: 600;
+      font-size: 15.5px;
+    }
+
+    .card-body {
+      padding: 20px;
+    }
+
+    .card-footer {
+      background: transparent;
+      border-top: 1px solid var(--border);
+      padding: 12px 20px;
+    }
+
+    /* Stat / KPI cards */
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .stat-card-value {
+      font-size: 29px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+      line-height: 1;
+      margin: 6px 0 2px;
+    }
+
+    .stat-card-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    /* ─── Tables ─────────────────────────────────────────────────── */
+    .table {
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 15.5px;
+    }
+
+    .table thead th {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-alt);
+      padding: 10px 16px;
+      white-space: nowrap;
+    }
+
+    .table tbody td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      color: var(--text-primary);
+    }
+
+    .table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .table-hover tbody tr {
+      transition: background 0.12s;
+    }
+
+    .table-hover tbody tr:hover td {
+      background: var(--primary-light);
+    }
+
+    /* ─── Badges ─────────────────────────────────────────────────── */
+    .badge {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      padding: 3px 8px;
+      border-radius: 5px;
+    }
+
+    .badge-success { background: #dcfce7; color: #16a34a; }
+    .badge-danger  { background: #fee2e2; color: #dc2626; }
+    .badge-warning { background: #fef3c7; color: #d97706; }
+    .badge-info    { background: #dbeafe; color: #2563eb; }
+    .badge-primary { background: #e0e7ff; color: #4f46e5; }
+    .badge-secondary { background: #f3f4f6; color: #6b7280; }
+
+    /* ─── Buttons ────────────────────────────────────────────────── */
+    .btn {
+      font-family: var(--font-sans);
+      font-size: 15.5px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      padding: 7px 14px;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1.4;
+      border: 1px solid transparent;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark);
+      border-color: var(--primary-dark);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-outline-primary {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-primary);
+    }
+
+    .btn-outline-primary:hover {
+      background: var(--primary-light);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .btn-outline-secondary {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-secondary);
+    }
+
+    .btn-outline-secondary:hover {
+      background: var(--surface-alt);
+      border-color: #d1d5db;
+      color: var(--text-primary);
+    }
+
+    .btn-outline-danger {
+      background: transparent;
+      border-color: #fca5a5;
+      color: var(--danger);
+    }
+
+    .btn-outline-danger:hover {
+      background: #fee2e2;
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+
+    .btn-success {
+      background: var(--success);
+      border-color: var(--success);
+      color: #ffffff;
+    }
+
+    .btn-success:hover {
+      background: #059669;
+      border-color: #059669;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #ffffff;
+    }
+
+    .btn-sm {
+      font-size: 14px;
+      padding: 5px 10px;
+      border-radius: 6px;
+    }
+
+    .btn-lg {
+      font-size: 17px;
+      padding: 10px 20px;
+    }
+
+    /* ─── Forms ──────────────────────────────────────────────────── */
+    .form-label {
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 5px;
+    }
+
+    .form-control,
+    .form-select {
+      font-size: 15.5px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      background: var(--surface);
+      color: var(--text-primary);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
+      outline: none;
+    }
+
+    .form-text {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ─── Pagination ─────────────────────────────────────────────── */
+    .pagination { gap: 4px; }
+
+    .page-link {
+      font-size: 15px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm) !important;
+      color: var(--text-secondary);
+      padding: 5px 10px;
+      transition: all 0.15s;
+    }
+
+    .page-item.active .page-link {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+    }
+
+    .page-link:hover {
+      background: var(--primary-light);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    /* ─── Alerts ─────────────────────────────────────────────────── */
+    .alert {
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 15.5px;
+      font-weight: 500;
+      padding: 12px 16px;
+    }
+
+    .alert-success { background: #f0fdf4; color: #15803d; }
+    .alert-danger  { background: #fef2f2; color: #b91c1c; }
+    .alert-warning { background: #fffbeb; color: #92400e; }
+    .alert-info    { background: #eff6ff; color: #1d4ed8; }
+
+    /* ─── Nav Tabs ───────────────────────────────────────────────── */
+    .nav-tabs {
+      border-bottom: 1px solid var(--border);
+      gap: 2px;
+    }
+
+    .nav-tabs .nav-link {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border: none;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      padding: 8px 14px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .nav-tabs .nav-link:hover { color: var(--text-primary); }
+
+    .nav-tabs .nav-link.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      background: transparent;
+    }
+
+    /* ─── Dropdown menus ─────────────────────────────────────────── */
+    .dropdown-menu {
+      font-size: 15.5px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      padding: 6px;
+    }
+
+    .dropdown-item {
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-primary);
+      transition: background 0.12s;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dropdown-item:hover {
+      background: var(--surface-alt);
+      color: var(--text-primary);
+    }
+
+    .dropdown-item.text-danger:hover { background: #fee2e2; }
+
+    .dropdown-divider {
+      border-color: var(--border);
+      margin: 4px 0;
+    }
+
+    /* ─── Modals ─────────────────────────────────────────────────── */
+    .modal-content {
+      border: none;
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .modal-header {
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+    }
+
+    .modal-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .modal-body { padding: 20px; }
+
+    .modal-footer {
+      border-top: 1px solid var(--border);
+      padding: 12px 20px;
+    }
+
+    /* ─── Empty state ────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      opacity: 0.3;
+      margin-bottom: 16px;
+    }
+
+    .empty-state-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .empty-state-text { font-size: 15px; }
+
+    /* ─── Filter pills ───────────────────────────────────────────── */
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--primary-light);
+      color: var(--primary-dark);
+      border: 1px solid #c7d2fe;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 3px 10px 3px 10px;
+    }
+
+    .filter-pill a {
+      color: inherit;
+      text-decoration: none;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+      opacity: 0.7;
+      transition: opacity 0.12s;
+    }
+
+    .filter-pill a:hover { opacity: 1; }
+
+    /* ─── Select2 overrides ──────────────────────────────────────── */
+    .select2-container--default .select2-selection--single {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      height: 38px;
+      display: flex;
+      align-items: center;
+    }
+
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+      line-height: 38px;
+      color: var(--text-primary);
+      font-size: 13.5px;
+      padding-left: 10px;
+    }
+
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 38px;
+    }
+
+    .select2-container--default.select2-container--focus .select2-selection--single {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
+      outline: none;
+    }
+
+    .select2-dropdown {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      font-size: 13.5px;
+    }
+
+    .select2-container--default .select2-results__option--highlighted[aria-selected] {
+      background: var(--primary);
+    }
+
+    /* ─── Context bar (breadcrumb strip) ────────────────────────── */
+    .context-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      box-shadow: var(--shadow-xs);
+    }
+
+    .context-bar a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.12s;
+    }
+
+    .context-bar a:hover { color: var(--primary); }
+
+    .context-bar-sep {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .context-bar-current {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    @media (max-width: 576px) {
+      .context-bar { padding: 0 14px; }
+    }
+
+    /* ─── Footer ─────────────────────────────────────────────────── */
+    .app-footer {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 16px 32px;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ─── Scrollbar ──────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+    /* ─── Responsive ─────────────────────────────────────────────── */
+    @media (max-width: 1100px) {
+      .nav-item-link .nav-label-text {
+        display: none;
+      }
+      .nav-item-link {
+        padding: 7px 10px;
+      }
+      .nav-section-divider { margin: 0 3px; }
+      .navbar-search-input { width: 160px; }
+    }
+
+    @media (max-width: 820px) {
+      .navbar-nav-main { display: none; }
+      .mobile-menu-btn { display: flex; align-items: center; }
+      .navbar-search-input { width: 140px; }
+      .navbar-clock { display: none; }
+    }
+
+    @media (max-width: 576px) {
+      .page-content { padding: 16px 14px; }
+      .navbar-search { display: none; }
+      .app-footer { padding: 14px 16px; }
+
+      .page-header.d-flex {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 12px;
+      }
+
+      .card-body  { padding: 14px; }
+      .card-header { padding: 10px 14px; }
+
+      .card-footer.d-flex {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .card-footer.d-flex .ms-auto {
+        margin-left: 0 !important;
+        text-align: center;
+      }
+
+      .page-title { font-size: 18px; }
+
+      .nav-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .nav-tabs::-webkit-scrollbar { display: none; }
+      .nav-tabs .nav-link { white-space: nowrap; }
+
+      .modal-dialog { margin: 8px; }
+      .modal-content { border-radius: var(--radius-lg); }
+
+      .empty-state { padding: 36px 16px; }
+    }
+  </style>
+
+  {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+  <div class="app-shell">
+
+    <!-- ── Top Navigation Bar ──────────────────────────────────────── -->
+    <header class="top-navbar">
+
+      <!-- Brand -->
+      <a class="navbar-brand-link" href="{% url 'core:cockpit' %}">
+        <div class="navbar-brand-icon">
+          <i class="bi bi-mortarboard-fill"></i>
+        </div>
+        <span class="navbar-brand-text">{{ SCHOOL_NAME }}</span>
+      </a>
+
+      <!-- Mobile hamburger (shown on small screens) -->
+      <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu">
+        <i class="bi bi-list"></i>
+      </button>
+
+      <!-- Desktop navigation links -->
+      <nav class="navbar-nav-main" id="desktopNav">
+
+        <!-- Principal section -->
+        <a class="nav-item-link {% active_if 'cockpit' %}" href="{% url 'core:cockpit' %}" title="Dashboard">
+          <i class="bi bi-speedometer2"></i>
+          <span class="nav-label-text">Dashboard</span>
+        </a>
+
+        <a class="nav-item-link {% active_if 'students_list' 'student_page' %}"
+          href="{% url 'core:students_list' %}" title="Élèves">
+          <i class="bi bi-people-fill"></i>
+          <span class="nav-label-text">Élèves</span>
+        </a>
+
+        <a class="nav-item-link {% active_if 'payment_create' 'student_search' 'student_detail' %}"
+          href="{% url 'core:payment_create' %}" title="Caisse">
+          <i class="bi bi-cash-coin"></i>
+          <span class="nav-label-text">Caisse</span>
+        </a>
+
+        <!-- Planification section -->
+        <a class="nav-item-link {% active_if 'sessions_today' 'session_attendance' %}"
+          href="{% url 'core:sessions_today' %}" title="Sessions du jour">
+          <i class="bi bi-calendar2-event-fill"></i>
+          <span class="nav-label-text">Sessions</span>
+        </a>
+
+        <a class="nav-item-link {% active_if 'sessions_schedule' %}"
+          href="{% url 'core:sessions_schedule' %}" title="Planification">
+          <i class="bi bi-calendar3"></i>
+          <span class="nav-label-text">Planification</span>
+        </a>
+
+        <a class="nav-item-link {% active_if 'whatsapp_dashboard' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' 'whatsapp_bulk_announcements' %}"
+          href="{% url 'core:whatsapp_dashboard' %}" title="WhatsApp">
+          <i class="bi bi-whatsapp" style="position: relative;">
+            {% if whatsapp_connected %}
+              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #25d366; border-radius: 50%; display: inline-block;"></span>
+            {% else %}
+              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #9ca3af; border-radius: 50%; display: inline-block;"></span>
+            {% endif %}
+          </i>
+          <span class="nav-label-text">WhatsApp</span>
+        </a>
+
+        <div class="nav-section-divider"></div>
+
+        <!-- Administration Dropdown -->
+        <div class="nav-dropdown">
+          <a class="nav-item-link {% active_if 'courses_list' 'levels_list' 'schedule_conflicts' 'teacher_payroll' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' %}" href="#" title="Administration">
+            <i class="bi bi-gear-fill"></i>
+            <span class="nav-label-text">Administration</span>
+            <i class="bi bi-chevron-down" style="font-size: 0.9em;"></i>
+          </a>
+          <div class="nav-dropdown-menu" style="min-width: 220px;">
+            <a class="nav-dropdown-item {% active_if 'courses_list' %}" href="{% url 'core:courses_list' %}">
+              <i class="bi bi-book-fill" style="color: var(--primary);"></i> Groupes de cours
+            </a>
+            <a class="nav-dropdown-item {% active_if 'levels_list' %}" href="{% url 'core:levels_list' %}">
+              <i class="bi bi-layers-fill" style="color: var(--info);"></i> Niveaux scolaires
+            </a>
+            <a class="nav-dropdown-item {% active_if 'teacher_payroll' %}" href="{% url 'core:teacher_payroll' %}">
+              <i class="bi bi-calculator-fill" style="color: var(--success);"></i> Paie professeurs
+            </a>
+            <a class="nav-dropdown-item {% active_if 'schedule_conflicts' %}" href="{% url 'core:schedule_conflicts' %}">
+              <i class="bi bi-exclamation-triangle-fill" style="color: var(--warning);"></i> Conflits d'horaires
+              {% if conflict_count > 0 %}
+                <span class="nav-badge-danger ms-auto">{{ conflict_count }}</span>
+              {% endif %}
+            </a>
+            <div class="dropdown-divider"></div>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_payment_reminders' %}" href="{% url 'core:whatsapp_payment_reminders' %}">
+              <i class="bi bi-whatsapp" style="color: #25d366;"></i> Rappel de paiement
+            </a>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_absence_notifications' %}" href="{% url 'core:whatsapp_absence_notifications' %}">
+              <i class="bi bi-whatsapp" style="color: #25d366;"></i> Notifier sur l'absence
+            </a>
+          </div>
+        </div>
+
+        <!-- Analytics Dropdown -->
+        <!-- <div class="nav-dropdown">
+          <a class="nav-item-link {% active_if 'analytics_dashboard' 'analytics_revenue' 'analytics_attendance' 'analytics_students' 'analytics_rooms' 'analytics_teachers' 'analytics_operational' %}" href="#" title="Analytiques & Rapports">
+            <i class="bi bi-bar-chart-line-fill"></i>
+            <span class="nav-label-text">Analytiques</span>
+            <i class="bi bi-chevron-down" style="font-size: 0.9em;"></i>
+          </a>
+          <div class="nav-dropdown-menu" style="min-width: 220px;">
+            <a class="nav-dropdown-item {% active_if 'analytics_dashboard' %}" href="{% url 'core:analytics_dashboard' %}">
+              <i class="bi bi-speedometer2" style="color: var(--primary);"></i> Cockpit Directeur
+            </a>
+            <a class="nav-dropdown-item {% active_if 'analytics_revenue' %}" href="{% url 'core:analytics_revenue' %}">
+              <i class="bi bi-cash-stack" style="color: var(--success);"></i> Analyse de Revenus
+            </a>
+            <a class="nav-dropdown-item {% active_if 'analytics_attendance' %}" href="{% url 'core:analytics_attendance' %}">
+              <i class="bi bi-person-x-fill" style="color: var(--danger);"></i> Suivi des Absences
+            </a>
+            <a class="nav-dropdown-item {% active_if 'analytics_students' %}" href="{% url 'core:analytics_students' %}">
+              <i class="bi bi-person-bounding-box" style="color: var(--info);"></i> Rétention & Départs
+            </a>
+            <a class="nav-dropdown-item {% active_if 'analytics_rooms' %}" href="{% url 'core:analytics_rooms' %}">
+              <i class="bi bi-house-door" style="color: #6366f1;"></i> Occupation des Salles
+            </a>
+            <a class="nav-dropdown-item {% active_if 'analytics_teachers' %}" href="{% url 'core:analytics_teachers' %}">
+              <i class="bi bi-calculator" style="color: #10b981;"></i> Paie Enseignants
+            </a>
+            <a class="nav-dropdown-item {% active_if 'analytics_operational' %}" href="{% url 'core:analytics_operational' %}">
+              <i class="bi bi-activity" style="color: var(--warning);"></i> Santé Opérationnelle
+            </a>
+          </div>
+        </div>
+
+      </nav> -->
+
+      <!-- Right cluster: search + clock + admin -->
+      <div class="navbar-right">
+        <!-- Global search -->
+        <div class="navbar-search" style="position:relative;">
+          <i class="bi bi-search navbar-search-icon"></i>
+          <input type="text" id="global-search" class="navbar-search-input"
+            placeholder="Rechercher un élève…" autocomplete="off">
+          <div id="global-search-results" class="navbar-search-results"></div>
+        </div>
+
+        <!-- Clock -->
+        <div class="navbar-clock">
+          <i class="bi bi-clock"></i>
+          <span id="current-time"></span>
+        </div>
+
+        <!-- Admin shortcut -->
+        <a class="navbar-admin-link" href="/admin/" target="_blank" title="Administration Django">
+          <i class="bi bi-gear-fill"></i>
+          <span class="nav-label-text">Admin</span>
+        </a>
+      </div>
+
+    </header>
+
+    <!-- ── Mobile navigation drawer ─────────────────────────────────── -->
+    <div class="mobile-nav-drawer" id="mobileNavDrawer">
+      <div class="mobile-nav-section-label">Principal</div>
+      <a class="mobile-nav-link {% active_if 'cockpit' %}" href="{% url 'core:cockpit' %}">
+        <i class="bi bi-speedometer2"></i> Dashboard
+      </a>
+      <a class="mobile-nav-link {% active_if 'students_list' 'student_page' %}"
+        href="{% url 'core:students_list' %}">
+        <i class="bi bi-people-fill"></i> Élèves
+      </a>
+      <a class="mobile-nav-link {% active_if 'courses_list' %}" href="{% url 'core:courses_list' %}">
+        <i class="bi bi-book-fill"></i> Groupes
+      </a>
+      <a class="mobile-nav-link {% active_if 'levels_list' %}" href="{% url 'core:levels_list' %}">
+        <i class="bi bi-layers-fill"></i> Niveaux
+      </a>
+      <a class="mobile-nav-link {% active_if 'payment_create' 'student_search' 'student_detail' %}"
+        href="{% url 'core:payment_create' %}">
+        <i class="bi bi-cash-coin"></i> Caisse
+      </a>
+
+      <div class="mobile-nav-section-label" style="margin-top:8px;">Planification</div>
+      <a class="mobile-nav-link {% active_if 'sessions_today' 'session_attendance' %}"
+        href="{% url 'core:sessions_today' %}">
+        <i class="bi bi-calendar2-event-fill"></i> Sessions du jour
+      </a>
+      <a class="mobile-nav-link {% active_if 'sessions_schedule' %}"
+        href="{% url 'core:sessions_schedule' %}">
+        <i class="bi bi-calendar3"></i> Planning
+      </a>
+      <a class="mobile-nav-link {% active_if 'schedule_conflicts' %}"
+        href="{% url 'core:schedule_conflicts' %}">
+        <i class="bi bi-exclamation-triangle-fill"></i> Conflits
+        {% if conflict_count > 0 %}
+          <span class="nav-badge-danger" style="margin-left:auto;">{{ conflict_count }}</span>
+        {% endif %}
+      </a>
+      <a class="mobile-nav-link {% active_if 'teacher_payroll' %}"
+        href="{% url 'core:teacher_payroll' %}">
+        <i class="bi bi-calculator-fill"></i> Paie professeurs
+      </a>
+
+      <div class="mobile-nav-section-label" style="margin-top:8px;">Communication</div>
+      <a class="mobile-nav-link {% active_if 'whatsapp_payment_reminders' %}"
+        href="{% url 'core:whatsapp_payment_reminders' %}">
+        <i class="bi bi-whatsapp"></i> Rappels paiement
+      </a>
+      <a class="mobile-nav-link {% active_if 'whatsapp_absence_notifications' %}"
+        href="{% url 'core:whatsapp_absence_notifications' %}">
+        <i class="bi bi-whatsapp"></i> Absences
+      </a>
+
+      <div class="mobile-nav-section-label" style="margin-top:8px;">Analytiques</div>
+      <a class="mobile-nav-link {% active_if 'analytics_dashboard' %}" href="{% url 'core:analytics_dashboard' %}">
+        <i class="bi bi-speedometer2"></i> Cockpit Directeur
+      </a>
+      <a class="mobile-nav-link {% active_if 'analytics_revenue' %}" href="{% url 'core:analytics_revenue' %}">
+        <i class="bi bi-cash-stack"></i> Analyse de Revenus
+      </a>
+      <a class="mobile-nav-link {% active_if 'analytics_attendance' %}" href="{% url 'core:analytics_attendance' %}">
+        <i class="bi bi-person-x-fill"></i> Absences
+      </a>
+      <a class="mobile-nav-link {% active_if 'analytics_students' %}" href="{% url 'core:analytics_students' %}">
+        <i class="bi bi-person-bounding-box"></i> Rétention & Départs
+      </a>
+      <a class="mobile-nav-link {% active_if 'analytics_rooms' %}" href="{% url 'core:analytics_rooms' %}">
+        <i class="bi bi-house-door"></i> Occupation des Salles
+      </a>
+      <a class="mobile-nav-link {% active_if 'analytics_teachers' %}" href="{% url 'core:analytics_teachers' %}">
+        <i class="bi bi-calculator"></i> Paie Enseignants
+      </a>
+      <a class="mobile-nav-link {% active_if 'analytics_operational' %}" href="{% url 'core:analytics_operational' %}">
+        <i class="bi bi-activity"></i> Santé Opérationnelle
+      </a>
+
+      <div class="mobile-nav-section-label" style="margin-top:8px;">Système</div>
+      <a class="mobile-nav-link" href="/admin/" target="_blank">
+        <i class="bi bi-gear-fill"></i> Administration
+      </a>
+
+      <!-- Search in mobile -->
+      <div style="padding: 8px 4px 4px; position:relative;">
+        <i class="bi bi-search" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:rgba(255,255,255,0.4);font-size:13px;"></i>
+        <input type="text" id="mobile-search" class="navbar-search-input"
+          style="width:100%;background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.15);"
+          placeholder="Rechercher un élève…" autocomplete="off">
+      </div>
+    </div>
+
+    <!-- ── Main area ──────────────────────────────────────────────── -->
+    <div class="main-area">
+
+      <!-- Context bar (breadcrumb) -->
+      <div class="context-bar">
+        <a href="{% url 'core:cockpit' %}">
+          <i class="bi bi-house-fill" style="font-size:13px;"></i>
+          Accueil
+        </a>
+        {% block breadcrumb %}
+        {% endblock %}
+      </div>
+
+      <!-- Page content -->
+      <main class="page-content">
+        {% include 'core/_messages.html' %}
+        {% block content %}{% endblock %}
+      </main>
+
+      <!-- Footer -->
+      <footer class="app-footer">
+        <div style="margin-bottom: 4px;">&copy; 2026 {{ SCHOOL_NAME }} — Système de Gestion Scolaire</div>
+        <div style="font-size: 11px; opacity: 0.8;">
+          Construit par <strong style="color: var(--primary);">Youssef Kotari</strong> &amp; <strong style="color: var(--primary);">Yahya El-Hachimi</strong> · Développeur: <a href="tel:0661345595" style="color: var(--primary); text-decoration: none; font-weight: 600;">0661345595</a>
+        </div>
+      </footer>
+
+    </div><!-- /main-area -->
+  </div><!-- /app-shell -->
+
+  <script>
+    $(function () {
+      // ── Global search ──────────────────────────────────────────────
+      function setupSearch($input, $results) {
+        let timeout = null;
+        let activeIndex = -1;
+
+        $input.on('input', function () {
+          const query = $(this).val().trim();
+          clearTimeout(timeout);
+          activeIndex = -1;
+
+          if (query.length < 1) {
+            $results.hide().empty();
+            return;
+          }
+
+          timeout = setTimeout(function () {
+            $.ajax({
+              url: '/cashier/student-search/',
+              data: { q: query },
+              dataType: 'json',
+              success: function (data) {
+                $results.empty();
+                if (data.results && data.results.length > 0) {
+                  data.results.forEach(function (item) {
+                    $results.append(
+                      $('<a class="navbar-search-item"></a>')
+                        .attr('href', '/students/' + item.id + '/')
+                        .text(item.text)
+                    );
+                  });
+                  $results.show();
+                } else {
+                  $results.append('<div class="navbar-search-no-results">Aucun élève trouvé</div>');
+                  $results.show();
+                }
+              }
+            });
+          }, 150);
+        });
+
+        $input.on('keydown', function (e) {
+          const $items = $results.find('.navbar-search-item');
+          if (!$items.length) return;
+
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = (activeIndex + 1) % $items.length;
+            $items.removeClass('active').eq(activeIndex).addClass('active');
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = (activeIndex - 1 + $items.length) % $items.length;
+            $items.removeClass('active').eq(activeIndex).addClass('active');
+          } else if (e.key === 'Enter' && activeIndex > -1) {
+            e.preventDefault();
+            window.location.href = $items.eq(activeIndex).attr('href');
+          } else if (e.key === 'Escape') {
+            $results.hide().empty();
+            activeIndex = -1;
+          }
+        });
+
+        $input.on('focus', function () {
+          if ($(this).val().trim().length >= 1 && $results.children().length > 0) {
+            $results.show();
+          }
+        });
+      }
+
+      setupSearch($('#global-search'), $('#global-search-results'));
+
+      $(document).on('click', function (e) {
+        if (!$(e.target).closest('.navbar-search').length) {
+          $('#global-search-results').hide();
+        }
+      });
+
+      // ── Live clock ──────────────────────────────────────────────────
+      function updateTime() {
+        $('#current-time').text(new Date().toLocaleTimeString('fr-FR'));
+      }
+      updateTime();
+      setInterval(updateTime, 1000);
+
+      // ── Administration dropdown (click-toggle) ─────────────────────
+      $(document).on('click', '.nav-dropdown > .nav-item-link', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $menu = $(this).siblings('.nav-dropdown-menu');
+        const isOpen = $menu.hasClass('open');
+        // Close all other open dropdowns first
+        $('.nav-dropdown-menu.open').removeClass('open');
+        if (!isOpen) {
+          $menu.addClass('open');
+        }
+      });
+
+      // Keep clicks inside the dropdown from closing it immediately
+      $(document).on('click', '.nav-dropdown, .nav-dropdown-menu', function (e) {
+        e.stopPropagation();
+      });
+
+      // Close dropdown when clicking outside
+      $(document).on('click', function (e) {
+        if (!$(e.target).closest('.nav-dropdown').length) {
+          $('.nav-dropdown-menu.open').removeClass('open');
+        }
+      });
+
+      // Close dropdown when a menu item is clicked
+      $(document).on('click', '.nav-dropdown-menu a', function () {
+        $('.nav-dropdown-menu.open').removeClass('open');
+      });
+
+      // ── Mobile menu toggle ──────────────────────────────────────────
+      $('#mobileMenuBtn').on('click', function () {
+        const $drawer = $('#mobileNavDrawer');
+        $drawer.toggleClass('open');
+        const isOpen = $drawer.hasClass('open');
+        $(this).find('i').removeClass('bi-list bi-x').addClass(isOpen ? 'bi-x' : 'bi-list');
+      });
+
+      // Close drawer when a link inside it is clicked
+      $('#mobileNavDrawer a').on('click', function () {
+        $('#mobileNavDrawer').removeClass('open');
+        $('#mobileMenuBtn i').removeClass('bi-x').addClass('bi-list');
+      });
+
+      // Close drawer on outside click
+      $(document).on('click', function (e) {
+        if (!$(e.target).closest('#mobileNavDrawer, #mobileMenuBtn').length) {
+          $('#mobileNavDrawer').removeClass('open');
+          $('#mobileMenuBtn i').removeClass('bi-x').addClass('bi-list');
+        }
+      });
+    });
+  </script>
+
+  {% block extra_js %}{% endblock %}
+</body>
+
+</html>

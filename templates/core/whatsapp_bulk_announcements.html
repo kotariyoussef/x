@@ -1,0 +1,309 @@
+{% extends 'core/base.html' %}
+{% block title %}Annonces groupées WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Messages Groupés</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-start justify-content-between">
+  <div>
+    <h1 class="page-title">
+      <i class="bi bi-whatsapp me-2" style="color:#25d366;"></i>Messages Groupés
+    </h1>
+    <p class="page-subtitle">
+      Envoyez des messages à tous les parents d'élèves actifs, ou accédez à vos groupes WhatsApp de cours
+      {% if not status_data.offline and status_data.status == 'READY' %}
+        <span class="badge bg-success ms-2"><i class="bi bi-shield-fill-check"></i> Service Actif</span>
+      {% else %}
+        <span class="badge bg-secondary ms-2"><i class="bi bi-exclamation-triangle"></i> Mode Manuel</span>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Retour
+  </a>
+</div>
+
+<!-- ══════════════════════ WhatsApp GROUP LINKS SECTION ══════════════════════ -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <div class="d-flex align-items-center gap-2">
+      <span style="width:28px;height:28px;background:#d1fae5;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <i class="bi bi-people-fill" style="color:#10b981;font-size:14px;"></i>
+      </span>
+      <span class="fw-600">Groupes WhatsApp des cours</span>
+    </div>
+    <a href="{% url 'core:courses_list' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-pencil-square"></i> Gérer les groupes
+    </a>
+  </div>
+
+  {% if groups_with_link %}
+    <div class="card-body pb-2">
+      <p class="text-muted small mb-3">
+        <i class="bi bi-info-circle me-1"></i>
+        Cliquez sur un groupe pour ouvrir son lien WhatsApp et envoyer un message directement dans le chat du groupe.
+      </p>
+      <div class="row g-3">
+        {% for group in groups_with_link %}
+          <div class="col-md-4 col-sm-6">
+            <div class="group-wa-card">
+              <div class="group-wa-card-body">
+                <div class="group-wa-icon">
+                  <i class="bi bi-people-fill"></i>
+                </div>
+                <div class="group-wa-info">
+                  <div class="fw-bold text-dark" style="font-size:0.95rem;">{{ group.name }}</div>
+                  <div class="text-muted" style="font-size:0.8rem;">{{ group.subject }}</div>
+                  {% if group.teacher %}
+                    <div class="text-muted" style="font-size:0.75rem;">
+                      <i class="bi bi-person"></i> {{ group.teacher.name }}
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+              <a href="{{ group.whatsapp_group_link }}" target="_blank" class="group-wa-btn">
+                <i class="bi bi-whatsapp"></i> Ouvrir le groupe
+              </a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card-footer text-muted small">
+      <i class="bi bi-lightbulb me-1"></i>
+      Pour ajouter un lien de groupe WhatsApp à un cours, allez dans <a href="{% url 'core:courses_list' %}">Groupes de cours</a> et modifiez le groupe souhaité.
+    </div>
+  {% else %}
+    <div class="card-body py-4 text-center">
+      <div style="font-size:2.5rem;opacity:0.25;color:#25d366;"><i class="bi bi-people"></i></div>
+      <p class="text-muted mt-2 mb-1">Aucun groupe WhatsApp configuré</p>
+      <p class="text-muted small mb-3">
+        Ajoutez des liens de groupe WhatsApp dans vos groupes de cours pour les retrouver ici.
+      </p>
+      <a href="{% url 'core:courses_list' %}" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-plus-circle"></i> Configurer les groupes
+      </a>
+    </div>
+  {% endif %}
+</div>
+
+<!-- Stats -->
+<div class="row g-4 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <div class="stat-card-label">Total contacts parents</div>
+          <div class="stat-card-value">{{ total_contacts }}</div>
+        </div>
+        <div class="stat-card-icon" style="background:#d1fae5;">
+          <i class="bi bi-people-fill" style="color:#10b981;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <div class="stat-card-label">Groupes WhatsApp liés</div>
+          <div class="stat-card-value">{{ groups_with_link|length }}</div>
+        </div>
+        <div class="stat-card-icon" style="background:#dcfce7;">
+          <i class="bi bi-whatsapp" style="color:#25d366;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Composer -->
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-pencil-square" style="color:var(--primary);font-size:16px;"></i>
+        <span class="fw-600">Composer un message personnalisé</span>
+      </div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+
+          <!-- Templates -->
+          <div class="mb-3">
+            <label class="form-label">Modèles rapides</label>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setTemplate('general')">
+                <i class="bi bi-chat-dots"></i> Général
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setTemplate('event')">
+                <i class="bi bi-calendar-event"></i> Événement
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setTemplate('closure')">
+                <i class="bi bi-door-closed"></i> Fermeture
+              </button>
+            </div>
+          </div>
+
+          <!-- Message textarea -->
+          <div class="mb-3">
+            <label class="form-label">Message <span class="text-muted" style="font-weight:400;">(optionnel si des pièces jointes sont ajoutées)</span></label>
+            <textarea class="form-control" name="message_template" id="message-template" rows="8"
+                      placeholder="Saisissez votre message...&#10;&#10;Variables disponibles :&#10;{name} — Nom du parent&#10;{student_name} — Nom de l'élève"></textarea>
+            <div class="form-text">
+              Variables : <code>{name}</code> pour le parent, <code>{student_name}</code> pour l'élève
+            </div>
+          </div>
+
+          <!-- Preview -->
+          <div class="mb-4">
+            <label class="form-label">Aperçu</label>
+            <div id="preview" class="p-3 rounded" style="background:var(--surface-alt);white-space:pre-wrap;font-size:13px;border:1px solid var(--border);min-height:60px;">
+              <em class="text-muted">L'aperçu s'affichera ici...</em>
+            </div>
+          </div>
+
+          <!-- Attachments -->
+          <div class="mb-3">
+            <label class="form-label">Pièces jointes (tous types de fichiers)</label>
+            <input type="file" name="attachments" id="attachments" class="form-control" multiple>
+            <div class="form-text">Vous pouvez joindre tout type de fichier. Ils seront sauvegardés sur le serveur et affichés dans les résultats.</div>
+          </div>
+
+          <button type="submit" class="btn btn-success w-100" style="background:#25d366;border-color:#25d366;">
+            <i class="bi bi-send"></i> Générer les liens WhatsApp ({{ total_contacts }} contacts)
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contact list preview -->
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header fw-600">
+        <i class="bi bi-people me-1"></i>Contacts parents ({{ total_contacts }})
+      </div>
+      {% if total_contacts > 0 %}
+        <div class="table-responsive" style="max-height:420px;overflow-y:auto;">
+          <table class="table table-sm table-hover mb-0">
+            <thead><tr><th>#</th><th>Parent</th><th>Élève</th></tr></thead>
+            <tbody>
+              {% for contact in contacts %}
+                <tr>
+                  <td class="text-muted">{{ forloop.counter }}</td>
+                  <td>{{ contact.name }}</td>
+                  <td>{{ contact.student_name }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="card-body empty-state py-4">
+          <div class="empty-state-icon"><i class="bi bi-people"></i></div>
+          <div class="empty-state-title">Aucun contact disponible</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<style>
+.fw-600 { font-weight: 600; }
+
+/* WhatsApp Group Cards */
+.group-wa-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.group-wa-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: rgba(37, 211, 102, 0.4);
+  transform: translateY(-2px);
+}
+
+.group-wa-card-body {
+  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.group-wa-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(37, 211, 102, 0.1);
+  color: #25d366;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.group-wa-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.group-wa-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0.6rem 1rem;
+  background: #25d366;
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  transition: background 0.2s ease;
+}
+
+.group-wa-btn:hover {
+  background: #128C7E;
+  color: white;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const templates = {
+  'general': "Bonjour {name},\n\nMessage général pour tous les parents...\n\nCordialement,\nL'équipe pédagogique",
+  'event': "Bonjour {name},\n\nNous organisons un événement le [DATE]. Votre enfant {student_name} est invité à participer.\n\nCordialement,\nL'équipe pédagogique",
+  'closure': "Bonjour {name},\n\nL'établissement sera fermé du [DATE DÉBUT] au [DATE FIN]. Les cours reprendront le [DATE REPRISE].\n\nCordialement,\nL'administration"
+};
+
+function setTemplate(type) {
+  document.getElementById('message-template').value = templates[type];
+  updatePreview();
+}
+
+function updatePreview() {
+  const msg = document.getElementById('message-template').value;
+  const html = msg
+    .replace(/{name}/g, '<strong>Ahmed</strong>')
+    .replace(/{student_name}/g, '<strong>Fatima</strong>')
+    .replace(/\n/g, '<br>');
+  document.getElementById('preview').innerHTML = html || '<em class="text-muted">L\'aperçu s\'affichera ici...</em>';
+}
+
+document.getElementById('message-template').addEventListener('input', updatePreview);
+</script>
+{% endblock %}
