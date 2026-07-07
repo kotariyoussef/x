@@ -19,28 +19,46 @@ _SNAPSHOT_ATTR = '_pre_save_snapshot'
 
 
 def _build_cancellation_message(session) -> str:
+    from .utils import load_message_template, SafeDict
     date_str = session.date.strftime('%d/%m/%Y')
-    return (
-        f"Séance annulée\n\n"
-        f"Groupe : {session.group.name}\n"
-        f"Date : {date_str}\n"
-        f"Heure : {session.start_time.strftime('%H:%M')} - {session.end_time.strftime('%H:%M')}\n\n"
-        f"La séance du {date_str} a été annulée. "
-        f"Nous nous excusons pour la gêne occasionnée."
+    default_template = (
+        "Séance annulée\n\n"
+        "Groupe : {group_name}\n"
+        "Date : {date}\n"
+        "Heure : {start_time} - {end_time}\n\n"
+        "La séance du {date} a été annulée. "
+        "Nous nous excusons pour la gêne occasionnée."
     )
+    template_str = load_message_template('whatsapp_session_cancellation.txt', default_template)
+    return template_str.format_map(SafeDict({
+        'group_name': session.group.name,
+        'date': date_str,
+        'start_time': session.start_time.strftime('%H:%M'),
+        'end_time': session.end_time.strftime('%H:%M'),
+    }))
 
 
 def _build_change_message(session, changes: list) -> str:
+    from .utils import load_message_template, SafeDict
     date_str = session.date.strftime('%d/%m/%Y')
     change_lines = '\n'.join(f'  - {c}' for c in changes)
-    return (
-        f"Modification de séance\n\n"
-        f"Groupe : {session.group.name}\n"
-        f"Date : {date_str}\n"
-        f"Heure : {session.start_time.strftime('%H:%M')} - {session.end_time.strftime('%H:%M')}\n"
-        f"Salle : {session.room.name}\n\n"
-        f"Les informations suivantes ont change :\n{change_lines}"
+    default_template = (
+        "Modification de séance\n\n"
+        "Groupe : {group_name}\n"
+        "Date : {date}\n"
+        "Heure : {start_time} - {end_time}\n"
+        "Salle : {room_name}\n\n"
+        "Les informations suivantes ont change :\n{change_lines}"
     )
+    template_str = load_message_template('whatsapp_session_change.txt', default_template)
+    return template_str.format_map(SafeDict({
+        'group_name': session.group.name,
+        'date': date_str,
+        'start_time': session.start_time.strftime('%H:%M'),
+        'end_time': session.end_time.strftime('%H:%M'),
+        'room_name': session.room.name,
+        'change_lines': change_lines,
+    }))
 
 
 def _notify(phone: str, message: str, student=None, message_type: str = 'session_reminder'):

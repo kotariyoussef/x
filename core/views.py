@@ -10,7 +10,7 @@ from decimal import Decimal
 from datetime import timedelta, date
 
 from .models import Student, Payment, Enrollment, Room, Teacher, WhatsAppSendLog
-from .utils import WhatsAppMessageTemplates, WhatsAppUtils, WhatsAppServiceAPI, _build_room_schedule, _build_teacher_schedule, _calculate_week_stats, get_dashboard_stats, generate_receipt_pdf, calculate_student_monthly_total, generate_sessions_from_coursegroups, _annotate_conflicts
+from .utils import WhatsAppMessageTemplates, WhatsAppUtils, WhatsAppServiceAPI, _build_room_schedule, _build_teacher_schedule, _calculate_week_stats, get_dashboard_stats, generate_receipt_pdf, calculate_student_monthly_total, generate_sessions_from_coursegroups, _annotate_conflicts, load_message_template, SafeDict
 from .forms import SessionForm, StudentForm, EnrollmentForm
 from django.core.paginator import Paginator
 from .models import CourseGroup, Session, Attendance
@@ -1816,24 +1816,24 @@ def whatsapp_absence_notifications(request):
         }
 
         # Generate personalised absence message
-
-        message = (
-            f"Bonjour {contact['name']} 👋,\n\n"
-            f"📢 Nous vous informons que {contact['student_name']} "
-            f"n'a pas assisté au cours de {contact['course_name']}"
-        )
-
-        if contact['time']:
-            message += f" 🕒 prévu à {contact['time']}"
-
-        message += (
-            f" le 📅 {contact['date']}.\n\n"
+        default_absence_template = (
+            "Bonjour {name} 👋,\n\n"
+            "📢 Nous vous informons que {student_name} n'a pas assisté au cours de {course_name}{time_info} le 📅 {date}.\n\n"
             "ℹ️ Si cette absence est due à une raison particulière ou si vous souhaitez obtenir "
             "plus d'informations, n'hésitez pas à nous contacter.\n\n"
             "🤝 Merci de votre confiance.\n\n"
             "Cordialement,\n"
             "🎓 L'équipe pédagogique"
         )
+        template_str = load_message_template('whatsapp_absence_notification.txt', default_absence_template)
+        time_info = f" 🕒 prévu à {contact['time']}" if contact['time'] else ""
+        message = template_str.format_map(SafeDict({
+            'name': contact['name'],
+            'student_name': contact['student_name'],
+            'course_name': contact['course_name'],
+            'time_info': time_info,
+            'date': contact['date'],
+        }))
 
         # Generate WhatsApp link
         whatsapp_link = WhatsAppUtils.generate_chat_link(contact['phone'], message)
@@ -1926,9 +1926,9 @@ def whatsapp_bulk_announcements(request):
         'total_contacts': len(contacts),
         'groups_with_link': groups_with_link,
         'templates': {
-            'general': "Bonjour {name}, message général pour tous les parents...",
-            'event': "Bonjour {name}, nous organisons un événement le [DATE]. Votre enfant {student_name} est invité à participer.",
-            'closure': "Bonjour {name}, l'établissement sera fermé du [DATE] au [DATE]. Les cours reprendront le [DATE].",
+            'general': load_message_template('whatsapp_bulk_general.txt', "Bonjour {name}, message général pour tous les parents..."),
+            'event': load_message_template('whatsapp_bulk_event.txt', "Bonjour {name}, nous organisons un événement le [DATE]. Votre enfant {student_name} est invité à participer."),
+            'closure': load_message_template('whatsapp_bulk_closure.txt', "Bonjour {name}, l'établissement sera fermé du [DATE] au [DATE]. Les cours reprendront le [DATE]."),
         },
         'status_data': status_data,
     }
@@ -1948,14 +1948,25 @@ def whatsapp_payment_confirmation(request, payment_id):
         return redirect('core:student_page', student_id=student.id)
     
     # Generate confirmation message
-    message = f"Bonjour {student.parent_name or 'Parent'},\n\n"
-    message += f"Nous confirmons la réception de votre paiement:\n\n"
-    message += f"Montant: {payment.amount} DH\n"
-    message += f"Date: {payment.payment_date.strftime('%d/%m/%Y')}\n"
-    message += f"Reçu N°: {payment.receipt_number}\n"
-    message += f"Pour le mois de: {format_date_fr(payment.month_covered)}\n\n"
-    message += "Merci pour votre confiance!\n\n"
-    message += "Cordialement,\nL'équipe administrative"
+    default_confirmation_template = (
+        "Bonjour {name},\n\n"
+        "Nous confirmons la réception de votre paiement:\n\n"
+        "Montant: {amount} DH\n"
+        "Date: {date}\n"
+        "Reçu N°: {receipt_number}\n"
+        "Pour le mois de: {month}\n\n"
+        "Merci pour votre confiance!\n\n"
+        "Cordialement,\n"
+        "L'équipe administrative"
+    )
+    template_str = load_message_template('whatsapp_payment_confirmation.txt', default_confirmation_template)
+    message = template_str.format_map(SafeDict({
+        'name': student.parent_name or 'Parent',
+        'amount': str(payment.amount),
+        'date': payment.payment_date.strftime('%d/%m/%Y'),
+        'receipt_number': payment.receipt_number,
+        'month': format_date_fr(payment.month_covered),
+    }))
     
     # Generate WhatsApp link
     whatsapp_link = WhatsAppUtils.generate_chat_link(

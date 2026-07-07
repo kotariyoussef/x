@@ -16,9 +16,38 @@ from .models import Student, Payment
 
 PAID_STATUSES = ('PAID', 'OK', 'CONFIRMED', 'COMPLETED', 'SETTLED')
 
+ROUNDING_INCREMENT = Decimal("10")
+OVERPAY_LIMIT = Decimal("1.5")
+
 class SafeDict(dict):
     def __missing__(self, key):
         return f"{{{key}}}"
+
+from decimal import ROUND_UP
+
+def is_paid_status(status: str) -> bool:
+    return status in PAID_STATUSES
+
+
+def calculate_payment_status(required: Decimal, paid: Decimal) -> str:
+    if required <= 0:
+        return "OK"
+    if paid >= required:
+        return "OK"
+    if paid > 0:
+        return "PARTIAL"
+    return "UNPAID"
+
+
+def round_to_next_10(amount: Decimal) -> Decimal:
+    if amount <= 0:
+        return Decimal("0.00")
+
+    return (
+        (amount / ROUNDING_INCREMENT)
+        .quantize(Decimal("1"), rounding=ROUND_UP)
+        * ROUNDING_INCREMENT
+    ).quantize(Decimal("0.01"))
 
 # ==================== GESTION DES DATES ====================
 
@@ -139,8 +168,7 @@ def calculate_enrollment_expected_fee(enrollment, month_date: date) -> Decimal:
             session_price = (group.monthly_price / Decimal(total_sessions)).quantize(Decimal('0.01'))
             remaining_sessions = count_remaining_sessions_in_month(group, enrollment.enrolled_date)
             prorated_price = (Decimal(remaining_sessions) * session_price).quantize(Decimal('0.01'))
-            import math
-            return Decimal(str(math.ceil(prorated_price / Decimal('10')))) * Decimal('10')
+            return round_to_next_10(prorated_price)    
     return group.monthly_price
 
 
@@ -186,7 +214,7 @@ def get_student_payment_status(student, month_date: Optional[date] = None) -> Di
     paid = Payment.objects.filter(
         student=student,
         month_covered=month_date,
-        status='PAID'
+        status__in=PAID_STATUSES
     ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     
     remaining = required - paid
@@ -196,12 +224,7 @@ def get_student_payment_status(student, month_date: Optional[date] = None) -> Di
     else:
         percentage = 0.0
     
-    if paid >= required:
-        status = 'OK'
-    elif paid > 0:
-        status = 'PARTIAL'
-    else:
-        status = 'UNPAID'
+    status = calculate_payment_status(required, paid)
     
     return {
         'required': required,
@@ -222,7 +245,7 @@ def get_daily_revenue(target_date: Optional[date] = None) -> Decimal:
     
     revenue = Payment.objects.filter(
         payment_date=target_date,
-        status='PAID'
+        status__in=PAID_STATUSES
     ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     
     return revenue
@@ -236,7 +259,7 @@ def get_monthly_revenue(year: int, month: int) -> Decimal:
     
     revenue = Payment.objects.filter(
         payment_date__range=[first_day, last_day],
-        status='PAID'
+        status__in=PAID_STATUSES
     ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     
     return revenue
@@ -332,7 +355,13 @@ def populate_student_payment_and_fee_info(students_list, month_date=None):
         active_enrollments = enrollments_by_student.get(student.id, [])
         student.computed_active_enrollments = active_enrollments
         
-        total_fees = sum((e.course_group.monthly_price for e in active_enrollments), Decimal('0.00'))
+        total_fees = sum(
+            (
+                calculate_enrollment_expected_fee(e, month_date)
+                for e in active_enrollments
+            ),
+            Decimal("0.00"),
+        )
         student.computed_total_monthly_fees = total_fees
         
         required = Decimal('0.00')
@@ -341,14 +370,7 @@ def populate_student_payment_and_fee_info(students_list, month_date=None):
             
         paid = paid_map.get(student.id, Decimal('0.00'))
         
-        if required == 0:
-            status = 'OK'
-        elif paid >= required:
-            status = 'OK'
-        elif paid > 0:
-            status = 'PARTIAL'
-        else:
-            status = 'UNPAID'
+        status = calculate_payment_status(required, paid)
             
         student.computed_payment_status = status
 
@@ -390,7 +412,7 @@ def calculate_class_gains(course_group, months: List[date]) -> Tuple[Decimal, De
     payments = Payment.objects.filter(
         student__in=students,
         month_covered__in=months,
-        status='PAID'
+        status__in=PAID_STATUSES
     )
 
     payment_map = defaultdict(lambda: defaultdict(Decimal))
@@ -699,7 +721,7 @@ def detect_all_conflicts() -> Dict[str, List]:
                 # check unavailables
                 unavail = avails.filter(is_available=False)
                 for ua in unavail:
-                    if sch.start_time < ua.end_time and sch.end_time > sch.start_time:
+                    if sess.start_time < ua.end_time and sess.end_time > ua.start_time:
                         schedule_conflicts.append({
                             'type': 'TEACHER_UNAVAILABLE',
                             'entity': teacher,
@@ -1333,16 +1355,167 @@ Merci pour votre confiance!
 
 # ==================== NOTIFICATIONS ====================
 
+import os
+
+def load_message_template(filename: str, default_content: str) -> str:
+    """
+    Loads a message template from the messages/ directory in the project root.
+    If the directory or file does not exist, it creates them with default_content.
+    """
+    base_dir = settings.BASE_DIR
+    messages_dir = os.path.join(base_dir, 'messages')
+    
+    if not os.path.exists(messages_dir):
+        try:
+            os.makedirs(messages_dir, exist_ok=True)
+        except Exception:
+            pass
+            
+    file_path = os.path.join(messages_dir, filename)
+    
+    if not os.path.exists(file_path):
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(default_content)
+        except Exception:
+            pass
+        return default_content
+        
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception:
+        return default_content
+
+
+class DynamicTemplateDict(dict):
+    def __init__(self, prefix, defaults):
+        super().__init__(defaults)
+        self.prefix = prefix
+        self.defaults = defaults
+
+    def __getitem__(self, key):
+        if key in self.defaults:
+            filename = f"{self.prefix}_{key}.txt"
+            return load_message_template(filename, self.defaults[key])
+        return super().__getitem__(key)
+    
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+
+DEFAULT_TEMPLATES = {
+    'sms_payment_reminder.txt': (
+        "Bonjour,\n"
+        "Rappel : Un montant de {amount} DH reste à régler pour {student_name}.\n"
+        "{school_name}"
+    ),
+    'whatsapp_customer_service_welcome.txt': (
+        "Bonjour {name} 👋\n"
+        "Bienvenue chez {business_name} ! Nous sommes ravis de vous accueillir. "
+        "Comment pouvons-nous vous aider aujourd'hui ?"
+    ),
+    'whatsapp_customer_service_order_confirmation.txt': (
+        "Bonjour {name},\n"
+        "Votre commande n°{order_id} a bien été confirmée ✅.\n"
+        "Date de livraison estimée : {delivery_date}.\n"
+        "Suivez votre commande ici : {tracking_url}"
+    ),
+    'whatsapp_customer_service_payment_reminder.txt': (
+        "Bonjour {name},\n"
+        "Nous vous rappelons qu'un paiement de {amount} concernant la facture n°{invoice_id} est toujours en attente.\n"
+        "N'hésitez pas à nous contacter si vous avez besoin d'assistance."
+    ),
+    'whatsapp_customer_service_appointment_reminder.txt': (
+        "Bonjour {name},\n"
+        "Nous vous rappelons votre rendez-vous prévu le {date} à {time}.\n"
+        "Répondez « CONFIRMER » pour confirmer votre présence ou « REPORTER » pour modifier le rendez-vous."
+    ),
+    'whatsapp_education_class_reminder.txt': (
+        "Bonjour {student_name},\n"
+        "Petit rappel : votre cours de {subject} est prévu le {date}."
+    ),
+    'whatsapp_education_assignment_due.txt': (
+        "Bonjour {student_name},\n"
+        "Votre devoir « {assignment_name} » doit être remis avant le {due_date}.\n"
+        "N'oubliez pas de le soumettre à temps !"
+    ),
+    'whatsapp_education_grade_notification.txt': (
+        "Bonjour {student_name},\n"
+        "Votre note pour la matière {subject} a été publiée 📚.\n"
+        "Consultez votre espace étudiant pour voir les détails."
+    ),
+    'whatsapp_absence_notification.txt': (
+        "Bonjour {name} 👋,\n\n"
+        "📢 Nous vous informons que {student_name} n'a pas assisté au cours de {course_name}{time_info} le 📅 {date}.\n\n"
+        "ℹ️ Si cette absence est due à une raison particulière ou si vous souhaitez obtenir "
+        "plus d'informations, n'hésitez pas à nous contacter.\n\n"
+        "🤝 Merci de votre confiance.\n\n"
+        "Cordialement,\n"
+        "🎓 L'équipe pédagogique"
+    ),
+    'whatsapp_payment_confirmation.txt': (
+        "Bonjour {name},\n\n"
+        "Nous confirmons la réception de votre paiement:\n\n"
+        "Montant: {amount} DH\n"
+        "Date: {date}\n"
+        "Reçu N°: {receipt_number}\n"
+        "Pour le mois de: {month}\n\n"
+        "Merci pour votre confiance!\n\n"
+        "Cordialement,\n"
+        "L'équipe administrative"
+    ),
+    'whatsapp_session_cancellation.txt': (
+        "Séance annulée\n\n"
+        "Groupe : {group_name}\n"
+        "Date : {date}\n"
+        "Heure : {start_time} - {end_time}\n\n"
+        "La séance du {date} a été annulée. "
+        "Nous nous excusons pour la gêne occasionnée."
+    ),
+    'whatsapp_session_change.txt': (
+        "Modification de séance\n\n"
+        "Groupe : {group_name}\n"
+        "Date : {date}\n"
+        "Heure : {start_time} - {end_time}\n"
+        "Salle : {room_name}\n\n"
+        "Les informations suivantes ont change :\n{change_lines}"
+    ),
+    'whatsapp_bulk_general.txt': (
+        "Bonjour {name}, message général pour tous les parents..."
+    ),
+    'whatsapp_bulk_event.txt': (
+        "Bonjour {name}, nous organisons un événement le [DATE]. Votre enfant {student_name} est invité à participer."
+    ),
+    'whatsapp_bulk_closure.txt': (
+        "Bonjour {name}, l'établissement sera fermé du [DATE] au [DATE]. Les cours reprendront le [DATE]."
+    )
+}
+
+# Auto-generate templates on import so the messages/ folder is populated immediately
+for filename, content in DEFAULT_TEMPLATES.items():
+    load_message_template(filename, content)
+
+
 def send_payment_reminder_sms(student, amount: Decimal) -> bool:
     """
     Envoie un SMS de rappel de paiement (à intégrer avec API SMS)
     """
     school_name = getattr(settings, 'SCHOOL_NAME', 'Afnane center')
-    message = f"""
-Bonjour,
-Rappel : Un montant de {amount} DH reste à régler pour {student.name}.
-{school_name}
-    """.strip()
+    default_template = (
+        "Bonjour,\n"
+        "Rappel : Un montant de {amount} DH reste à régler pour {student_name}.\n"
+        "{school_name}"
+    )
+    template_str = load_message_template('sms_payment_reminder.txt', default_template)
+    message = template_str.format_map(SafeDict({
+        'amount': str(amount),
+        'student_name': student.name,
+        'school_name': school_name,
+    })).strip()
     
     # TODO: Intégrer avec une API SMS (Twilio, etc.)
     print(f"SMS envoyé à {student.parent_contact}: {message}")
@@ -1362,7 +1535,10 @@ def validate_payment_amount(student, amount: Decimal, month_date: date) -> Dict:
     Returns:
         {'valid': bool, 'message': str, 'suggestion': Decimal}
     """
-    required = calculate_student_monthly_total(student)
+    required = calculate_student_expected_fees_for_month(
+        student,
+        month_date
+    )
     status = get_student_payment_status(student, month_date)
     
     if amount <= 0:
@@ -1733,7 +1909,7 @@ class WhatsAppUtils:
 class WhatsAppMessageTemplates:
     """Pre-built message templates for common use cases."""
     
-    CUSTOMER_SERVICE = {
+    _CUSTOMER_SERVICE_DEFAULTS = {
         'welcome':
             "Bonjour {name} 👋\n"
             "Bienvenue chez {business_name} ! Nous sommes ravis de vous accueillir. "
@@ -1756,12 +1932,7 @@ class WhatsAppMessageTemplates:
             "Répondez « CONFIRMER » pour confirmer votre présence ou « REPORTER » pour modifier le rendez-vous.",
     }
 
-
-    # NOTE: MARKETING templates removed — not applicable to a school ERP
-
-
-    # Templates Éducation
-    EDUCATION = {
+    _EDUCATION_DEFAULTS = {
         'class_reminder':
             "Bonjour {student_name},\n"
             "Petit rappel : votre cours de {subject} est prévu le {date}.",
@@ -1777,8 +1948,8 @@ class WhatsAppMessageTemplates:
             "Consultez votre espace étudiant pour voir les détails.",
     }
 
-
-    # NOTE: HEALTHCARE templates removed — not applicable to a school ERP
+    CUSTOMER_SERVICE = DynamicTemplateDict('whatsapp_customer_service', _CUSTOMER_SERVICE_DEFAULTS)
+    EDUCATION = DynamicTemplateDict('whatsapp_education', _EDUCATION_DEFAULTS)
     
     @classmethod
     def get_template(cls, category: str, template_name: str) -> str:
