@@ -36,8 +36,31 @@ urlpatterns = [
     path('levels/<int:level_id>/delete-confirm/', views.level_delete_confirm, name='level_delete_confirm'),
     
     path('teachers/', views.teachers_list, name='teachers_list'),
-     path('teachers/search/', views.teacher_search, name='teacher_search'),
+    path('teachers/create/', views.teacher_create, name='teacher_create'),
+    path('teachers/search/', views.teacher_search, name='teacher_search'),
     path('teachers/print/', views.print_teachers_list, name='print_teachers_list'),
+    path('teachers/<int:teacher_id>/', views.teacher_detail, name='teacher_detail'),
+    path('teachers/<int:teacher_id>/edit/', views.teacher_edit, name='teacher_edit'),
+    path('teachers/<int:teacher_id>/delete/', views.teacher_delete, name='teacher_delete'),
+    path('teachers/<int:teacher_id>/delete-confirm/', views.teacher_delete_confirm, name='teacher_delete_confirm'),
+
+    # Teacher Availability
+    path('teachers/<int:teacher_id>/availability/', views.teacher_availability, name='teacher_availability'),
+    path('teachers/<int:teacher_id>/availability/<int:slot_id>/delete/', views.teacher_availability_delete, name='teacher_availability_delete'),
+
+    # Teacher Leaves
+    path('teachers/<int:teacher_id>/leaves/', views.teacher_leaves, name='teacher_leaves'),
+    path('teachers/<int:teacher_id>/leaves/<int:leave_id>/edit/', views.teacher_leave_edit, name='teacher_leave_edit'),
+    path('teachers/<int:teacher_id>/leaves/<int:leave_id>/delete/', views.teacher_leave_delete, name='teacher_leave_delete'),
+
+    # Level Categories
+    path('level-categories/', views.level_categories_list, name='level_categories_list'),
+    path('level-categories/create/', views.level_category_create, name='level_category_create'),
+    path('level-categories/<int:category_id>/', views.level_category_detail, name='level_category_detail'),
+    path('level-categories/<int:category_id>/edit/', views.level_category_edit, name='level_category_edit'),
+    path('level-categories/<int:category_id>/delete/', views.level_category_delete, name='level_category_delete'),
+    path('level-categories/<int:category_id>/delete-confirm/', views.level_category_delete_confirm, name='level_category_delete_confirm'),
+
     path('rooms/', views.rooms_list, name='rooms_list'),
     
     # Sessions

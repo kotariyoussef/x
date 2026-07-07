@@ -12,9 +12,14 @@
     <h1 class="page-title"><i class="bi bi-layers-fill me-2" style="color:var(--primary);"></i>Niveaux Académiques</h1>
     <p class="page-subtitle">{{ levels|length }} niveau{{ levels|length|pluralize:"x" }}</p>
   </div>
-  <a href="{% url 'core:level_create' %}" class="btn btn-primary">
-    <i class="bi bi-plus-lg"></i> Ajouter un niveau
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{% url 'core:level_categories_list' %}" class="btn btn-outline-secondary">
+      <i class="bi bi-collection"></i> Catégories
+    </a>
+    <a href="{% url 'core:level_create' %}" class="btn btn-primary">
+      <i class="bi bi-plus-lg"></i> Ajouter un niveau
+    </a>
+  </div>
 </div>
 
 {% if levels %}

@@ -1,6 +1,6 @@
 from django import forms
 from django.forms import inlineformset_factory
-from .models import Session, CourseGroup, Student, Enrollment, Room, CourseGroupSchedule, Level, LevelCategory, TeacherLeave, TeacherAvailability
+from .models import Session, CourseGroup, Student, Enrollment, Room, CourseGroupSchedule, Level, LevelCategory, Teacher, TeacherLeave, TeacherAvailability
 
 
 class StudentForm(forms.ModelForm):
@@ -256,3 +256,82 @@ class SessionForm(forms.ModelForm):
                             )
 
         return cleaned_data
+
+
+class TeacherForm(forms.ModelForm):
+    """Form for creating and editing teachers"""
+
+    class Meta:
+        model = Teacher
+        fields = [
+            'name', 'phone', 'email',
+            'payment_method', 'hourly_rate', 'payment_percentage', 'session_rate',
+            'is_active',
+        ]
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nom complet'}),
+            'phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Téléphone', 'type': 'tel'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'Email (optionnel)'}),
+            'payment_method': forms.Select(attrs={'class': 'form-select', 'id': 'id_payment_method'}),
+            'hourly_rate': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0'}),
+            'payment_percentage': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'max': '100'}),
+            'session_rate': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0'}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        method = cleaned_data.get('payment_method')
+        if method == 'HOURLY' and not cleaned_data.get('hourly_rate'):
+            self.add_error('hourly_rate', "Le tarif horaire est requis pour ce mode de paiement.")
+        if method == 'PERCENTAGE' and cleaned_data.get('payment_percentage') is None:
+            self.add_error('payment_percentage', "La part des gains (%) est requise pour ce mode de paiement.")
+        if method == 'SESSION' and not cleaned_data.get('session_rate'):
+            self.add_error('session_rate', "Le tarif par session est requis pour ce mode de paiement.")
+        return cleaned_data
+
+
+class LevelCategoryForm(forms.ModelForm):
+    """Form for creating and editing level categories"""
+
+    class Meta:
+        model = LevelCategory
+        fields = ['name']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Ex: Lycée, Collège, Primaire…',
+            }),
+        }
+
+
+class TeacherAvailabilityForm(forms.ModelForm):
+    """Inline form for a single teacher availability slot"""
+
+    class Meta:
+        model = TeacherAvailability
+        fields = ['day', 'start_time', 'end_time', 'is_available']
+        widgets = {
+            'day': forms.Select(attrs={'class': 'form-select'}),
+            'start_time': forms.TimeInput(attrs={'type': 'time', 'class': 'form-control'}),
+            'end_time': forms.TimeInput(attrs={'type': 'time', 'class': 'form-control'}),
+            'is_available': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+
+class TeacherLeaveForm(forms.ModelForm):
+    """Form for a teacher leave period"""
+
+    class Meta:
+        model = TeacherLeave
+        fields = ['start_date', 'end_date', 'leave_type', 'notes']
+        widgets = {
+            'start_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            'end_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            'leave_type': forms.Select(attrs={'class': 'form-select'}),
+            'notes': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 2,
+                'placeholder': 'Raison ou détails optionnels…',
+            }),
+        }

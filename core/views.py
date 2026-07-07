@@ -1,3 +1,4 @@
+from io import BytesIO
 from core.utils import format_date_fr
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
@@ -2668,6 +2669,347 @@ def level_delete(request, level_id):
     except ProtectedError:
         messages.error(request, "Impossible de supprimer ce niveau car il est utilisé par des groupes de cours.")
     return redirect('core:levels_list')
+
+
+# =====================
+# TEACHER CRUD VIEWS
+# =====================
+
+def teacher_detail(request, teacher_id):
+    """Detail page for a specific teacher"""
+    from .models import Teacher, TeacherLeave, TeacherAvailability, Session
+    from django.db.models import Count, Q, Sum
+    from datetime import date
+
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+
+    # Course groups
+    course_groups = teacher.course_groups.all().prefetch_related('schedules__room').annotate(
+        enrollment_count=Count('enrollment', distinct=True)
+    )
+
+    # Availability slots
+    availabilities = teacher.availabilities.all().order_by('day', 'start_time')
+
+    # Upcoming leaves
+    today = date.today()
+    leaves = teacher.leaves.order_by('-start_date')[:10]
+    active_leave = teacher.leaves.filter(start_date__lte=today, end_date__gte=today).first()
+
+    # Sessions stats
+    sessions_qs = Session.objects.filter(group__teacher=teacher).exclude(status='CANCELLED')
+    done_sessions = sessions_qs.filter(status='DONE').count()
+    planned_sessions = sessions_qs.filter(status='PLANNED').count()
+
+    # Recent sessions
+    recent_sessions = Session.objects.filter(
+        group__teacher=teacher
+    ).select_related('group', 'room').order_by('-date')[:10]
+
+    context = {
+        'teacher': teacher,
+        'course_groups': course_groups,
+        'availabilities': availabilities,
+        'leaves': leaves,
+        'active_leave': active_leave,
+        'done_sessions': done_sessions,
+        'planned_sessions': planned_sessions,
+        'recent_sessions': recent_sessions,
+        'total_groups': course_groups.count(),
+    }
+    return render(request, 'core/teacher_detail.html', context)
+
+
+@require_http_methods(['GET', 'POST'])
+def teacher_create(request):
+    """Create a new teacher"""
+    from .forms import TeacherForm
+    if request.method == 'POST':
+        form = TeacherForm(request.POST)
+        if form.is_valid():
+            teacher = form.save()
+            messages.success(request, f'Professeur {teacher.name} créé avec succès.')
+            return redirect('core:teacher_detail', teacher_id=teacher.id)
+    else:
+        form = TeacherForm()
+    return render(request, 'core/teacher_form.html', {'form': form, 'action': 'Créer'})
+
+
+@require_http_methods(['GET', 'POST'])
+def teacher_edit(request, teacher_id):
+    """Edit an existing teacher"""
+    from .models import Teacher
+    from .forms import TeacherForm
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+    if request.method == 'POST':
+        form = TeacherForm(request.POST, instance=teacher)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Professeur {teacher.name} modifié avec succès.')
+            return redirect('core:teacher_detail', teacher_id=teacher.id)
+    else:
+        form = TeacherForm(instance=teacher)
+    return render(request, 'core/teacher_form.html', {'form': form, 'action': 'Modifier', 'teacher': teacher})
+
+
+def teacher_delete_confirm(request, teacher_id):
+    """Confirmation page before deleting a teacher"""
+    from .models import Teacher
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+    groups_count = teacher.course_groups.count()
+    return render(request, 'core/teacher_delete_confirm.html', {
+        'teacher': teacher,
+        'groups_count': groups_count,
+    })
+
+
+@require_POST
+def teacher_delete(request, teacher_id):
+    """Delete a teacher"""
+    from .models import Teacher
+    from django.db.models import ProtectedError
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+    teacher_name = teacher.name
+    try:
+        teacher.delete()
+        messages.success(request, f'Professeur {teacher_name} supprimé avec succès.')
+    except ProtectedError:
+        messages.error(request, f'Impossible de supprimer {teacher_name} car il est affecté à des groupes de cours.')
+    return redirect('core:teachers_list')
+
+
+# =====================
+# TEACHER AVAILABILITY VIEWS
+# =====================
+
+@require_http_methods(['GET', 'POST'])
+def teacher_availability(request, teacher_id):
+    """Manage a teacher's weekly availability slots – list + inline add."""
+    from .models import Teacher, TeacherAvailability
+    from .forms import TeacherAvailabilityForm
+
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+
+    if request.method == 'POST':
+        form = TeacherAvailabilityForm(request.POST)
+        if form.is_valid():
+            slot = form.save(commit=False)
+            slot.teacher = teacher
+            try:
+                slot.full_clean()
+                slot.save()
+                messages.success(request, 'Créneau de disponibilité ajouté.')
+            except Exception as e:
+                messages.error(request, str(e))
+            return redirect('core:teacher_availability', teacher_id=teacher.id)
+    else:
+        form = TeacherAvailabilityForm()
+
+    # Group by day for display
+    DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+    DAY_LABELS = {
+        'MON': 'Lundi', 'TUE': 'Mardi', 'WED': 'Mercredi',
+        'THU': 'Jeudi', 'FRI': 'Vendredi', 'SAT': 'Samedi', 'SUN': 'Dimanche',
+    }
+    slots = teacher.availabilities.all().order_by('day', 'start_time')
+    by_day = {d: [] for d in DAY_ORDER}
+    for s in slots:
+        by_day[s.day].append(s)
+
+    days = [{'code': d, 'label': DAY_LABELS[d], 'slots': by_day[d]} for d in DAY_ORDER]
+
+    return render(request, 'core/teacher_availability.html', {
+        'teacher': teacher,
+        'form': form,
+        'days': days,
+        'total_slots': slots.count(),
+    })
+
+
+@require_POST
+def teacher_availability_delete(request, teacher_id, slot_id):
+    """Delete a single availability slot (POST or AJAX)."""
+    from .models import TeacherAvailability
+    slot = get_object_or_404(TeacherAvailability, pk=slot_id, teacher_id=teacher_id)
+    slot.delete()
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True})
+    messages.success(request, 'Créneau supprimé.')
+    return redirect('core:teacher_availability', teacher_id=teacher_id)
+
+
+# =====================
+# TEACHER LEAVE VIEWS
+# =====================
+
+@require_http_methods(['GET', 'POST'])
+def teacher_leaves(request, teacher_id):
+    """Manage a teacher's leaves – list + inline add."""
+    from .models import Teacher, TeacherLeave
+    from .forms import TeacherLeaveForm
+    from datetime import date
+
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+
+    if request.method == 'POST':
+        form = TeacherLeaveForm(request.POST)
+        if form.is_valid():
+            leave = form.save(commit=False)
+            leave.teacher = teacher
+            try:
+                leave.full_clean()
+                leave.save()
+                messages.success(request, 'Congé enregistré avec succès.')
+            except Exception as e:
+                messages.error(request, str(e))
+            return redirect('core:teacher_leaves', teacher_id=teacher.id)
+    else:
+        form = TeacherLeaveForm()
+
+    today = date.today()
+    leaves = teacher.leaves.order_by('-start_date')
+    active_leaves = [l for l in leaves if l.start_date <= today <= l.end_date]
+    upcoming_leaves = [l for l in leaves if l.start_date > today]
+    past_leaves = [l for l in leaves if l.end_date < today]
+
+    return render(request, 'core/teacher_leaves.html', {
+        'teacher': teacher,
+        'form': form,
+        'leaves': leaves,
+        'active_leaves': active_leaves,
+        'upcoming_leaves': upcoming_leaves,
+        'past_leaves': past_leaves,
+        'today': today,
+    })
+
+
+@require_http_methods(['GET', 'POST'])
+def teacher_leave_edit(request, teacher_id, leave_id):
+    """Edit a specific leave period."""
+    from .models import Teacher, TeacherLeave
+    from .forms import TeacherLeaveForm
+
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+    leave = get_object_or_404(TeacherLeave, pk=leave_id, teacher=teacher)
+
+    if request.method == 'POST':
+        form = TeacherLeaveForm(request.POST, instance=leave)
+        if form.is_valid():
+            try:
+                l = form.save(commit=False)
+                l.full_clean()
+                l.save()
+                messages.success(request, 'Congé modifié avec succès.')
+                return redirect('core:teacher_leaves', teacher_id=teacher.id)
+            except Exception as e:
+                form.add_error(None, str(e))
+    else:
+        form = TeacherLeaveForm(instance=leave)
+
+    return render(request, 'core/teacher_leave_edit.html', {
+        'teacher': teacher,
+        'leave': leave,
+        'form': form,
+    })
+
+
+@require_POST
+def teacher_leave_delete(request, teacher_id, leave_id):
+    """Delete a leave record."""
+    from .models import TeacherLeave
+    leave = get_object_or_404(TeacherLeave, pk=leave_id, teacher_id=teacher_id)
+    leave.delete()
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True})
+    messages.success(request, 'Congé supprimé.')
+    return redirect('core:teacher_leaves', teacher_id=teacher_id)
+
+
+# =====================
+# LEVEL CATEGORY CRUD VIEWS
+# =====================
+
+def level_categories_list(request):
+    """List all level categories"""
+    from .models import LevelCategory
+    from django.db.models import Count
+    categories = LevelCategory.objects.annotate(
+        level_count=Count('levels', distinct=True)
+    ).order_by('name')
+    return render(request, 'core/level_categories_list.html', {'categories': categories})
+
+
+def level_category_detail(request, category_id):
+    """Detail page for a level category"""
+    from .models import LevelCategory
+    from django.db.models import Count
+    category = get_object_or_404(LevelCategory, pk=category_id)
+    levels = category.levels.annotate(
+        group_count=Count('course_groups', distinct=True),
+        student_count=Count('students', distinct=True),
+    ).order_by('name')
+    return render(request, 'core/level_category_detail.html', {
+        'category': category,
+        'levels': levels,
+    })
+
+
+@require_http_methods(['GET', 'POST'])
+def level_category_create(request):
+    """Create a new level category"""
+    from .forms import LevelCategoryForm
+    if request.method == 'POST':
+        form = LevelCategoryForm(request.POST)
+        if form.is_valid():
+            cat = form.save()
+            messages.success(request, f'Catégorie « {cat.name} » créée avec succès.')
+            return redirect('core:level_categories_list')
+    else:
+        form = LevelCategoryForm()
+    return render(request, 'core/level_category_form.html', {'form': form, 'action': 'Créer'})
+
+
+@require_http_methods(['GET', 'POST'])
+def level_category_edit(request, category_id):
+    """Edit an existing level category"""
+    from .models import LevelCategory
+    from .forms import LevelCategoryForm
+    category = get_object_or_404(LevelCategory, pk=category_id)
+    if request.method == 'POST':
+        form = LevelCategoryForm(request.POST, instance=category)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Catégorie « {category.name} » modifiée avec succès.')
+            return redirect('core:level_category_detail', category_id=category.id)
+    else:
+        form = LevelCategoryForm(instance=category)
+    return render(request, 'core/level_category_form.html', {'form': form, 'action': 'Modifier', 'category': category})
+
+
+def level_category_delete_confirm(request, category_id):
+    """Confirmation page before deleting a level category"""
+    from .models import LevelCategory
+    category = get_object_or_404(LevelCategory, pk=category_id)
+    levels_count = category.levels.count()
+    return render(request, 'core/level_category_delete_confirm.html', {
+        'category': category,
+        'levels_count': levels_count,
+    })
+
+
+@require_POST
+def level_category_delete(request, category_id):
+    """Delete a level category"""
+    from .models import LevelCategory
+    from django.db.models import ProtectedError
+    category = get_object_or_404(LevelCategory, pk=category_id)
+    cat_name = category.name
+    try:
+        category.delete()
+        messages.success(request, f'Catégorie « {cat_name} » supprimée avec succès.')
+    except ProtectedError:
+        messages.error(request, f'Impossible de supprimer « {cat_name} » car elle contient des niveaux.')
+    return redirect('core:level_categories_list')
 
 
 def session_exceptions_list(request):
