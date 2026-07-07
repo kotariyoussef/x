@@ -88,7 +88,8 @@
               <div class="student-avatar" id="student-avatar">?</div>
               <div>
                 <strong id="student-name" class="d-block"></strong>
-                <small class="text-muted">Groupes inscrits</small>
+                <span id="student-matricule" class="badge" style="font-size:11px;background:var(--primary-light);color:var(--primary);display:none;"></span>
+                <small class="text-muted d-block">Groupes inscrits</small>
               </div>
             </div>
             <div id="student-groups" class="d-flex flex-column gap-1"></div>
@@ -236,6 +237,11 @@
         $('#student-info').show();
         $('#student-avatar').text(data.name.charAt(0).toUpperCase());
         $('#student-name').text(data.name + ' — ' + data.parent_contact);
+        if (data.matricule) {
+          $('#student-matricule').text('Matricule : ' + data.matricule).show();
+        } else {
+          $('#student-matricule').hide();
+        }
         $('#student-groups').html('');
         data.groups.forEach(function (g) {
           var badgeClass = g.is_prorated ? 'badge bg-warning text-dark' : 'badge badge-primary';

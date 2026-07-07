@@ -3,8 +3,30 @@ from django.forms import inlineformset_factory
 from .models import Session, CourseGroup, Student, Enrollment, Room, CourseGroupSchedule, Level, LevelCategory, Teacher, TeacherLeave, TeacherAvailability
 
 
+class CourseGroupMultipleChoiceField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        schedules_str = ", ".join(
+            f"{sch.get_day_display()} {sch.start_time.strftime('%H:%M')}"
+            for sch in obj.schedules.all()
+        )
+        level_str = obj.level.name if obj.level else "Sans niveau"
+        if schedules_str:
+            return f"{obj.name} ({level_str}) - {schedules_str}"
+        return f"{obj.name} ({level_str})"
+
+
 class StudentForm(forms.ModelForm):
     """Form for creating and editing students"""
+    
+    groups = CourseGroupMultipleChoiceField(
+        queryset=CourseGroup.objects.filter(is_active=True).prefetch_related('schedules', 'level'),
+        required=False,
+        widget=forms.SelectMultiple(attrs={
+            'class': 'form-select select2',
+            'multiple': 'multiple'
+        }),
+        label="Inscrire aux groupes"
+    )
     
     class Meta:
         model = Student
@@ -55,6 +77,14 @@ class StudentForm(forms.ModelForm):
             }),
         }
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            active_group_ids = self.instance.enrollment_set.filter(
+                is_active=True
+            ).values_list('course_group_id', flat=True)
+            self.fields['groups'].initial = CourseGroup.objects.filter(id__in=active_group_ids)
+            
     def clean_name(self):
         name = self.cleaned_data.get('name', '').strip()
         if not name:
@@ -66,6 +96,48 @@ class StudentForm(forms.ModelForm):
         if not phone:
             raise forms.ValidationError('Le téléphone du parent est requis')
         return phone
+
+    def clean(self):
+        cleaned_data = super().clean()
+        groups = cleaned_data.get('groups')
+        if groups:
+            schedules = []
+            for g in groups:
+                for sch in g.schedules.all():
+                    schedules.append((g, sch))
+            
+            for i in range(len(schedules)):
+                for j in range(i + 1, len(schedules)):
+                    g1, sch1 = schedules[i]
+                    g2, sch2 = schedules[j]
+                    if sch1.day == sch2.day:
+                        if (sch1.start_time < sch2.end_time and sch1.end_time > sch2.start_time):
+                            self.add_error('groups', 
+                                f"Conflit d'horaire détecté entre '{g1.name}' et '{g2.name}' "
+                                f"le {sch1.get_day_display()} ({sch1.start_time.strftime('%H:%M')}-{sch1.end_time.strftime('%H:%M')} vs {sch2.start_time.strftime('%H:%M')}-{sch2.end_time.strftime('%H:%M')})."
+                            )
+        return cleaned_data
+
+    def save(self, commit=True):
+        student = super().save(commit=commit)
+        if commit:
+            selected_groups = self.cleaned_data.get('groups', [])
+            current_enrollments = Enrollment.objects.filter(student=student)
+            current_group_ids = set(current_enrollments.values_list('course_group_id', flat=True))
+            selected_group_ids = set(g.id for g in selected_groups)
+            
+            # Delete enrollments that are no longer selected
+            current_enrollments.exclude(course_group_id__in=selected_group_ids).delete()
+            
+            # Create new enrollments
+            for group in selected_groups:
+                if group.id not in current_group_ids:
+                    Enrollment.objects.create(
+                        student=student,
+                        course_group=group,
+                        is_active=True
+                    )
+        return student
 
 
 class EnrollmentForm(forms.ModelForm):

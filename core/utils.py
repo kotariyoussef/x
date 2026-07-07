@@ -1171,6 +1171,9 @@ def generate_receipt_pdf(payment) -> BytesIO:
     p.setFont("Helvetica", 10)
     y_position -= 20
     p.drawString(40, y_position, f"Nom : {payment.student.name}")
+    if payment.student.matricule:
+        y_position -= 15
+        p.drawString(40, y_position, f"Matricule : {payment.student.matricule}")
     y_position -= 15
     p.drawString(40, y_position, f"Contact Parent : {payment.student.parent_contact}")
     

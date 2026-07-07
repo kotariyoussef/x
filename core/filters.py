@@ -11,7 +11,7 @@ class StudentFilter(django_filters.FilterSet):
         label='Recherche', 
         widget=forms.TextInput(attrs={
             'class': 'form-control', 
-            'placeholder': 'Nom, téléphone, parent ou école...'
+            'placeholder': 'Nom, matricule, téléphone, parent ou école...'
         })
     )
     
@@ -58,11 +58,12 @@ class StudentFilter(django_filters.FilterSet):
         fields = ['q', 'payment_status', 'level', 'course_group', 'is_active']
 
     def filter_q(self, queryset, name, value):
-        """Search across name, parent name, and contact info"""
+        """Search across name, matricule, parent name, and contact info"""
         if not value:
             return queryset
         return queryset.filter(
             Q(name__icontains=value) | 
+            Q(matricule__icontains=value) |
             Q(parent_contact__icontains=value) | 
             Q(parent_name__icontains=value) |
             Q(phone__icontains=value) |

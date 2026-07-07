@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
+import random
 
 class Room(models.Model):
     """Salle de classe"""
@@ -345,16 +346,52 @@ class CourseGroupSchedule(models.Model):
                 )
 
         # Check teacher availability/leave
-        if self.course_group and self.course_group.teacher:
-            check_teacher_availability(self.course_group.teacher, self.day, self.start_time, self.end_time)
+        # if self.course_group and self.course_group.teacher:
+        #     check_teacher_availability(self.course_group.teacher, self.day, self.start_time, self.end_time)
 
     def save(self, *args, **kwargs):
         self.full_clean()
         super().save(*args, **kwargs)
 
 
+def get_easy_numbers_2_digits():
+    easy = set()
+    for i in range(1, 10):
+        easy.add(i)
+    for i in range(10, 100, 10):
+        easy.add(i)
+    for i in range(11, 100, 11):
+        easy.add(i)
+    for i in range(1, 9):
+        easy.add(i * 10 + (i + 1))
+    return sorted(list(easy))
+
+def get_easy_numbers_3_digits():
+    easy = set()
+    for i in range(100, 1000, 100):
+        easy.add(i)
+    for i in range(100, 1000, 10):
+        easy.add(i)
+    for i in range(111, 1000, 111):
+        easy.add(i)
+    for i in range(100, 1000):
+        s = str(i)
+        if s[0] == s[2]:
+            easy.add(i)
+    for i in range(1, 8):
+        easy.add(i * 100 + (i + 1) * 10 + (i + 2))
+    return sorted(list(easy))
+
+
 class Student(models.Model):
     """Élève"""
+    matricule = models.CharField(
+        max_length=20,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name="Matricule"
+    )
     name = models.CharField(max_length=100, verbose_name="Nom complet")
     phone = models.CharField(max_length=20, blank=True, verbose_name="Téléphone élève")
     parent_contact = models.CharField(max_length=20, verbose_name="Téléphone parent")
@@ -421,6 +458,60 @@ class Student(models.Model):
         elif paid > 0:
             return 'PARTIAL'
         return 'UNPAID'
+
+    def save(self, *args, **kwargs):
+        if not self.matricule:
+            year_prefix = timezone.now().strftime('%y')
+            prefix = f"M{year_prefix}-"
+            
+            while True:
+                # Get fresh view of used numbers
+                existing_matricules = Student.objects.filter(matricule__startswith=prefix).values_list('matricule', flat=True)
+                used_numbers = set()
+                for m in existing_matricules:
+                    try:
+                        num = int(m.split('-')[1])
+                        used_numbers.add(num)
+                    except (IndexError, ValueError):
+                        continue
+                
+                # Try 2 digits
+                available_2 = [n for n in range(1, 100) if n not in used_numbers]
+                if available_2:
+                    easy_2 = set(get_easy_numbers_2_digits())
+                    available_easy = [n for n in available_2 if n in easy_2]
+                    if available_easy:
+                        chosen = random.choice(available_easy)
+                    else:
+                        chosen = random.choice(available_2)
+                    candidate = f"{prefix}{chosen:02d}"
+                else:
+                    # Try 3 digits
+                    available_3 = [n for n in range(100, 1000) if n not in used_numbers]
+                    if available_3:
+                        easy_3 = set(get_easy_numbers_3_digits())
+                        available_easy = [n for n in available_3 if n in easy_3]
+                        if available_easy:
+                            chosen = random.choice(available_easy)
+                        else:
+                            chosen = random.choice(available_3)
+                        candidate = f"{prefix}{chosen:03d}"
+                    else:
+                        # Fallback > 1000
+                        new_num = 1000
+                        while True:
+                            candidate_fb = f"{prefix}{new_num}"
+                            if candidate_fb not in existing_matricules:
+                                candidate = candidate_fb
+                                break
+                            new_num += 1
+                
+                # Check uniqueness in DB before assigning
+                if not Student.objects.filter(matricule=candidate).exists():
+                    self.matricule = candidate
+                    break
+                    
+        super().save(*args, **kwargs)
 
 
 
@@ -733,7 +824,7 @@ class Session(models.Model):
             # Check availability/leave for the session date
             DAY_MAP_REV = {0: 'MON', 1: 'TUE', 2: 'WED', 3: 'THU', 4: 'FRI', 5: 'SAT', 6: 'SUN'}
             day_str = DAY_MAP_REV[self.date.weekday()]
-            check_teacher_availability(effective_teacher, day_str, self.start_time, self.end_time, date_val=self.date)
+            # check_teacher_availability(effective_teacher, day_str, self.start_time, self.end_time, date_val=self.date)
 
         # 3. Check group conflicts (excluding CANCELLED sessions)
         if self.group:

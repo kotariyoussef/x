@@ -196,6 +196,7 @@
     <table class="table table-hover mb-0">
       <thead>
         <tr>
+          <th>Matricule</th>
           <th>Élève</th>
           <th>Contact</th>
           <th>Niveau</th>
@@ -213,6 +214,13 @@
               data-name="{{ student.name|lower }}"
               data-contact="{{ student.parent_contact|lower }}"
               data-parent="{{ student.parent_name|lower }}">
+            <td>
+              {% if student.matricule %}
+                <span style="font-size:12px;font-weight:700;color:var(--primary);background:var(--primary-light);padding:2px 8px;border-radius:5px;letter-spacing:0.04em;">{{ student.matricule }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
             <td>
               <div class="d-flex align-items-center gap-2">
                 <div class="student-avatar">{{ student.name|slice:":1"|upper }}</div>
@@ -267,13 +275,13 @@
           {% endwith %}
         {% empty %}
           <tr id="no-results-row" style="display:none;">
-            <td colspan="7" class="text-center py-5 text-muted">
+            <td colspan="8" class="text-center py-5 text-muted">
               <i class="bi bi-search" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:8px;"></i>
               Aucun élève trouvé avec ces termes
             </td>
           </tr>
           <tr>
-            <td colspan="7" class="text-center py-5 text-muted">
+            <td colspan="8" class="text-center py-5 text-muted">
               {% if filters_active %}
                 Aucun élève ne correspond aux filtres.
                 <a href="{% url 'core:students_list' %}">Effacer tout</a>
@@ -286,7 +294,7 @@
         <!-- Live-filter no-results row (hidden by default) -->
         {% if students %}
         <tr id="no-results-row" style="display:none;">
-          <td colspan="7" class="text-center py-5 text-muted">
+          <td colspan="8" class="text-center py-5 text-muted">
             <i class="bi bi-search" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:8px;"></i>
             Aucun élève trouvé pour "<strong id="no-results-query"></strong>"
           </td>

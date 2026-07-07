@@ -146,14 +146,14 @@ def student_search(request):
     q = request.GET.get('q', '').strip()
     results = []
     if q:
-        students = Student.objects.filter(name__icontains=q)[:20]
+        students = Student.objects.filter(Q(name__icontains=q) | Q(matricule__icontains=q))[:20]
     else:
         students = Student.objects.all()[:20]
 
     for s in students:
         results.append({
             'id': s.id,
-            'text': f"{s.name} ({s.parent_name or s.parent_contact})"
+            'text': f"[{s.matricule or 'N/A'}] {s.name} ({s.parent_name or s.parent_contact})"
         })
 
     return JsonResponse({'results': results})
@@ -188,9 +188,12 @@ def student_unpaid_search(request):
     # Get current month
     current_month = timezone.now().date().replace(day=1)
     
-    # Get all students or filter by name
+    # Get all students or filter by name/matricule
     if q:
-        students = Student.objects.filter(name__icontains=q, is_active=True)[:50]
+        students = Student.objects.filter(
+            Q(name__icontains=q) | Q(matricule__icontains=q),
+            is_active=True
+        )[:50]
     else:
         students = Student.objects.filter(is_active=True)[:50]
     
@@ -207,7 +210,7 @@ def student_unpaid_search(request):
         if paid < required:  # Student has unpaid amount
             unpaid_students.append({
                 'id': s.id,
-                'text': f"{s.name} ({s.parent_name or s.parent_contact}) - Due: {required - paid} DH",
+                'text': f"[{s.matricule or 'N/A'}] {s.name} ({s.parent_name or s.parent_contact}) - Due: {required - paid} DH",
                 'due_amount': str(required - paid)
             })
     
@@ -278,6 +281,7 @@ def student_detail(request):
     data = {
         'id': student.id,
         'name': student.name,
+        'matricule': student.matricule,
         'parent_contact': student.parent_contact,
         'required': str(int(required)),
         'groups': groups
@@ -1091,9 +1095,10 @@ def print_students_list(request):
     elements.append(Spacer(1, 0.2*inch))
     
     # Build table data
-    table_data = [['Nom', 'Contact', 'Cours', 'Frais/mois', 'Statut']]
+    table_data = [['Matricule', 'Nom', 'Contact', 'Cours', 'Frais/mois', 'Statut']]
     
     for student in students:
+        matricule = student.matricule or '—'
         name = student.name
         phone = student.parent_contact or '—'
         enrollments = student.enrollment_set.filter(is_active=True).count()
@@ -1106,11 +1111,11 @@ def print_students_list(request):
             'UNPAID': '✗ Impayé'
         }.get(status, status)
         
-        table_data.append([name, phone, courses, fees, status_display])
+        table_data.append([matricule, name, phone, courses, fees, status_display])
     
     # Create table
     if len(table_data) > 1:
-        table = Table(table_data, colWidths=[1.8*inch, 1.5*inch, 1*inch, 1.2*inch, 1.2*inch])
+        table = Table(table_data, colWidths=[0.9*inch, 1.6*inch, 1.4*inch, 0.9*inch, 1.1*inch, 1.0*inch])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498db')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
