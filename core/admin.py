@@ -13,7 +13,7 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.import_export.forms import ExportForm, ImportForm
 from unfold.sites import UnfoldAdminSite
 
-from .models import Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session, CourseGroupSchedule, Level, WhatsAppSendLog, Holiday, TeacherLeave, TeacherAvailability, MakeupSession
+from .models import Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session, CourseGroupSchedule, Level, LevelCategory, WhatsAppSendLog, Holiday, TeacherLeave, TeacherAvailability, MakeupSession
 from django.core.exceptions import ValidationError
 
 from django.conf import settings
@@ -341,11 +341,23 @@ class RoomAdmin(ModelAdmin, ImportExportModelAdmin):
     course_count.short_description = 'Cours actifs'
 
 
+@admin.register(LevelCategory)
+class LevelCategoryAdmin(ModelAdmin):
+    list_display = ('name', 'code', 'level_count')
+    search_fields = ('name', 'code')
+    ordering = ('name',)
+    readonly_fields = ('code',)
+
+    def level_count(self, obj):
+        return obj.levels.count()
+    level_count.short_description = 'Niveaux'
+
+
 @admin.register(Level)
 class LevelAdmin(ModelAdmin, ImportExportModelAdmin):
     list_display = ('name', 'category', 'course_group_count', 'student_count')
     search_fields = ('name',)
-    ordering = ('category', 'name')
+    ordering = ('category__name', 'name')
     
     def course_group_count(self, obj):
         return obj.course_groups.count()

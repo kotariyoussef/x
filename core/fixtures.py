@@ -14,7 +14,7 @@ from dateutil.relativedelta import relativedelta
 # Importer les modeles
 from .models import (
     Room, Teacher, CourseGroup, CourseGroupSchedule,
-    Student, Enrollment, Payment, Attendance, Session, Level
+    Student, Enrollment, Payment, Attendance, Session, Level, LevelCategory
 )
 
 
@@ -39,6 +39,13 @@ MOROCCAN_LAST_NAMES = [
 SUBJECTS = [
     "Mathematiques", "Physique-Chimie", "SVT", "Francais", "Arabe",
     "Anglais", "Philosophie", "Histoire-Geo", "Economie", "Informatique",
+]
+
+DEFAULT_CATEGORIES = [
+    ('GARDERIE', 'La Garderie'),
+    ('PRIMAIRE', 'Primaire'),
+    ('COLLEGE', 'Collège'),
+    ('LYCEE', 'Lycée'),
 ]
 
 LEVELS_WITH_CATEGORIES = [
@@ -142,9 +149,20 @@ def generate_fixtures(
     for r in rooms:
         print(f"    OK {r.name} - Capacite: {r.capacity}")
 
+    # ==================== 0. CATEGORIES DE NIVEAU ====================
+    print(f"\n[+] Creation de {len(DEFAULT_CATEGORIES)} catégories de niveau...")
+    category_map = {}
+    for code, name in DEFAULT_CATEGORIES:
+        cat, created = LevelCategory.objects.get_or_create(code=code, defaults={'name': name})
+        category_map[code] = cat
+        print(f"    OK {name} ({code})")
+
     # ==================== 1.5 NIVEAUX ====================
     print(f"\n[+] Creation de {len(LEVELS_WITH_CATEGORIES)} niveaux...")
-    _bulk_save(Level, [Level(name=n, category=c) for n, c in LEVELS_WITH_CATEGORIES])
+    _bulk_save(Level, [
+        Level(name=n, category=category_map[c])
+        for n, c in LEVELS_WITH_CATEGORIES
+    ])
     db_levels = list(Level.objects.all())
     for lvl in db_levels:
         print(f"    OK {lvl.name} ({lvl.get_category_display()})")

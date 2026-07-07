@@ -167,6 +167,11 @@ UNFOLD = {
                         "title": "Niveaux",
                         "icon": "school",
                         "link": reverse_lazy("admin:core_level_changelist"),
+                    },
+                    {
+                        "title": "Catégories de niveau",
+                        "icon": "category",
+                        "link": reverse_lazy("admin:core_levelcategory_changelist"),
                     }
                 ],
             },

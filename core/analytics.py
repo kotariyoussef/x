@@ -983,9 +983,9 @@ class StudentAnalytics:
         """Academic category and level student distribution."""
         from core.models import Level, Student
         from django.db.models import Count, Q
-        levels = Level.objects.annotate(
+        levels = Level.objects.select_related('category').annotate(
             student_count=Count('students', filter=Q(students__is_active=True))
-        ).order_by('category', 'name')
+        ).order_by('category__name', 'name')
         
         total_students = sum(l.student_count for l in levels)
         results = []

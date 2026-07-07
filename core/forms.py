@@ -1,6 +1,6 @@
 from django import forms
 from django.forms import inlineformset_factory
-from .models import Session, CourseGroup, Student, Enrollment, Room, CourseGroupSchedule, Level, TeacherLeave, TeacherAvailability
+from .models import Session, CourseGroup, Student, Enrollment, Room, CourseGroupSchedule, Level, LevelCategory, TeacherLeave, TeacherAvailability
 
 
 class StudentForm(forms.ModelForm):

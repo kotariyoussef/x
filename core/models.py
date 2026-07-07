@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.utils import timezone
 from django.db.models import Sum
 from django.core.exceptions import ValidationError
+from django.utils.text import slugify
 
 class Room(models.Model):
     """Salle de classe"""
@@ -169,20 +170,33 @@ def check_teacher_availability(teacher, day, start_time, end_time, date_val=None
                 )
 
 
+class LevelCategory(models.Model):
+    """Catégorie de niveau académique"""
+    name = models.CharField(max_length=100, unique=True, verbose_name="Nom de la catégorie")
+    code = models.CharField(max_length=50, unique=True, verbose_name="Code")
+
+    class Meta:
+        verbose_name = "Catégorie de niveau"
+        verbose_name_plural = "Catégories de niveau"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = slugify(self.name).upper()
+        super().save(*args, **kwargs)
+
+
 class Level(models.Model):
     """Niveau académique"""
-    CATEGORY_CHOICES = [
-        ('GARDERIE', 'La Garderie'),
-        ('PRIMAIRE', 'Primaire'),
-        ('COLLEGE', 'Collège'),
-        ('LYCEE', 'Lycée'),
-    ]
     
     name = models.CharField(max_length=100, unique=True, verbose_name="Nom du niveau")
-    category = models.CharField(
-        max_length=20,
-        choices=CATEGORY_CHOICES,
-        default='PRIMAIRE',
+    category = models.ForeignKey(
+        LevelCategory,
+        on_delete=models.PROTECT,
+        related_name='levels',
         verbose_name="Catégorie"
     )
     
@@ -193,6 +207,9 @@ class Level(models.Model):
     
     def __str__(self):
         return self.name
+
+    def get_category_display(self):
+        return self.category.name if self.category else ""
 
 
 class CourseGroup(models.Model):

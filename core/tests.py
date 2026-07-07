@@ -117,15 +117,15 @@ class PaymentLogicTestCase(TestCase):
         call_command('setup_levels')
         
         # Check that levels are correctly created
-        self.assertEqual(Level.objects.filter(category='GARDERIE').count(), 3)
-        self.assertEqual(Level.objects.filter(category='PRIMAIRE').count(), 6)
-        self.assertEqual(Level.objects.filter(category='COLLEGE').count(), 3)
-        self.assertEqual(Level.objects.filter(category='LYCEE').count(), 3)
+        self.assertEqual(Level.objects.filter(category__code='GARDERIE').count(), 3)
+        self.assertEqual(Level.objects.filter(category__code='PRIMAIRE').count(), 6)
+        self.assertEqual(Level.objects.filter(category__code='COLLEGE').count(), 3)
+        self.assertEqual(Level.objects.filter(category__code='LYCEE').count(), 3)
         
         # Check specific levels
-        self.assertTrue(Level.objects.filter(name='Petite Section (PS)', category='GARDERIE').exists())
-        self.assertTrue(Level.objects.filter(name='1AP', category='PRIMAIRE').exists())
-        self.assertTrue(Level.objects.filter(name='3ASC', category='COLLEGE').exists())
-        self.assertTrue(Level.objects.filter(name='Tronc Commun (TC)', category='LYCEE').exists())
+        self.assertTrue(Level.objects.filter(name='Petite Section (PS)', category__code='GARDERIE').exists())
+        self.assertTrue(Level.objects.filter(name='1AP', category__code='PRIMAIRE').exists())
+        self.assertTrue(Level.objects.filter(name='3ASC', category__code='COLLEGE').exists())
+        self.assertTrue(Level.objects.filter(name='Tronc Commun (TC)', category__code='LYCEE').exists())
 
 

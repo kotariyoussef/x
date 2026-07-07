@@ -2576,12 +2576,12 @@ def levels_list(request):
     """List all levels"""
     from .models import Level
     from django.db.models import Case, When, Value, IntegerField
-    levels = Level.objects.all().annotate(
+    levels = Level.objects.select_related('category').all().annotate(
         category_order=Case(
-            When(category='GARDERIE', then=Value(1)),
-            When(category='PRIMAIRE', then=Value(2)),
-            When(category='COLLEGE', then=Value(3)),
-            When(category='LYCEE', then=Value(4)),
+            When(category__code='GARDERIE', then=Value(1)),
+            When(category__code='PRIMAIRE', then=Value(2)),
+            When(category__code='COLLEGE', then=Value(3)),
+            When(category__code='LYCEE', then=Value(4)),
             default=Value(5),
             output_field=IntegerField(),
         )
