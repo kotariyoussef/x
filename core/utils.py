@@ -1314,6 +1314,83 @@ def generate_schedule_pdf(sessions_list, title: str = "Planification") -> BytesI
     buffer.seek(0)
     return buffer
 
+def generate_student_schedule_pdf(sessions_list, student_name: str, title: str = None) -> BytesIO:
+    """
+    Génère un PDF A4 listant l'emploi du temps d'un élève.
+    sessions_list: iterable of Session objects (assumed ordered by date/time)
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet
+    from collections import defaultdict
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36
+    )
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Title
+    display_title = title or f"Planification — {student_name}"
+    elements.append(Paragraph(f"<b>{display_title}</b>", styles['Title']))
+    elements.append(Paragraph(f"Généré le: {timezone.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+    elements.append(Spacer(1, 12))
+
+    if not sessions_list:
+        elements.append(Paragraph("Aucune séance prévue pour cette période.", styles['Normal']))
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
+
+    grouped = defaultdict(list)
+    for s in sessions_list:
+        grouped[s.date].append(s)
+
+    header_row = ['Heure', 'Cours', 'Professeur', 'Salle']
+
+    for date in sorted(grouped.keys()):
+        day_name = FRENCH_DAYS[date.strftime("%A")]
+        date_str = f"{day_name} {date.strftime('%d/%m/%Y')}"
+        elements.append(Paragraph(f"<b>{date_str}</b>", styles['Heading3']))
+
+        data = [header_row]
+        row_styles = []  # extra TableStyle commands per row (e.g. cancelled sessions)
+        day_sessions = sorted(grouped[date], key=lambda x: (x.start_time, x.end_time))
+
+        for i, s in enumerate(day_sessions, start=1):
+            time_range = f"{s.start_time.strftime('%H:%M')}-{s.end_time.strftime('%H:%M')}"
+            group_name = s.group.name if s.group else ''
+            teacher = s.group.teacher.name if s.group and s.group.teacher else ''
+            room = s.room.name if s.room else 'À définir'
+
+            is_cancelled = getattr(s, 'status', None) == 'cancelled'
+            if is_cancelled:
+                group_name = f"{group_name} (Annulé)"
+                row_styles.append(('TEXTCOLOR', (0, i), (-1, i), colors.red))
+
+            data.append([time_range, group_name, teacher, room])
+
+        table = Table(data, colWidths=[80, 190, 140, 90])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f0f0f0')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            *row_styles,
+        ]))
+
+        elements.append(table)
+        elements.append(Spacer(1, 12))
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
 
 def generate_thermal_receipt(payment) -> str:
     """

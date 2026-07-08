@@ -1018,30 +1018,41 @@ def print_student_schedule(request, student_id):
     """Generate PDF schedule for a specific student for the selected week."""
     week_param = request.GET.get('week')
     today = timezone.now().date()
+
     if week_param:
         try:
             parsed = datetime.strptime(week_param, '%Y-%m-%d').date()
             week_start = parsed - timedelta(days=parsed.weekday())
-            week_end = week_start + timedelta(days=6)
-        except Exception:
+        except ValueError:
             week_start = today - timedelta(days=today.weekday())
-            week_end = week_start + timedelta(days=6)
     else:
         week_start = today - timedelta(days=today.weekday())
-        week_end = week_start + timedelta(days=6)
+    week_end = week_start + timedelta(days=6)
 
-    # Sessions where the student's group is scheduled and the student is enrolled
     student = get_object_or_404(Student, pk=student_id)
     enrollments = student.enrollment_set.filter(is_active=True).values_list('course_group_id', flat=True)
-    sessions_qs = Session.objects.filter(date__range=[week_start, week_end], group_id__in=list(enrollments)).select_related('group', 'group__teacher', 'room').order_by('date', 'start_time')
-    sessions = list(sessions_qs)
 
-    from .utils import generate_schedule_pdf
-    pdf_buf = generate_schedule_pdf(sessions, title=f"Planification — {student.name} — semaine {week_start.strftime('%d/%m/%Y')}")
+    sessions = list(
+        Session.objects.filter(
+            date__range=[week_start, week_end],
+            group_id__in=list(enrollments),
+        )
+        .select_related('group', 'group__teacher', 'room')
+        .order_by('date', 'start_time')
+    )
+
+    from .utils import generate_student_schedule_pdf
+    pdf_buf = generate_student_schedule_pdf(
+        sessions,
+        student_name=student.name,
+        title=f"Planification — {student.name} — semaine {week_start.strftime('%d/%m/%Y')}",
+    )
+
     response = HttpResponse(pdf_buf.read(), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="schedule_student_{student_id}_{week_start.strftime("%Y%m%d")}.pdf"'
+    response['Content-Disposition'] = (
+        f'attachment; filename="schedule_student_{student_id}_{week_start.strftime("%Y%m%d")}.pdf"'
+    )
     return response
-
 
 @require_GET
 def print_students_list(request):

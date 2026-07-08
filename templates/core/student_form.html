@@ -9,6 +9,81 @@
   <span class="context-bar-current">{{ title }}</span>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+  .group-level-summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--primary);
+    padding: 6px 0;
+    list-style: none;
+  }
+  .group-level-summary::-webkit-details-marker { display: none; }
+  .group-level-summary::before {
+    content: "\F282";
+    font-family: "bootstrap-icons";
+    margin-right: 6px;
+    font-size: 12px;
+    display: inline-block;
+    transition: transform .15s ease;
+  }
+  details[open] > .group-level-summary::before { transform: rotate(90deg); }
+
+  .group-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+    padding: 4px 0 10px;
+  }
+
+  .group-card {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color .12s ease, background-color .12s ease;
+    background: #fff;
+  }
+  .group-card:hover { border-color: var(--primary); }
+  .group-card.selected {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 6%, white);
+  }
+  .group-card input[type="checkbox"] { display: none; }
+
+  .group-card-check {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    color: var(--primary);
+    opacity: 0;
+    transform: scale(.7);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .group-card.selected .group-card-check { opacity: 1; transform: scale(1); }
+
+  .group-card-name { font-weight: 600; font-size: 13.5px; padding-right: 20px; }
+  .group-card-schedules { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+
+  .schedule-chip {
+    font-size: 11.5px;
+    background: #f1f5f9;
+    color: #475569;
+    border-radius: 6px;
+    padding: 2px 7px;
+    white-space: nowrap;
+  }
+  .group-card.selected .schedule-chip { background: color-mix(in srgb, var(--primary) 12%, white); color: var(--primary); }
+
+  #group-empty-state { display: none; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
   <div>
@@ -124,7 +199,78 @@
         </div>
       </div>
 
-      <!-- ── Notes ──────────────────────────────────────────────── -->
+      <!-- ── Groupes de cours ───────────────────────────────────── -->
+
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-book-fill" style="color:var(--primary);font-size:17px;"></i>
+            <span style="font-weight:700;font-size:15.5px;">Inscrire aux groupes de cours</span>
+          </div>
+          <span class="badge badge-primary" id="groups-selected-count">0 sélectionné(s)</span>
+        </div>
+        <div class="card-body">
+
+          <div class="input-group mb-3">
+            <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
+            <input type="text" id="group-search" class="form-control" placeholder="Rechercher un groupe, un niveau, un horaire…">
+          </div>
+
+          {% if form.groups.errors %}
+            <div class="alert alert-danger py-2 px-3 mb-3">
+              {% for e in form.groups.errors %}<div>{{ e }}</div>{% endfor %}
+            </div>
+          {% endif %}
+
+          <div id="group-picker">
+          {% for level_key, groups in form.get_groups_display.items %}
+            <details class="group-level mb-2" data-level-id="{{ level_key.0 }}" open>
+              <summary class="group-level-summary">
+                {{ level_key.1 }}
+                <span class="text-muted fw-normal">({{ groups|length }})</span>
+              </summary>
+              <div class="group-card-grid">
+                {% for g in groups %}
+                  <label class="group-card {% if g.checked %}selected{% endif %}"
+                        data-search="{{ g.name|lower }} {{ level_key.1|lower }} {% for s in g.schedules %}{{ s.day|lower }} {% endfor %}">
+                    <input type="checkbox" name="groups" value="{{ g.id }}" {% if g.checked %}checked{% endif %}>
+                    <div class="group-card-body">
+                      <div class="group-card-name">{{ g.name }}</div>
+                      {% if g.schedules %}
+                        <div class="group-card-schedules">
+                          {% for s in g.schedules %}
+                            <span class="schedule-chip">{{ s.day }} {{ s.start }}–{{ s.end }}</span>
+                          {% endfor %}
+                        </div>
+                      {% else %}
+                        <div class="group-card-schedules text-muted">Aucun horaire défini</div>
+                      {% endif %}
+                    </div>
+                    <i class="bi bi-check-circle-fill group-card-check"></i>
+                  </label>
+                {% endfor %}
+              </div>
+            </details>
+          {% empty %}
+            <p class="text-muted mb-0">Aucun groupe de cours actif disponible.</p>
+          {% endfor %}
+        </div>
+
+        <div id="group-level-hint" class="alert alert-info py-2 px-3 mb-0 d-none">
+          <i class="bi bi-info-circle me-1"></i>
+          Affichage filtré selon le niveau scolaire sélectionné. Les groupes sans niveau restent visibles.
+          <button type="button" class="btn btn-link btn-sm p-0 ms-2" id="show-all-groups-btn">Afficher tous les groupes</button>
+        </div>
+
+          <div id="group-empty-state" class="text-muted text-center py-3" style="display:none;">
+            Aucun groupe ne correspond à votre recherche.
+          </div>
+
+          <div class="form-text mt-2">Cliquez sur une carte pour inscrire l'élève directement au groupe.</div>
+        </div>
+      </div>
+
+            <!-- ── Notes ──────────────────────────────────────────────── -->
       <div class="card mb-4">
         <div class="card-header d-flex align-items-center gap-2">
           <i class="bi bi-file-text" style="color:#f59e0b;font-size:17px;"></i>
@@ -137,26 +283,6 @@
           {% if form.notes.errors %}
             <div class="invalid-feedback d-block">{% for e in form.notes.errors %}{{ e }}{% endfor %}</div>
           {% endif %}
-        </div>
-      </div>
-
-      <!-- ── Groupes de cours ───────────────────────────────────── -->
-      <div class="card mb-4">
-        <div class="card-header d-flex align-items-center gap-2">
-          <i class="bi bi-book-fill" style="color:var(--primary);font-size:17px;"></i>
-          <span style="font-weight:700;font-size:15.5px;">Inscrire aux groupes de cours</span>
-        </div>
-        <div class="card-body">
-          <div class="mb-3">
-            <label for="{{ form.groups.id_for_label }}" class="form-label">
-              Sélectionner les groupes
-            </label>
-            {{ form.groups }}
-            <div class="form-text">Sélectionnez un ou plusieurs groupes de cours pour y inscrire l'élève directement.</div>
-            {% if form.groups.errors %}
-              <div class="invalid-feedback d-block">{% for e in form.groups.errors %}{{ e }}{% endfor %}</div>
-            {% endif %}
-          </div>
         </div>
       </div>
 
@@ -187,6 +313,10 @@
   </div>
 </form>
 
+{% endblock %}
+
+{% block extra_js %}
+
 <script>
   // Autofocus first field
   document.addEventListener('DOMContentLoaded', function() {
@@ -209,5 +339,92 @@
       width: '100%'
     });
   });
+  (function () {
+  const searchInput = document.getElementById('group-search');
+  const picker = document.getElementById('group-picker');
+  const emptyState = document.getElementById('group-empty-state');
+  const counter = document.getElementById('groups-selected-count');
+  const cards = Array.from(picker.querySelectorAll('.group-card'));
+  const levels = Array.from(picker.querySelectorAll('.group-level'));
+
+  function updateCounter() {
+    const n = picker.querySelectorAll('input[type="checkbox"]:checked').length;
+    counter.textContent = n + (n > 1 ? ' sélectionnés' : ' sélectionné');
+  }
+
+  function toggleCard(card) {
+    const cb = card.querySelector('input[type="checkbox"]');
+    cb.checked = !cb.checked;
+    card.classList.toggle('selected', cb.checked);
+    updateCounter();
+  }
+
+  cards.forEach(card => {
+    card.addEventListener('click', function (e) {
+      e.preventDefault();
+      toggleCard(card);
+    });
+  });
+
+  searchInput.addEventListener('input', function () {
+    const q = this.value.trim().toLowerCase();
+    let anyVisible = false;
+
+    levels.forEach(level => {
+      let levelHasVisible = false;
+      level.querySelectorAll('.group-card').forEach(card => {
+        const match = !q || card.dataset.search.includes(q);
+        card.style.display = match ? '' : 'none';
+        if (match) levelHasVisible = true;
+      });
+      level.style.display = levelHasVisible ? '' : 'none';
+      if (levelHasVisible) anyVisible = true;
+    });
+
+    emptyState.style.display = anyVisible ? 'none' : 'block';
+  });
+
+  updateCounter();
+})();
+(function () {
+  const levelSelect = document.getElementById('{{ form.level.id_for_label }}');
+  const levelGroups = Array.from(document.querySelectorAll('#group-picker .group-level'));
+  const hint = document.getElementById('group-level-hint');
+  const showAllBtn = document.getElementById('show-all-groups-btn');
+  let forceShowAll = false;
+
+  function applyLevelFilter() {
+    const selectedLevel = levelSelect ? levelSelect.value : '';
+
+    if (!selectedLevel || forceShowAll) {
+      levelGroups.forEach(lvl => lvl.style.display = '');
+      hint.classList.add('d-none');
+      return;
+    }
+
+    levelGroups.forEach(lvl => {
+      const lvlId = lvl.dataset.levelId; // '' means "Sans niveau"
+      const matches = lvlId === selectedLevel || lvlId === '';
+      lvl.style.display = matches ? '' : 'none';
+    });
+    hint.classList.remove('d-none');
+  }
+
+  if (levelSelect) {
+    levelSelect.addEventListener('change', function () {
+      forceShowAll = false;
+      applyLevelFilter();
+    });
+  }
+
+  if (showAllBtn) {
+    showAllBtn.addEventListener('click', function () {
+      forceShowAll = true;
+      applyLevelFilter();
+    });
+  }
+
+  applyLevelFilter(); // run on load (handles edit page where level is pre-filled)
+})();
 </script>
 {% endblock %}

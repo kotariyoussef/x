@@ -117,7 +117,44 @@ class StudentForm(forms.ModelForm):
                                 f"le {sch1.get_day_display()} ({sch1.start_time.strftime('%H:%M')}-{sch1.end_time.strftime('%H:%M')} vs {sch2.start_time.strftime('%H:%M')}-{sch2.end_time.strftime('%H:%M')})."
                             )
         return cleaned_data
+    
+    def get_groups_display(self):
+        """Course groups grouped by level (with level id), for the custom picker UI."""
+        if self.is_bound:
+            raw = self.data.getlist('groups') if hasattr(self.data, 'getlist') else self.data.get('groups', [])
+            checked_ids = {int(i) for i in raw if str(i).isdigit()}
+        elif self.instance and self.instance.pk:
+            checked_ids = set(
+                self.instance.enrollment_set.filter(is_active=True).values_list('course_group_id', flat=True)
+            )
+        else:
+            checked_ids = set()
 
+        groups = self.fields['groups'].queryset.select_related('level').prefetch_related('schedules')
+
+        by_level = {}  # key: (level_id_str, level_name) -> list of group dicts
+        for g in groups:
+            level_id = str(g.level_id) if g.level_id else ''
+            level_name = g.level.name if g.level else "Sans niveau"
+            key = (level_id, level_name)
+            schedules = [
+                {
+                    'day': sch.get_day_display(),
+                    'start': sch.start_time.strftime('%H:%M'),
+                    'end': sch.end_time.strftime('%H:%M'),
+                }
+                for sch in g.schedules.all()
+            ]
+            by_level.setdefault(key, []).append({
+                'id': g.id,
+                'name': g.name,
+                'schedules': schedules,
+                'checked': g.id in checked_ids,
+            })
+            # "Sans niveau" last, others sorted by name
+            ordered = dict(sorted(by_level.items(), key=lambda kv: (kv[0][0] == '', kv[0][1])))
+        return ordered
+        
     def save(self, commit=True):
         student = super().save(commit=commit)
         if commit:

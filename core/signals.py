@@ -9,6 +9,7 @@ Flow:
 """
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
+from django.conf import settings
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -103,80 +104,81 @@ def session_pre_save_snapshot(sender, instance, **kwargs):
         setattr(instance, _SNAPSHOT_ATTR, None)
 
 
-@receiver(post_save, sender='core.Session')
-def session_post_save_notify(sender, instance, created, **kwargs):
-    """
-    After a Session is saved, diff against snapshot and send WA notifications
-    for cancellations or meaningful schedule changes (date, time, room).
-    """
-    if created:
-        return
+if settings.WHATSAPP_SESSION_NOTIFICATIONS_ENABLED:
+    @receiver(post_save, sender='core.Session')
+    def session_post_save_notify(sender, instance, created, **kwargs):
+        """
+        After a Session is saved, diff against snapshot and send WA notifications
+        for cancellations or meaningful schedule changes (date, time, room).
+        """
+        if created:
+            return
 
-    snapshot = getattr(instance, _SNAPSHOT_ATTR, None)
-    if snapshot is None:
-        return
+        snapshot = getattr(instance, _SNAPSHOT_ATTR, None)
+        if snapshot is None:
+            return
 
-    now_cancelled = (
-        snapshot['status'] != 'CANCELLED'
-        and instance.status == 'CANCELLED'
-    )
-
-    schedule_changes = []
-    if instance.date != snapshot['date']:
-        schedule_changes.append(
-            f"Date : {snapshot['date'].strftime('%d/%m/%Y')} → {instance.date.strftime('%d/%m/%Y')}"
+        now_cancelled = (
+            snapshot['status'] != 'CANCELLED'
+            and instance.status == 'CANCELLED'
         )
-    if instance.start_time != snapshot['start_time']:
-        schedule_changes.append(
-            f"Heure début : {snapshot['start_time'].strftime('%H:%M')} → {instance.start_time.strftime('%H:%M')}"
-        )
-    if instance.end_time != snapshot.get('end_time') and snapshot.get('end_time') is not None:
-        schedule_changes.append(
-            f"Heure fin : {snapshot['end_time'].strftime('%H:%M')} → {instance.end_time.strftime('%H:%M')}"
-        )
-    if instance.room_id != snapshot['room_id']:
-        try:
-            from .models import Room
-            old_room = Room.objects.filter(pk=snapshot['room_id']).first()
-            old_room_name = old_room.name if old_room else str(snapshot['room_id'])
-        except Exception:
-            old_room_name = str(snapshot['room_id'])
-        schedule_changes.append(f"Salle : {old_room_name} → {instance.room.name}")
 
-    if not now_cancelled and not schedule_changes:
-        return
-
-    if now_cancelled:
-        message = _build_cancellation_message(instance)
-        msg_type = 'absence_notification'
-    else:
-        message = _build_change_message(instance, schedule_changes)
-        msg_type = 'session_reminder'
-
-    # Notify enrolled students via parent contact
-    try:
-        enrolled_students = (
-            instance.group.students
-            .filter(is_active=True, enrollment__is_active=True)
-            .distinct()
-        )
-        for student in enrolled_students:
-            phone = student.parent_contact or student.phone
-            if phone:
-                _notify(phone, message, student=student, message_type=msg_type)
-    except Exception:
-        pass
-
-    # Notify the teacher (substitute takes precedence over primary teacher)
-    try:
-        teacher = instance.substitute_teacher or instance.group.teacher
-        if teacher and teacher.phone:
-            teacher_label = "[Remplaçant]" if instance.substitute_teacher else "[Professeur]"
-            _notify(
-                teacher.phone,
-                f"{teacher_label} {message}",
-                student=None,
-                message_type=msg_type,
+        schedule_changes = []
+        if instance.date != snapshot['date']:
+            schedule_changes.append(
+                f"Date : {snapshot['date'].strftime('%d/%m/%Y')} → {instance.date.strftime('%d/%m/%Y')}"
             )
-    except Exception:
-        pass
+        if instance.start_time != snapshot['start_time']:
+            schedule_changes.append(
+                f"Heure début : {snapshot['start_time'].strftime('%H:%M')} → {instance.start_time.strftime('%H:%M')}"
+            )
+        if instance.end_time != snapshot.get('end_time') and snapshot.get('end_time') is not None:
+            schedule_changes.append(
+                f"Heure fin : {snapshot['end_time'].strftime('%H:%M')} → {instance.end_time.strftime('%H:%M')}"
+            )
+        if instance.room_id != snapshot['room_id']:
+            try:
+                from .models import Room
+                old_room = Room.objects.filter(pk=snapshot['room_id']).first()
+                old_room_name = old_room.name if old_room else str(snapshot['room_id'])
+            except Exception:
+                old_room_name = str(snapshot['room_id'])
+            schedule_changes.append(f"Salle : {old_room_name} → {instance.room.name}")
+
+        if not now_cancelled and not schedule_changes:
+            return
+
+        if now_cancelled:
+            message = _build_cancellation_message(instance)
+            msg_type = 'absence_notification'
+        else:
+            message = _build_change_message(instance, schedule_changes)
+            msg_type = 'session_reminder'
+
+        # Notify enrolled students via parent contact
+        try:
+            enrolled_students = (
+                instance.group.students
+                .filter(is_active=True, enrollment__is_active=True)
+                .distinct()
+            )
+            for student in enrolled_students:
+                phone = student.parent_contact or student.phone
+                if phone:
+                    _notify(phone, message, student=student, message_type=msg_type)
+        except Exception:
+            pass
+
+        # Notify the teacher (substitute takes precedence over primary teacher)
+        try:
+            teacher = instance.substitute_teacher or instance.group.teacher
+            if teacher and teacher.phone:
+                teacher_label = "[Remplaçant]" if instance.substitute_teacher else "[Professeur]"
+                _notify(
+                    teacher.phone,
+                    f"{teacher_label} {message}",
+                    student=None,
+                    message_type=msg_type,
+                )
+        except Exception:
+            pass
