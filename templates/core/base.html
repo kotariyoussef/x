@@ -1776,7 +1776,7 @@
         <!-- Admin shortcut (staff only) -->
         {% if user.is_staff %}
         <a class="navbar-admin-link" href="/admin/" target="_blank" rel="noopener noreferrer"
-          title="Administration Django">
+          title="Administration">
           <i class="bi bi-gear-fill" aria-hidden="true"></i>
           <span class="nav-label-text">Admin</span>
         </a>
@@ -1897,7 +1897,7 @@
       <div class="mobile-nav-section-label">Système</div>
       {% if user.is_staff %}
       <a class="mobile-nav-link" href="/admin/" target="_blank" rel="noopener noreferrer">
-        <i class="bi bi-gear-fill" aria-hidden="true"></i> Administration Django
+        <i class="bi bi-gear-fill" aria-hidden="true"></i> Administration
       </a>
       {% endif %}
 

@@ -1,75 +1,11 @@
-import logging
-import random
-from datetime import date, datetime
-from decimal import Decimal
-
-from django.core.exceptions import ValidationError
+from django.db import models
 from django.core.validators import MinValueValidator
-from django.db import connection, models, transaction
-from django.db.models import Max, Q, Sum
-from django.db.utils import IntegrityError
+from decimal import Decimal
 from django.utils import timezone
+from django.db.models import Sum
+from django.core.exceptions import ValidationError
 from django.utils.text import slugify
-
-logger = logging.getLogger(__name__)
-
-
-class TeacherPaymentMethod(models.TextChoices):
-    HOURLY = 'HOURLY', 'Taux horaire'
-    PERCENTAGE = 'PERCENTAGE', 'Part des gains (pourcentage des gains de la classe)'
-    SESSION = 'SESSION', 'Tarif par session'
-
-
-class TeacherLeaveType(models.TextChoices):
-    SICK = 'SICK', 'Maladie'
-    VACATION = 'VACATION', 'Vacances'
-    OTHER = 'OTHER', 'Autre'
-
-
-class PaymentStatus(models.TextChoices):
-    PAID = 'PAID', 'Payé'
-    PENDING = 'PENDING', 'En attente'
-    CANCELLED = 'CANCELLED', 'Annulé'
-
-
-class PaymentMethod(models.TextChoices):
-    CASH = 'CASH', 'Espèces'
-    TRANSFER = 'TRANSFER', 'Virement'
-    CHECK = 'CHECK', 'Chèque'
-
-
-class SessionStatus(models.TextChoices):
-    PLANNED = 'PLANNED', 'Prévu'
-    DONE = 'DONE', 'Terminé'
-    CANCELLED = 'CANCELLED', 'Annulé'
-
-
-WEEKDAY_TO_CODE = {
-    0: 'MON',
-    1: 'TUE',
-    2: 'WED',
-    3: 'THU',
-    4: 'FRI',
-    5: 'SAT',
-    6: 'SUN',
-}
-
-
-def overlaps(start_a, end_a, start_b, end_b):
-    return start_a < end_b and end_a > start_b
-
-
-def duration_hours(start_time, end_time):
-    start = datetime.combine(date.today(), start_time)
-    end = datetime.combine(date.today(), end_time)
-    return (end - start).total_seconds() / 3600
-
-
-def get_weekday_code(day_value):
-    if hasattr(day_value, 'weekday'):
-        return WEEKDAY_TO_CODE[day_value.weekday()]
-    return day_value
-
+import random
 
 class Room(models.Model):
     """Salle de classe"""
@@ -91,7 +27,11 @@ class Room(models.Model):
 
 class Teacher(models.Model):
     """Professeur"""
-    PAYMENT_METHOD_CHOICES = TeacherPaymentMethod.choices
+    PAYMENT_METHOD_CHOICES = [
+        ('HOURLY', 'Taux horaire'),
+        ('PERCENTAGE', 'Part des gains (pourcentage des gains de la classe)'),
+        ('SESSION', 'Tarif par session'),
+    ]
     
     name = models.CharField(max_length=100, verbose_name="Nom complet")
     phone = models.CharField(max_length=20, verbose_name="Téléphone")
@@ -108,7 +48,7 @@ class Teacher(models.Model):
     payment_method = models.CharField(
         max_length=20,
         choices=PAYMENT_METHOD_CHOICES,
-        default=TeacherPaymentMethod.PERCENTAGE,
+        default='PERCENTAGE',
         verbose_name="Mode de paiement"
     )
     payment_percentage = models.DecimalField(
@@ -139,11 +79,11 @@ class Teacher(models.Model):
     
     def clean(self):
         super().clean()
-        if self.payment_method == TeacherPaymentMethod.HOURLY and not self.hourly_rate:
+        if self.payment_method == 'HOURLY' and not self.hourly_rate:
             raise ValidationError({'hourly_rate': "Le tarif horaire est requis pour le mode de paiement 'Taux horaire'."})
-        if self.payment_method == TeacherPaymentMethod.PERCENTAGE and self.payment_percentage is None:
+        if self.payment_method == 'PERCENTAGE' and self.payment_percentage is None:
             raise ValidationError({'payment_percentage': "La part des gains (%) est requise pour le mode de paiement 'Part des gains'."})
-        if self.payment_method == TeacherPaymentMethod.SESSION and not self.session_rate:
+        if self.payment_method == 'SESSION' and not self.session_rate:
             raise ValidationError({'session_rate': "Le tarif par session est requis pour le mode de paiement 'Tarif par session'."})
             
     def save(self, *args, **kwargs):
@@ -151,20 +91,24 @@ class Teacher(models.Model):
         super().save(*args, **kwargs)
         
     def __str__(self):
-        if self.payment_method == TeacherPaymentMethod.PERCENTAGE:
+        if self.payment_method == 'PERCENTAGE':
             return f"{self.name} ({self.payment_percentage}%)"
-        elif self.payment_method == TeacherPaymentMethod.SESSION:
+        elif self.payment_method == 'SESSION':
             return f"{self.name} ({self.session_rate} DH/sess)"
         return f"{self.name} ({self.hourly_rate} DH/h)"
 
 
 class TeacherLeave(models.Model):
     """Congés des enseignants"""
-    LEAVE_CHOICES = TeacherLeaveType.choices
+    LEAVE_CHOICES = [
+        ('SICK', 'Maladie'),
+        ('VACATION', 'Vacances'),
+        ('OTHER', 'Autre'),
+    ]
     teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='leaves', verbose_name="Enseignant")
     start_date = models.DateField(verbose_name="Date de début")
     end_date = models.DateField(verbose_name="Date de fin")
-    leave_type = models.CharField(max_length=10, choices=LEAVE_CHOICES, default=TeacherLeaveType.OTHER, verbose_name="Type de congé")
+    leave_type = models.CharField(max_length=10, choices=LEAVE_CHOICES, default='OTHER', verbose_name="Type de congé")
     notes = models.TextField(blank=True, verbose_name="Notes")
 
     class Meta:
@@ -355,11 +299,19 @@ class CourseGroupSchedule(models.Model):
         return f"{self.course_group.name} - {self.get_day_display()} {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')} ({self.room.name})"
 
     def duration_hours(self):
-        return duration_hours(self.start_time, self.end_time)
+        from datetime import datetime
+        start = datetime.combine(datetime.today(), self.start_time)
+        end = datetime.combine(datetime.today(), self.end_time)
+        return (end - start).total_seconds() / 3600
 
     def clean(self):
-        super().clean()
 
+        cleaned_data = super().clean()
+
+        # Sometimes super().clean() may return None
+        if cleaned_data is None:
+            return {}
+            
         if self.end_time <= self.start_time:
             raise ValidationError("L'heure de fin doit être postérieure à l'heure de début.")
         
@@ -372,7 +324,7 @@ class CourseGroupSchedule(models.Model):
         if self.pk:
             overlapping_rooms = overlapping_rooms.exclude(pk=self.pk)
         for s in overlapping_rooms:
-            if overlaps(self.start_time, self.end_time, s.start_time, s.end_time):
+            if (self.start_time < s.end_time and self.end_time > s.start_time):
                 raise ValidationError(
                     f"La salle '{self.room.name}' est déjà réservée par le groupe '{s.course_group.name}' "
                     f"de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')} le {s.get_day_display()}."
@@ -387,7 +339,7 @@ class CourseGroupSchedule(models.Model):
         if self.pk:
             overlapping_teachers = overlapping_teachers.exclude(pk=self.pk)
         for s in overlapping_teachers:
-            if overlaps(self.start_time, self.end_time, s.start_time, s.end_time):
+            if (self.start_time < s.end_time and self.end_time > s.start_time):
                 raise ValidationError(
                     f"Le professeur '{self.course_group.teacher.name}' est déjà affecté au groupe '{s.course_group.name}' "
                     f"de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')} le {s.get_day_display()}."
@@ -507,65 +459,58 @@ class Student(models.Model):
             return 'PARTIAL'
         return 'UNPAID'
 
-    @classmethod
-    def _build_candidate_matricule(cls, prefix, used_numbers):
-        available_2 = [n for n in range(1, 100) if n not in used_numbers]
-        if available_2:
-            easy_2 = set(get_easy_numbers_2_digits())
-            available_easy = [n for n in available_2 if n in easy_2]
-            chosen = random.choice(available_easy or available_2)
-            return f"{prefix}{chosen:02d}"
-
-        available_3 = [n for n in range(100, 1000) if n not in used_numbers]
-        if available_3:
-            easy_3 = set(get_easy_numbers_3_digits())
-            available_easy = [n for n in available_3 if n in easy_3]
-            chosen = random.choice(available_easy or available_3)
-            return f"{prefix}{chosen:03d}"
-
-        new_num = 1000
-        while True:
-            candidate = f"{prefix}{new_num}"
-            if candidate not in used_numbers:
-                return candidate
-            new_num += 1
-
-    @classmethod
-    def generate_next_matricule(cls, year=None):
-        year_prefix = (year or timezone.now().strftime('%y'))
-        prefix = f"M{year_prefix}-"
-
-        for _ in range(20):
-            with transaction.atomic():
-                queryset = cls.objects.filter(matricule__startswith=prefix)
-                if connection.features.has_select_for_update:
-                    queryset = queryset.select_for_update()
-
-                existing_matricules = list(queryset.values_list('matricule', flat=True))
-                used_numbers = set()
-                for matricule in existing_matricules:
-                    try:
-                        used_numbers.add(int(matricule.split('-')[1]))
-                    except (IndexError, ValueError):
-                        continue
-
-                candidate = cls._build_candidate_matricule(prefix, used_numbers)
-                if not cls.objects.filter(matricule=candidate).exists():
-                    return candidate
-
-        raise RuntimeError("Unable to generate a unique student matricule")
-
     def save(self, *args, **kwargs):
         if not self.matricule:
-            for _ in range(20):
-                self.matricule = self.generate_next_matricule()
-                try:
-                    super().save(*args, **kwargs)
-                    return
-                except IntegrityError:
-                    continue
-            raise RuntimeError("Unable to assign a unique student matricule")
-
+            year_prefix = timezone.now().strftime('%y')
+            prefix = f"M{year_prefix}-"
+            
+            while True:
+                # Get fresh view of used numbers
+                existing_matricules = Student.objects.filter(matricule__startswith=prefix).values_list('matricule', flat=True)
+                used_numbers = set()
+                for m in existing_matricules:
+                    try:
+                        num = int(m.split('-')[1])
+                        used_numbers.add(num)
+                    except (IndexError, ValueError):
+                        continue
+                
+                # Try 2 digits
+                available_2 = [n for n in range(1, 100) if n not in used_numbers]
+                if available_2:
+                    easy_2 = set(get_easy_numbers_2_digits())
+                    available_easy = [n for n in available_2 if n in easy_2]
+                    if available_easy:
+                        chosen = random.choice(available_easy)
+                    else:
+                        chosen = random.choice(available_2)
+                    candidate = f"{prefix}{chosen:02d}"
+                else:
+                    # Try 3 digits
+                    available_3 = [n for n in range(100, 1000) if n not in used_numbers]
+                    if available_3:
+                        easy_3 = set(get_easy_numbers_3_digits())
+                        available_easy = [n for n in available_3 if n in easy_3]
+                        if available_easy:
+                            chosen = random.choice(available_easy)
+                        else:
+                            chosen = random.choice(available_3)
+                        candidate = f"{prefix}{chosen:03d}"
+                    else:
+                        # Fallback > 1000
+                        new_num = 1000
+                        while True:
+                            candidate_fb = f"{prefix}{new_num}"
+                            if candidate_fb not in existing_matricules:
+                                candidate = candidate_fb
+                                break
+                            new_num += 1
+                
+                # Check uniqueness in DB before assigning
+                if not Student.objects.filter(matricule=candidate).exists():
+                    self.matricule = candidate
+                    break
+                    
         super().save(*args, **kwargs)
 
 
@@ -582,9 +527,7 @@ class Enrollment(models.Model):
     class Meta:
         verbose_name = "Inscription"
         verbose_name_plural = "Inscriptions"
-        constraints = [
-            models.UniqueConstraint(fields=['student', 'course_group'], name='unique_enrollment_per_student_course_group')
-        ]
+        unique_together = [['student', 'course_group']]
     
     def clean(self):
         super().clean()
@@ -612,7 +555,10 @@ class Enrollment(models.Model):
         for new_sch in new_schedules:
             for existing_sch in existing_schedules:
                 if new_sch.day == existing_sch.day:
-                    if overlaps(new_sch.start_time, new_sch.end_time, existing_sch.start_time, existing_sch.end_time):
+                    if (
+                        new_sch.start_time < existing_sch.end_time
+                        and new_sch.end_time > existing_sch.start_time
+                    ):
                         raise ValidationError(
                             f"Conflit d'horaire détecté : le groupe '{self.course_group.name}' "
                             f"({new_sch.get_day_display()} "
@@ -639,8 +585,17 @@ class Enrollment(models.Model):
 
 class Payment(models.Model):
     """Paiement"""
-    STATUS_CHOICES = PaymentStatus.choices
-    PAYMENT_METHOD_CHOICES = PaymentMethod.choices
+    STATUS_CHOICES = [
+        ('PAID', 'Payé'),
+        ('PENDING', 'En attente'),
+        ('CANCELLED', 'Annulé'),
+    ]
+    
+    PAYMENT_METHOD_CHOICES = [
+        ('CASH', 'Espèces'),
+        ('TRANSFER', 'Virement'),
+        ('CHECK', 'Chèque'),
+    ]
     
     student = models.ForeignKey(
         Student,
@@ -665,14 +620,14 @@ class Payment(models.Model):
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
-        default=PaymentStatus.PAID,
+        default='PAID',
         verbose_name="Statut"
     )
     
     payment_method = models.CharField(
         max_length=10,
         choices=PAYMENT_METHOD_CHOICES,
-        default=PaymentMethod.CASH,
+        default='CASH',
         verbose_name="Mode de paiement"
     )
     
@@ -728,43 +683,25 @@ class Payment(models.Model):
                     })
         return details
     
-    @classmethod
-    def generate_next_receipt_number(cls, year=None):
-        year = year or timezone.now().year
-        prefix = f"REC{year}"
-
-        for _ in range(20):
-            with transaction.atomic():
-                queryset = cls.objects.filter(receipt_number__startswith=prefix)
-                if connection.features.has_select_for_update:
-                    queryset = queryset.select_for_update()
-
-                last_payment = queryset.order_by('-receipt_number').first()
-                if last_payment:
-                    last_num = int(last_payment.receipt_number[-4:])
-                else:
-                    last_num = 0
-
-                candidate = f"{prefix}{last_num + 1:04d}"
-                if not cls.objects.filter(receipt_number=candidate).exists():
-                    return candidate
-
-        raise RuntimeError("Unable to generate a unique payment receipt number")
-
     def save(self, *args, **kwargs):
+        # Générer automatiquement le numéro de reçu
         if self.month_covered:
             self.month_covered = self.month_covered.replace(day=1)
 
         if not self.receipt_number:
-            for _ in range(20):
-                self.receipt_number = self.generate_next_receipt_number()
-                try:
-                    super().save(*args, **kwargs)
-                    return
-                except IntegrityError:
-                    continue
-            raise RuntimeError("Unable to assign a unique payment receipt number")
-
+            year = timezone.now().year
+            last_payment = Payment.objects.filter(
+                receipt_number__startswith=f"REC{year}"
+            ).order_by('-receipt_number').first()
+            
+            if last_payment:
+                last_num = int(last_payment.receipt_number[-4:])
+                new_num = last_num + 1
+            else:
+                new_num = 1
+            
+            self.receipt_number = f"REC{year}{new_num:04d}"
+        
         super().save(*args, **kwargs)
 
 
@@ -787,9 +724,7 @@ class Attendance(models.Model):
     class Meta:
         verbose_name = "Présence"
         verbose_name_plural = "Présences"
-        constraints = [
-            models.UniqueConstraint(fields=['student', 'course_group', 'date'], name='unique_attendance_per_student_group_date')
-        ]
+        unique_together = [['student', 'course_group', 'date']]
         ordering = ['-date']
         indexes = [
             models.Index(fields=['date']),
@@ -803,7 +738,11 @@ class Attendance(models.Model):
 
 class Session(models.Model):
     """Instance of a group meeting (used for scheduling & payroll)"""
-    STATUS_CHOICES = SessionStatus.choices
+    STATUS_CHOICES = [
+        ('PLANNED', 'Prévu'),
+        ('DONE', 'Terminé'),
+        ('CANCELLED', 'Annulé'),
+    ]
 
     group = models.ForeignKey(CourseGroup, on_delete=models.CASCADE, related_name='sessions')
     schedule = models.ForeignKey(CourseGroupSchedule, on_delete=models.SET_NULL, null=True, blank=True, related_name='sessions')
@@ -824,7 +763,7 @@ class Session(models.Model):
         related_name='substitute_sessions',
         verbose_name="Enseignant remplaçant"
     )
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=SessionStatus.PLANNED)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PLANNED')
     notes = models.TextField(blank=True)
     is_manually_edited = models.BooleanField(default=False, verbose_name="Modifié manuellement")
 
@@ -845,6 +784,7 @@ class Session(models.Model):
         return f"{self.group.name} - {self.date} {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}"
 
     def clean(self):
+        from django.db.models import Q
         if self.end_time <= self.start_time:
             raise ValidationError('End time must be after start time')
         
@@ -852,7 +792,7 @@ class Session(models.Model):
             raise ValidationError('La salle est requise.')
 
         # 1. Check room conflicts (excluding CANCELLED sessions)
-        room_conflicts = Session.objects.filter(date=self.date, room=self.room).exclude(status=SessionStatus.CANCELLED)
+        room_conflicts = Session.objects.filter(date=self.date, room=self.room).exclude(status='CANCELLED')
         if self.pk:
             room_conflicts = room_conflicts.exclude(pk=self.pk)
 
@@ -866,7 +806,7 @@ class Session(models.Model):
         # 2. Check teacher conflicts (excluding CANCELLED sessions)
         effective_teacher = getattr(self, 'substitute_teacher', None) or (self.group.teacher if self.group else None)
         if effective_teacher:
-            teacher_conflicts = Session.objects.filter(date=self.date).exclude(status=SessionStatus.CANCELLED)
+            teacher_conflicts = Session.objects.filter(date=self.date).exclude(status='CANCELLED')
             if self.pk:
                 teacher_conflicts = teacher_conflicts.exclude(pk=self.pk)
             # Filter where the teacher is either the substitute_teacher or (substitute_teacher is null and primary teacher is effective_teacher)
@@ -875,7 +815,7 @@ class Session(models.Model):
                 Q(substitute_teacher__isnull=True, group__teacher=effective_teacher)
             )
             for s in teacher_conflicts:
-                if overlaps(self.start_time, self.end_time, s.start_time, s.end_time):
+                if (self.start_time < s.end_time and self.end_time > s.start_time):
                     raise ValidationError(
                         f"Le professeur '{effective_teacher.name}' est déjà affecté au groupe '{s.group.name}' "
                         f"de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')}."
@@ -888,11 +828,11 @@ class Session(models.Model):
 
         # 3. Check group conflicts (excluding CANCELLED sessions)
         if self.group:
-            group_conflicts = Session.objects.filter(date=self.date, group=self.group).exclude(status=SessionStatus.CANCELLED)
+            group_conflicts = Session.objects.filter(date=self.date, group=self.group).exclude(status='CANCELLED')
             if self.pk:
                 group_conflicts = group_conflicts.exclude(pk=self.pk)
             for s in group_conflicts:
-                if overlaps(self.start_time, self.end_time, s.start_time, s.end_time):
+                if (self.start_time < s.end_time and self.end_time > s.start_time):
                     raise ValidationError(
                         f"Le groupe '{self.group.name}' a déjà une session planifiée de "
                         f"{s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')}."
@@ -903,7 +843,10 @@ class Session(models.Model):
         super().save(*args, **kwargs)
 
     def duration_hours(self):
-        return duration_hours(self.start_time, self.end_time)
+        from datetime import datetime
+        start = datetime.combine(datetime.today(), self.start_time)
+        end = datetime.combine(datetime.today(), self.end_time)
+        return (end - start).total_seconds() / 3600
 
     def get_default_schedule(self):
         """
@@ -911,7 +854,8 @@ class Session(models.Model):
         """
         if not self.group:
             return None
-        weekday = get_weekday_code(self.date)
+        DAY_MAP_REV = {0: 'MON', 1: 'TUE', 2: 'WED', 3: 'THU', 4: 'FRI', 5: 'SAT', 6: 'SUN'}
+        weekday = DAY_MAP_REV[self.date.weekday()]
         return self.group.schedules.filter(day=weekday).first()
 
     def get_exception_type(self):
@@ -925,7 +869,7 @@ class Session(models.Model):
             - 'TIME' if start or end times differ.
             - None if it matches the default schedule exactly.
         """
-        if self.status == SessionStatus.CANCELLED:
+        if self.status == 'CANCELLED':
             return 'CANCELLED'
         if self.substitute_teacher_id:
             return 'SUBSTITUTE'
@@ -1019,6 +963,7 @@ class TeacherAvailability(models.Model):
 # ==================== SIGNALS ====================
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from django.db.models import Max
 
 @receiver(post_save, sender=CourseGroup)
 def sync_course_group_on_save(sender, instance, **kwargs):
@@ -1034,7 +979,8 @@ def sync_course_group_on_save(sender, instance, **kwargs):
             
         generate_sessions_from_coursegroups(today, max_date, force=True, course=instance)
     except Exception:
-        logger.exception("Failed to sync sessions after CourseGroup save")
+        # Silently fail if database isn't ready (e.g., during migrations)
+        pass
 
 
 @receiver(post_save, sender=CourseGroupSchedule)

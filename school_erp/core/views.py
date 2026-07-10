@@ -2445,195 +2445,150 @@ def admin_statistics(request):
 
 def schedule_conflicts(request):
     """
-    Dashboard displaying all schedule, session, capacity, and student overlap conflicts.
+    Dashboard displaying all schedule, session, and capacity conflicts
     """
     from .utils import detect_all_conflicts
-    from django.utils import timezone as tz
     conflicts_data = detect_all_conflicts()
-    conflicts_data['last_checked'] = tz.now()
     return render(request, 'core/schedule_conflicts.html', conflicts_data)
 
 
 def check_conflict_ajax(request):
     """
-    AJAX endpoint for real-time conflict checking on session/schedule forms.
-    Checks room, teacher, capacity, group, teacher leave, and teacher availability.
+    AJAX endpoint for real-time conflict checking on forms
     """
-    from .models import Room, Teacher, CourseGroup, Session, CourseGroupSchedule, TeacherLeave, TeacherAvailability
+    from .models import Room, Teacher, CourseGroup, Session, CourseGroupSchedule
     from datetime import datetime as dt
-
+    
     check_type = request.GET.get('type')  # 'session' or 'schedule'
     room_id = request.GET.get('room_id')
     teacher_id = request.GET.get('teacher_id')
     start_time_str = request.GET.get('start_time')
     end_time_str = request.GET.get('end_time')
     exclude_id = request.GET.get('exclude_id')
-
+    
     if not (room_id and start_time_str and end_time_str):
         return JsonResponse({'conflicts': [], 'has_conflict': False})
-
+        
     try:
         start_time = dt.strptime(start_time_str, '%H:%M').time()
         end_time = dt.strptime(end_time_str, '%H:%M').time()
     except ValueError:
         return JsonResponse({'error': 'Format de l\'heure invalide. Utilisez HH:MM.'}, status=400)
-
+        
     if end_time <= start_time:
         return JsonResponse({'error': 'L\'heure de fin doit être postérieure à l\'heure de début.'}, status=400)
-
+        
     conflicts = []
-
+    
     if check_type == 'schedule':
         day = request.GET.get('day')
         if not day:
             return JsonResponse({'error': 'Le jour (day) est requis pour les schedules.'}, status=400)
-
-        # Check room conflicts in weekly schedule
-        room_qs = CourseGroupSchedule.objects.filter(
-            room_id=room_id, day=day, course_group__is_active=True
+            
+        # Check room conflicts
+        room_conflicts = CourseGroupSchedule.objects.filter(
+            room_id=room_id,
+            day=day,
+            course_group__is_active=True
         )
         if exclude_id:
-            room_qs = room_qs.exclude(id=exclude_id)
-        for sch in room_qs:
-            if start_time < sch.end_time and end_time > sch.start_time:
+            room_conflicts = room_conflicts.exclude(id=exclude_id)
+            
+        for sch in room_conflicts:
+            if (start_time < sch.end_time and end_time > sch.start_time):
                 conflicts.append({
                     'type': 'ROOM',
-                    'severity': 'critical',
                     'message': f"La salle est déjà réservée par le groupe '{sch.course_group.name}' de {sch.start_time.strftime('%H:%M')} à {sch.end_time.strftime('%H:%M')}."
                 })
-
-        # Check teacher conflicts in weekly schedule
-        if not teacher_id:
-            group_id = request.GET.get('group_id')
-            if group_id:
-                grp = CourseGroup.objects.filter(id=group_id).select_related('teacher').first()
-                if grp and grp.teacher_id:
-                    teacher_id = grp.teacher_id
-
+                
+        # Check teacher conflicts
         if teacher_id:
-            teacher_qs = CourseGroupSchedule.objects.filter(
-                course_group__teacher_id=teacher_id, day=day, course_group__is_active=True
+            teacher_conflicts = CourseGroupSchedule.objects.filter(
+                course_group__teacher_id=teacher_id,
+                day=day,
+                course_group__is_active=True
             )
             if exclude_id:
-                teacher_qs = teacher_qs.exclude(id=exclude_id)
-            for sch in teacher_qs:
-                if start_time < sch.end_time and end_time > sch.start_time:
+                teacher_conflicts = teacher_conflicts.exclude(id=exclude_id)
+                
+            for sch in teacher_conflicts:
+                if (start_time < sch.end_time and end_time > sch.start_time):
                     conflicts.append({
                         'type': 'TEACHER',
-                        'severity': 'critical',
                         'message': f"Le professeur est déjà affecté au groupe '{sch.course_group.name}' de {sch.start_time.strftime('%H:%M')} à {sch.end_time.strftime('%H:%M')}."
                     })
-
+                    
     else:  # session check
         date_str = request.GET.get('date')
         if not date_str:
             return JsonResponse({'error': 'La date est requise pour les sessions.'}, status=400)
+            
         try:
             date_obj = dt.strptime(date_str, '%Y-%m-%d').date()
         except ValueError:
             return JsonResponse({'error': 'Format de date invalide.'}, status=400)
-
-        # ── Room conflicts ────────────────────────────────────────────
-        room_qs = Session.objects.filter(date=date_obj, room_id=room_id).exclude(status='CANCELLED')
+            
+        # Check room conflicts
+        room_conflicts = Session.objects.filter(
+            date=date_obj,
+            room_id=room_id
+        ).exclude(status='CANCELLED')
         if exclude_id:
-            room_qs = room_qs.exclude(id=exclude_id)
-        for s in room_qs:
-            if start_time < s.end_time and end_time > s.start_time:
+            room_conflicts = room_conflicts.exclude(id=exclude_id)
+            
+        for s in room_conflicts:
+            if (start_time < s.end_time and end_time > s.start_time):
                 conflicts.append({
                     'type': 'ROOM',
-                    'severity': 'critical',
                     'message': f"La salle est déjà réservée par le groupe '{s.group.name}' de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')}."
                 })
-
-        # ── Derive teacher from group if not explicitly passed ─────────
-        group_id = request.GET.get('group_id')
-        if not teacher_id and group_id:
-            grp = CourseGroup.objects.filter(id=group_id).select_related('teacher').first()
-            if grp and grp.teacher_id:
-                teacher_id = grp.teacher_id
-
-        # ── Teacher session conflicts ──────────────────────────────────
+                
+        # Check teacher conflicts (considering group's primary or substitute teacher overlap)
         if teacher_id:
-            teacher_sess_qs = Session.objects.filter(date=date_obj).filter(
+            teacher_conflicts = Session.objects.filter(
+                date=date_obj
+            ).filter(
                 Q(group__teacher_id=teacher_id, substitute_teacher__isnull=True) |
                 Q(substitute_teacher_id=teacher_id)
             ).exclude(status='CANCELLED')
             if exclude_id:
-                teacher_sess_qs = teacher_sess_qs.exclude(id=exclude_id)
-            for s in teacher_sess_qs:
-                if start_time < s.end_time and end_time > s.start_time:
+                teacher_conflicts = teacher_conflicts.exclude(id=exclude_id)
+                
+            for s in teacher_conflicts:
+                if (start_time < s.end_time and end_time > s.start_time):
                     conflicts.append({
                         'type': 'TEACHER',
-                        'severity': 'critical',
                         'message': f"Le professeur est déjà affecté au groupe '{s.group.name}' de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')}."
                     })
-
-            # ── Teacher leave check ───────────────────────────────────
-            teacher_leaves = TeacherLeave.objects.filter(
-                teacher_id=teacher_id,
-                start_date__lte=date_obj,
-                end_date__gte=date_obj
-            ).select_related('teacher')
-            for leave in teacher_leaves:
+                    
+    # Also check capacity and group conflicts if group_id is provided
+    group_id = request.GET.get('group_id')
+    if group_id:
+        group = CourseGroup.objects.filter(id=group_id).first()
+        room = Room.objects.filter(id=room_id).first()
+        if group and room:
+            student_count = group.students.filter(is_active=True).count()
+            if student_count > room.capacity:
                 conflicts.append({
-                    'type': 'TEACHER_LEAVE',
-                    'severity': 'critical',
-                    'message': f"Le professeur est en congé ce jour ({leave.get_leave_type_display()})."
+                    'type': 'CAPACITY',
+                    'message': f"Le nombre d'élèves inscrits ({student_count}) dépasse la capacité de la salle '{room.name}' ({room.capacity} places)."
                 })
-
-            # ── Teacher availability check ─────────────────────────────
-            DAY_MAP = {0: 'MON', 1: 'TUE', 2: 'WED', 3: 'THU', 4: 'FRI', 5: 'SAT', 6: 'SUN'}
-            day_str = DAY_MAP[date_obj.weekday()]
-            avail_entries = TeacherAvailability.objects.filter(
-                teacher_id=teacher_id, day=day_str
-            )
-            unavail = [e for e in avail_entries if not e.is_available]
-            for e in unavail:
-                if start_time < e.end_time and end_time > e.start_time:
-                    conflicts.append({
-                        'type': 'TEACHER_UNAVAILABLE',
-                        'severity': 'warning',
-                        'message': f"Le professeur est indisponible de {e.start_time.strftime('%H:%M')} à {e.end_time.strftime('%H:%M')} ce jour."
-                    })
-            avail = [e for e in avail_entries if e.is_available]
-            if avail and not any(start_time >= e.start_time and end_time <= e.end_time for e in avail):
+        
+        # Check group overlaps
+        group_conflicts = Session.objects.filter(
+            date=date_obj,
+            group_id=group_id
+        ).exclude(status='CANCELLED')
+        if exclude_id:
+            group_conflicts = group_conflicts.exclude(id=exclude_id)
+            
+        for s in group_conflicts:
+            if (start_time < s.end_time and end_time > s.start_time):
                 conflicts.append({
-                    'type': 'TEACHER_OUT_OF_BOUNDS',
-                    'severity': 'warning',
-                    'message': "La séance est planifiée en dehors des heures de disponibilité du professeur."
+                    'type': 'GROUP',
+                    'message': f"Le groupe '{s.group.name}' a déjà une session planifiée de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')}."
                 })
-
-        # ── Capacity check ────────────────────────────────────────────
-        if group_id:
-            group = CourseGroup.objects.filter(id=group_id).first()
-            room = Room.objects.filter(id=room_id).first()
-            if group and room:
-                student_count = group.students.filter(is_active=True).count()
-                if student_count > room.capacity:
-                    overflow = student_count - room.capacity
-                    conflicts.append({
-                        'type': 'CAPACITY',
-                        'severity': 'warning',
-                        'message': f"Le nombre d'élèves inscrits ({student_count}) dépasse la capacité de la salle '{room.name}' ({room.capacity} places, +{overflow} en trop)."
-                    })
-
-            # ── Group double-booking ──────────────────────────────────
-            if date_str:
-                try:
-                    date_obj_g = dt.strptime(date_str, '%Y-%m-%d').date()
-                    grp_qs = Session.objects.filter(date=date_obj_g, group_id=group_id).exclude(status='CANCELLED')
-                    if exclude_id:
-                        grp_qs = grp_qs.exclude(id=exclude_id)
-                    for s in grp_qs:
-                        if start_time < s.end_time and end_time > s.start_time:
-                            conflicts.append({
-                                'type': 'GROUP',
-                                'severity': 'warning',
-                                'message': f"Le groupe a déjà une session planifiée de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')}."
-                            })
-                except ValueError:
-                    pass
-
+                
     return JsonResponse({
         'has_conflict': len(conflicts) > 0,
         'conflicts': conflicts
@@ -3711,168 +3666,4 @@ def export_csv_view(request):
     resp = HttpResponse(buf.read(), content_type='text/csv; charset=utf-8')
     resp['Content-Disposition'] = f'attachment; filename="{fname}"'
     return resp
-
-
-@require_http_methods(['GET', 'POST'])
-def public_teacher_attendance_login(request):
-    """Secure landing page for unregistered teachers to verify identity.
-
-    Stores active validation in request.session['public_teacher_id']
-    """
-    if 'public_teacher_id' in request.session:
-        return redirect('core:public_teacher_attendance_dashboard')
-
-    teachers = Teacher.objects.filter(is_active=True).order_by('name')
-    error = None
-
-    if request.method == 'POST':
-        teacher_id = request.POST.get('teacher_id')
-        credential = request.POST.get('credential', '').strip()
-
-        if not teacher_id or not credential:
-            error = "Veuillez sélectionner votre nom et saisir votre identifiant de validation."
-        else:
-            try:
-                teacher = Teacher.objects.get(pk=teacher_id, is_active=True)
-
-                # Helper to clean numbers for formatting-agnostic phone check
-                def clean_phone(p):
-                    return "".join(c for c in p if c.isdigit())
-
-                cred_clean = clean_phone(credential)
-                teacher_phone_clean = clean_phone(teacher.phone)
-
-                email_match = teacher.email and teacher.email.strip().lower() == credential.lower()
-                phone_match = False
-                if cred_clean and teacher_phone_clean:
-                    # Match if one contains the other, or match last 9 digits to bypass country code differences
-                    if len(cred_clean) >= 9 and len(teacher_phone_clean) >= 9:
-                        phone_match = cred_clean[-9:] == teacher_phone_clean[-9:]
-                    else:
-                        phone_match = cred_clean in teacher_phone_clean or teacher_phone_clean in cred_clean
-
-                if email_match or phone_match:
-                    request.session['public_teacher_id'] = teacher.id
-                    messages.success(request, f"Connexion réussie. Bienvenue Pr. {teacher.name} !")
-                    return redirect('core:public_teacher_attendance_dashboard')
-                else:
-                    error = "Les informations fournies ne correspondent pas à ce professeur."
-            except Teacher.DoesNotExist:
-                error = "Enseignant introuvable."
-
-    return render(request, 'core/public_attendance_login.html', {
-        'teachers': teachers,
-        'error': error,
-    })
-
-
-def public_teacher_attendance_dashboard(request):
-    """List sessions associated with verified teacher.
-
-    Categorized into today's sessions, pending sessions, and past history.
-    """
-    teacher_id = request.session.get('public_teacher_id')
-    if not teacher_id:
-        return redirect('core:public_teacher_attendance_login')
-
-    teacher = get_object_or_404(Teacher, pk=teacher_id, is_active=True)
-    today = timezone.now().date()
-
-    # Retrieve all sessions where this teacher is assigned as group teacher OR substitute
-    sessions_qs = Session.objects.filter(
-        Q(group__teacher=teacher) | Q(substitute_teacher=teacher)
-    ).select_related('group', 'group__teacher', 'room')
-
-    today_sessions = sessions_qs.filter(date=today).order_by('start_time')
-    pending_sessions = sessions_qs.filter(date__lt=today, status='PLANNED').order_by('-date', 'start_time')
-
-    # History of completed/cancelled classes from last 7 days
-    seven_days_ago = today - timedelta(days=7)
-    history_sessions = sessions_qs.filter(
-        date__range=[seven_days_ago, today],
-        status__in=['DONE', 'CANCELLED']
-    ).exclude(date=today, status='PLANNED').order_by('-date', '-start_time')
-
-    return render(request, 'core/public_attendance_dashboard.html', {
-        'teacher': teacher,
-        'today': today,
-        'today_sessions': today_sessions,
-        'pending_sessions': pending_sessions,
-        'history_sessions': history_sessions,
-    })
-
-
-@require_http_methods(['GET', 'POST'])
-def public_teacher_attendance_session(request, session_id):
-    """Interactive mobile-friendly page for teacher to register/edit student attendance."""
-    teacher_id = request.session.get('public_teacher_id')
-    if not teacher_id:
-        return redirect('core:public_teacher_attendance_login')
-
-    teacher = get_object_or_404(Teacher, pk=teacher_id, is_active=True)
-    session = get_object_or_404(Session, pk=session_id)
-
-    # Security: ensure teacher is authorized for this session
-    is_assigned = (session.group.teacher == teacher) or (session.substitute_teacher == teacher)
-    if not is_assigned:
-        messages.error(request, "Vous n'avez pas l'autorisation d'accéder à cette séance.")
-        return redirect('core:public_teacher_attendance_dashboard')
-
-    students = session.group.students.filter(is_active=True)
-
-    if request.method == 'GET':
-        existing = Attendance.objects.filter(course_group=session.group, date=session.date)
-        present_map = {a.student_id: a.is_present for a in existing}
-
-        from .utils import get_student_payment_status
-        month_covered = session.date.replace(day=1)
-
-        students_list = []
-        for s in students:
-            # Default to present (True) if no entry yet exists
-            checked = present_map.get(s.id, True)
-            pm_status = get_student_payment_status(s, month_covered)
-            is_unpaid = pm_status['status'] in ('UNPAID', 'PARTIAL')
-            students_list.append({
-                'student': s,
-                'checked': checked,
-                'is_unpaid': is_unpaid,
-                'remaining': pm_status['remaining']
-            })
-
-        return render(request, 'core/public_attendance_session.html', {
-            'session': session,
-            'students_list': students_list,
-        })
-
-    # POST: Save attendance changes
-    with transaction.atomic():
-        for student in students:
-            key = f'present_{student.id}'
-            is_present = key in request.POST
-            Attendance.objects.update_or_create(
-                student=student,
-                course_group=session.group,
-                date=session.date,
-                defaults={
-                    'is_present': is_present,
-                    'session': session,
-                }
-            )
-
-    # Mark the session status as DONE
-    session.status = 'DONE'
-    session.save()
-
-    messages.success(request, f"Les présences pour le groupe « {session.group.name} » ont été enregistrées.")
-    return redirect('core:public_teacher_attendance_dashboard')
-
-
-def public_teacher_attendance_logout(request):
-    """Clear public teacher login state from session."""
-    if 'public_teacher_id' in request.session:
-        del request.session['public_teacher_id']
-    messages.info(request, "Vous avez été déconnecté avec succès.")
-    return redirect('core:public_teacher_attendance_login')
-
 

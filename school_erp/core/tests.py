@@ -76,25 +76,6 @@ class PaymentLogicTestCase(TestCase):
             parent_contact="87654321"
         )
 
-    def test_student_helper_generates_matricule_with_year_prefix(self):
-        matricule = Student.generate_next_matricule()
-        self.assertTrue(matricule.startswith("M26-"))
-
-    def test_payment_helper_generates_unique_receipt_numbers(self):
-        first_receipt = Payment.generate_next_receipt_number(2026)
-        Payment.objects.create(
-            student=self.student,
-            amount=Decimal("100.00"),
-            payment_date=date(2026, 7, 1),
-            month_covered=date(2026, 7, 1),
-            receipt_number=first_receipt,
-        )
-        second_receipt = Payment.generate_next_receipt_number(2026)
-
-        self.assertTrue(first_receipt.startswith("REC2026"))
-        self.assertTrue(second_receipt.startswith("REC2026"))
-        self.assertTrue(int(first_receipt[-4:]) < int(second_receipt[-4:]))
-
     def test_future_enrollment_expected_fee_is_zero(self):
         enrollment = Enrollment.objects.create(
             student=self.student,
@@ -150,22 +131,12 @@ class PaymentLogicTestCase(TestCase):
             monthly_price=Decimal('500.00'),
             teacher=self.teacher
         )
-        alternate_room = Room.objects.create(name="Salle 102", capacity=20)
-        alternate_teacher = Teacher.objects.create(
-            name="Teacher Two",
-            phone="0600000001",
-            payment_method="PERCENTAGE",
-            payment_percentage=Decimal("50.00"),
-        )
-        course.refresh_from_db()
-        course.teacher = alternate_teacher
-        course.save(update_fields=['teacher'])
         CourseGroupSchedule.objects.create(
             course_group=course,
             day="MON",
             start_time="14:00:00",
             end_time="16:00:00",
-            room=alternate_room
+            room=self.room
         )
         enrollment = Enrollment.objects.create(
             student=self.student,

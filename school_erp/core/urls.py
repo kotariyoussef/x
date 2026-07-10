@@ -165,11 +165,6 @@ urlpatterns = [
     path('analytics/export/churn/pdf/', views.export_churn_pdf, name='export_churn_pdf'),
     path('analytics/export/csv/', views.export_csv_view, name='export_csv_view'),
 
-    # Public teacher attendance portal
-    path('public/attendance/', views.public_teacher_attendance_login, name='public_teacher_attendance_login'),
-    path('public/attendance/dashboard/', views.public_teacher_attendance_dashboard, name='public_teacher_attendance_dashboard'),
-    path('public/attendance/session/<int:session_id>/', views.public_teacher_attendance_session, name='public_teacher_attendance_session'),
-    path('public/attendance/logout/', views.public_teacher_attendance_logout, name='public_teacher_attendance_logout'),
 ]
 
 

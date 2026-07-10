@@ -93,6 +93,15 @@
     const alertMessage = $('#conflictAlertMessage');
     const excludeId = "{% if session %}{{ session.id }}{% endif %}";
 
+    // Severity colour helpers
+    const SEVERITY_COLOR = { critical: '#dc2626', warning: '#d97706', info: '#2563eb' };
+    const SEVERITY_LABEL = { critical: '🔴', warning: '🟡', info: '🔵' };
+    const TYPE_ICON = {
+      ROOM: '🏫', TEACHER: '👤', TEACHER_LEAVE: '🏖️',
+      TEACHER_UNAVAILABLE: '⛔', TEACHER_OUT_OF_BOUNDS: '⏰',
+      CAPACITY: '👥', GROUP: '📚'
+    };
+
     function performConflictCheck() {
       const roomId = roomField.val();
       const dateVal = dateField.val();
@@ -102,7 +111,7 @@
 
       if (!roomId || !dateVal || !startTime || !endTime) { alertContainer.addClass('d-none'); return; }
       if (startTime >= endTime) {
-        alertMessage.html("L'heure de fin doit être postérieure à l'heure de début.");
+        alertMessage.html("<span style='color:#dc2626'>⚠️ L'heure de fin doit être postérieure à l'heure de début.</span>");
         alertContainer.removeClass('d-none'); return;
       }
 
@@ -114,9 +123,22 @@
         .then(r => r.json())
         .then(data => {
           if (data.has_conflict) {
+            const hasCritical = data.conflicts.some(c => c.severity === 'critical');
             let html = '<ul class="mb-0 ps-3">';
-            data.conflicts.forEach(c => { html += `<li><strong>${c.type}:</strong> ${c.message}</li>`; });
+            data.conflicts.forEach(c => {
+              const sev = c.severity || 'warning';
+              const color = SEVERITY_COLOR[sev] || '#d97706';
+              const icon = (TYPE_ICON[c.type] || '⚠️') + ' ' + (SEVERITY_LABEL[sev] || '');
+              html += `<li style="color:${color};margin-bottom:2px">${icon} <strong>${c.type}:</strong> ${c.message}</li>`;
+            });
             html += '</ul>';
+            // Critical = danger alert, warnings only = warning alert
+            const containerEl = alertContainer.find('.alert');
+            if (hasCritical) {
+              containerEl.removeClass('alert-warning').addClass('alert-danger');
+            } else {
+              containerEl.removeClass('alert-danger').addClass('alert-warning');
+            }
             alertMessage.html(html);
             alertContainer.removeClass('d-none');
           } else {

@@ -692,7 +692,6 @@ def _detect_schedule_conflicts(schedules) -> List[dict]:
             if sch1.room_id == sch2.room_id:
                 conflicts.append({
                     'type': 'ROOM',
-                    'severity': 'critical',
                     'entity': sch1.room,
                     'sch1': sch1,
                     'sch2': sch2,
@@ -704,7 +703,6 @@ def _detect_schedule_conflicts(schedules) -> List[dict]:
             if teacher1 and teacher2 and teacher1.id == teacher2.id:
                 conflicts.append({
                     'type': 'TEACHER',
-                    'severity': 'critical',
                     'entity': teacher1,
                     'sch1': sch1,
                     'sch2': sch2,
@@ -730,7 +728,6 @@ def _detect_schedule_availability_conflicts(schedules, availability_map) -> List
             if _time_overlaps(sch.start_time, sch.end_time, availability_entry.start_time, availability_entry.end_time):
                 conflicts.append({
                     'type': 'TEACHER_UNAVAILABLE',
-                    'severity': 'warning',
                     'entity': teacher,
                     'sch1': sch,
                     'description': f"Le professeur '{teacher.name}' est indisponible le {sch.get_day_display()} de {availability_entry.start_time.strftime('%H:%M')} à {availability_entry.end_time.strftime('%H:%M')}."
@@ -743,7 +740,6 @@ def _detect_schedule_availability_conflicts(schedules, availability_map) -> List
         ):
             conflicts.append({
                 'type': 'TEACHER_OUT_OF_BOUNDS',
-                'severity': 'warning',
                 'entity': teacher,
                 'sch1': sch,
                 'description': f"L'horaire du groupe '{sch.course_group.name}' est planifié en dehors des heures de disponibilité du professeur '{teacher.name}'."
@@ -764,7 +760,6 @@ def _detect_session_conflicts(sessions) -> List[dict]:
             if sess1.room_id == sess2.room_id:
                 conflicts.append({
                     'type': 'ROOM',
-                    'severity': 'critical',
                     'entity': sess1.room,
                     'session1': sess1,
                     'session2': sess2,
@@ -776,7 +771,6 @@ def _detect_session_conflicts(sessions) -> List[dict]:
             if teacher1 and teacher2 and teacher1.id == teacher2.id:
                 conflicts.append({
                     'type': 'TEACHER',
-                    'severity': 'critical',
                     'entity': teacher1,
                     'session1': sess1,
                     'session2': sess2,
@@ -798,7 +792,6 @@ def _detect_session_availability_conflicts(sessions, availability_map, leave_map
             if leave.start_date <= sess.date <= leave.end_date:
                 conflicts.append({
                     'type': 'TEACHER_LEAVE',
-                    'severity': 'critical',
                     'entity': teacher,
                     'session1': sess,
                     'description': f"Le professeur '{teacher.name}' est en congé le {sess.date.strftime('%d/%m/%Y')} (Motif: {leave.get_leave_type_display()})."
@@ -813,7 +806,6 @@ def _detect_session_availability_conflicts(sessions, availability_map, leave_map
             if _time_overlaps(sess.start_time, sess.end_time, availability_entry.start_time, availability_entry.end_time):
                 conflicts.append({
                     'type': 'TEACHER_UNAVAILABLE',
-                    'severity': 'warning',
                     'entity': teacher,
                     'session1': sess,
                     'description': f"Le professeur '{teacher.name}' est indisponible le {sess.date.strftime('%d/%m/%Y')} de {availability_entry.start_time.strftime('%H:%M')} à {availability_entry.end_time.strftime('%H:%M')}."
@@ -826,7 +818,6 @@ def _detect_session_availability_conflicts(sessions, availability_map, leave_map
         ):
             conflicts.append({
                 'type': 'TEACHER_OUT_OF_BOUNDS',
-                'severity': 'warning',
                 'entity': teacher,
                 'session1': sess,
                 'description': f"La séance du {sess.date.strftime('%d/%m/%Y')} est planifiée en dehors des heures de disponibilité du professeur '{teacher.name}'."
@@ -840,111 +831,35 @@ def _detect_capacity_warnings(schedules, annotated_sessions, student_counts_map)
     for sch in schedules:
         student_count = student_counts_map.get(sch.course_group_id, 0)
         if student_count > sch.room.capacity:
-            overflow = student_count - sch.room.capacity
             warnings.append({
                 'context': 'SCHEDULE',
-                'severity': 'warning',
                 'course': sch.course_group,
                 'schedule': sch,
                 'room': sch.room,
                 'enrolled': student_count,
                 'capacity': sch.room.capacity,
-                'overflow': overflow,
                 'description': f"Le groupe '{sch.course_group.name}' compte {student_count} élèves inscrits, ce qui dépasse la capacité de la salle '{sch.room.name}' ({sch.room.capacity} places) le {sch.get_day_display()}."
             })
 
     for sess in annotated_sessions:
         if getattr(sess, 'has_capacity_alert', False):
             student_count = getattr(sess, 'student_count', student_counts_map.get(sess.group_id, 0))
-            overflow = student_count - sess.room.capacity
             warnings.append({
                 'context': 'SESSION',
-                'severity': 'warning',
                 'session': sess,
                 'course': sess.group,
                 'room': sess.room,
                 'enrolled': student_count,
                 'capacity': sess.room.capacity,
-                'overflow': overflow,
                 'description': f"La session du {sess.date.strftime('%d/%m/%Y')} pour '{sess.group.name}' compte {student_count} élèves inscrits, ce qui dépasse la capacité de la salle '{sess.room.name}' ({sess.room.capacity} places)."
             })
 
     return warnings
 
 
-def _detect_student_overlap_conflicts(schedules_list) -> List[dict]:
+def detect_all_conflicts() -> Dict[str, List]:
     """
-    Detect students enrolled in two groups whose weekly schedules overlap on the same day.
-    Returns one conflict entry per (student, sch1, sch2) pair.
-    """
-    from .models import Enrollment
-    conflicts = []
-    # Build map: group_id -> list of schedules
-    group_schedules = {}
-    for sch in schedules_list:
-        group_schedules.setdefault(sch.course_group_id, []).append(sch)
-
-    group_ids = list(group_schedules.keys())
-    if len(group_ids) < 2:
-        return []
-
-    # Fetch active enrollments for these groups
-    enrollments = (
-        Enrollment.objects
-        .filter(course_group_id__in=group_ids, is_active=True, student__is_active=True)
-        .select_related('student', 'course_group')
-    )
-
-    # Map student -> list of enrolled group_ids
-    student_groups: dict = {}
-    for enr in enrollments:
-        student_groups.setdefault(enr.student_id, {'student': enr.student, 'groups': []})['groups'].append(enr.course_group_id)
-
-    seen = set()
-    for student_id, data in student_groups.items():
-        student = data['student']
-        grp_ids = data['groups']
-        if len(grp_ids) < 2:
-            continue
-        # Pairwise schedule overlap check
-        for i in range(len(grp_ids)):
-            for j in range(i + 1, len(grp_ids)):
-                schs_a = group_schedules.get(grp_ids[i], [])
-                schs_b = group_schedules.get(grp_ids[j], [])
-                for sch_a in schs_a:
-                    for sch_b in schs_b:
-                        if sch_a.day != sch_b.day:
-                            continue
-                        if not _time_overlaps(sch_a.start_time, sch_a.end_time, sch_b.start_time, sch_b.end_time):
-                            continue
-                        key = (student_id, min(sch_a.id, sch_b.id), max(sch_a.id, sch_b.id))
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        conflicts.append({
-                            'type': 'STUDENT_OVERLAP',
-                            'severity': 'warning',
-                            'entity': student,
-                            'sch1': sch_a,
-                            'sch2': sch_b,
-                            'description': (
-                                f"L'élève '{student.name}' est inscrit dans '{sch_a.course_group.name}' "
-                                f"et '{sch_b.course_group.name}' qui se chevauchent "
-                                f"le {sch_a.get_day_display()} de "
-                                f"{max(sch_a.start_time, sch_b.start_time).strftime('%H:%M')} à "
-                                f"{min(sch_a.end_time, sch_b.end_time).strftime('%H:%M')}."
-                            )
-                        })
-    return conflicts
-
-
-def detect_all_conflicts(past_days: int = 14, future_days: int = 30) -> Dict[str, List]:
-    """
-    Scans the database and returns all schedule, session, capacity, and student overlap conflicts.
-
-    Args:
-        past_days: how many days back to scan for PLANNED/DONE sessions (default 14)
-        future_days: how many days forward to scan (default 30)
+    Scans the database and returns all schedule, session, and capacity conflicts.
     """
     from collections import defaultdict
     from .models import CourseGroupSchedule, Session, TeacherAvailability, TeacherLeave, Enrollment
@@ -954,7 +869,6 @@ def detect_all_conflicts(past_days: int = 14, future_days: int = 30) -> Dict[str
     schedule_conflicts = []
     session_conflicts = []
     capacity_warnings = []
-    student_conflicts = []
 
     schedules = CourseGroupSchedule.objects.filter(course_group__is_active=True).select_related(
         'course_group', 'course_group__teacher', 'room'
@@ -962,9 +876,6 @@ def detect_all_conflicts(past_days: int = 14, future_days: int = 30) -> Dict[str
     schedules_list = list(schedules)
 
     schedule_conflicts.extend(_detect_schedule_conflicts(schedules_list))
-
-    # Student enrollment overlap detection (weekly schedule level)
-    student_conflicts.extend(_detect_student_overlap_conflicts(schedules_list))
 
     teacher_ids = {sch.course_group.teacher_id for sch in schedules_list if getattr(sch.course_group, 'teacher_id', None)}
     availability_entries = TeacherAvailability.objects.filter(teacher_id__in=teacher_ids).select_related('teacher')
@@ -974,45 +885,24 @@ def detect_all_conflicts(past_days: int = 14, future_days: int = 30) -> Dict[str
 
     schedule_conflicts.extend(_detect_schedule_availability_conflicts(schedules_list, availability_map))
 
-    # Widen session window: past_days back through future_days forward
-    # Also always include any past PLANNED sessions (missed/forgotten sessions)
     today = timezone.now().date()
-    window_start = today - timedelta(days=past_days)
-    window_end = today + timedelta(days=future_days)
-
+    window_end = today + timedelta(days=14)
     sessions_qs = (
-        Session.objects
-        .filter(date__gte=window_start, date__lte=window_end)
+        Session.objects.filter(date__gte=today, date__lte=window_end)
         .exclude(status='CANCELLED')
-        .select_related('group', 'group__teacher', 'substitute_teacher', 'room')
+        .select_related('group', 'group__teacher', 'room')
         .prefetch_related('group__students')
     )
     annotated_sessions = _annotate_conflicts(sessions_qs)
 
     session_conflicts.extend(_detect_session_conflicts(annotated_sessions))
 
-    # Expand teacher_ids to include substitute teachers in sessions
-    session_teacher_ids = set(teacher_ids)
-    for sess in annotated_sessions:
-        if sess.substitute_teacher_id:
-            session_teacher_ids.add(sess.substitute_teacher_id)
-        if sess.group and getattr(sess.group, 'teacher_id', None):
-            session_teacher_ids.add(sess.group.teacher_id)
-
     leave_entries = []
-    if session_teacher_ids:
-        leave_entries = TeacherLeave.objects.filter(teacher_id__in=session_teacher_ids).select_related('teacher')
+    if teacher_ids:
+        leave_entries = TeacherLeave.objects.filter(teacher_id__in=teacher_ids).select_related('teacher')
     leave_map = defaultdict(list)
     for leave in leave_entries:
         leave_map[leave.teacher_id].append(leave)
-
-    # Refresh availability map to include substitute teachers
-    if session_teacher_ids - teacher_ids:
-        extra_avail = TeacherAvailability.objects.filter(
-            teacher_id__in=session_teacher_ids - teacher_ids
-        ).select_related('teacher')
-        for entry in extra_avail:
-            availability_map[(entry.teacher_id, entry.day)].append(entry)
 
     session_conflicts.extend(_detect_session_availability_conflicts(annotated_sessions, availability_map, leave_map))
 
@@ -1030,15 +920,11 @@ def detect_all_conflicts(past_days: int = 14, future_days: int = 30) -> Dict[str
 
     capacity_warnings.extend(_detect_capacity_warnings(schedules_list, annotated_sessions, student_counts_map))
 
-    total_count = len(schedule_conflicts) + len(session_conflicts) + len(capacity_warnings) + len(student_conflicts)
     return {
         'schedule_conflicts': schedule_conflicts,
         'session_conflicts': session_conflicts,
         'capacity_warnings': capacity_warnings,
-        'student_conflicts': student_conflicts,
-        'total_count': total_count,
-        'scan_window_start': window_start,
-        'scan_window_end': window_end,
+        'total_count': len(schedule_conflicts) + len(session_conflicts) + len(capacity_warnings)
     }
 
 
