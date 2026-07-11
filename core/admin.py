@@ -13,7 +13,7 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.import_export.forms import ExportForm, ImportForm
 from unfold.sites import UnfoldAdminSite
 
-from .models import Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session, CourseGroupSchedule, Level, LevelCategory, WhatsAppSendLog, Holiday, TeacherLeave, TeacherAvailability, MakeupSession
+from .models import Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session, CourseGroupSchedule, Level, LevelCategory, WhatsAppSendLog, Holiday, TeacherLeave, TeacherAvailability, MakeupSession, Announcement
 from django.core.exceptions import ValidationError
 
 from django.conf import settings
@@ -704,3 +704,12 @@ class MakeupSessionAdmin(ModelAdmin):
     list_display = ('id', 'original_session', 'makeup_session')
     search_fields = ('original_session__group__name', 'notes')
     filter_horizontal = ('students',)
+
+
+@admin.register(Announcement)
+class AnnouncementAdmin(ModelAdmin):
+    list_display = ('title', 'category', 'event_date', 'is_active', 'created_at')
+    list_filter = ('category', 'is_active', 'created_at', 'event_date')
+    search_fields = ('title', 'content')
+    filter_horizontal = ('target_levels', 'target_groups')
+

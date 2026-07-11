@@ -202,3 +202,147 @@ class PaymentLogicTestCase(TestCase):
         self.assertTrue(Level.objects.filter(name='Tronc Commun (TC)', category__code='LYCEE').exists())
 
 
+class KioskSearchTestCase(TestCase):
+    """Tests for Parent Kiosk search logic and session security."""
+
+    def setUp(self):
+        self.teacher = Teacher.objects.create(
+            name="Prof Test",
+            phone="0600000000",
+            payment_method="PERCENTAGE",
+            payment_percentage=Decimal("50.00"),
+        )
+        self.student_a = Student.objects.create(
+            name="Alice Benali",
+            parent_contact="0612345678",
+            parent_name="Fatima Benali",
+            is_active=True,
+        )
+        self.student_b = Student.objects.create(
+            name="Bilal Benali",
+            parent_contact="0612345678",   # Same parent phone — sibling
+            parent_name="Fatima Benali",
+            is_active=True,
+        )
+        self.student_c = Student.objects.create(
+            name="Chaimae Karimi",
+            parent_contact="0698765432",
+            parent_name="Said Karimi",
+            is_active=True,
+        )
+
+    # ── Home page loads without login ────────────────────────────────
+    def test_kiosk_home_accessible_without_login(self):
+        response = self.client.get('/public/kiosk/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rechercher votre enfant")
+
+    # ── Matricule search → single student ───────────────────────────
+    def test_search_by_matricule_redirects_to_student(self):
+        response = self.client.post('/public/kiosk/search/', {
+            'search_query': self.student_c.matricule,
+        })
+        self.assertRedirects(response, '/public/kiosk/student/', fetch_redirect_response=False)
+        self.assertEqual(self.client.session['kiosk_student_id'], self.student_c.id)
+
+    def test_search_by_matricule_case_insensitive(self):
+        response = self.client.post('/public/kiosk/search/', {
+            'search_query': self.student_c.matricule.lower(),
+        })
+        self.assertRedirects(response, '/public/kiosk/student/', fetch_redirect_response=False)
+
+    # ── Phone search → single match ──────────────────────────────────
+    def test_search_by_phone_single_match_redirects_to_student(self):
+        response = self.client.post('/public/kiosk/search/', {
+            'search_query': self.student_c.parent_contact,
+        })
+        self.assertRedirects(response, '/public/kiosk/student/', fetch_redirect_response=False)
+        self.assertEqual(self.client.session['kiosk_student_id'], self.student_c.id)
+
+    # ── Phone search → multiple siblings ────────────────────────────
+    def test_search_by_phone_multiple_matches_redirects_to_select(self):
+        response = self.client.post('/public/kiosk/search/', {
+            'search_query': self.student_a.parent_contact,
+        })
+        self.assertRedirects(response, '/public/kiosk/select/', fetch_redirect_response=False)
+        matched = self.client.session['kiosk_search_matches']
+        self.assertIn(self.student_a.id, matched)
+        self.assertIn(self.student_b.id, matched)
+
+    # ── No match → redirect home with error ─────────────────────────
+    def test_search_no_match_redirects_home(self):
+        response = self.client.post('/public/kiosk/search/', {
+            'search_query': '0699999999',
+        })
+        self.assertRedirects(response, '/public/kiosk/', fetch_redirect_response=False)
+
+    # ── Select page requires session ─────────────────────────────────
+    def test_select_without_session_redirects_home(self):
+        response = self.client.get('/public/kiosk/select/')
+        self.assertRedirects(response, '/public/kiosk/', fetch_redirect_response=False)
+
+    # ── Select student validates session whitelist ────────────────────
+    def test_select_student_not_in_session_rejected(self):
+        # Seed a session with only student_a and student_b
+        session = self.client.session
+        session['kiosk_search_matches'] = [self.student_a.id, self.student_b.id]
+        session.save()
+
+        # Attempt to select student_c (not in the match list)
+        response = self.client.get(f'/public/kiosk/select/{self.student_c.id}/')
+        self.assertRedirects(response, '/public/kiosk/', fetch_redirect_response=False)
+        self.assertNotIn('kiosk_student_id', self.client.session)
+
+    # ── Valid selection from whitelist ────────────────────────────────
+    def test_select_student_in_session_succeeds(self):
+        session = self.client.session
+        session['kiosk_search_matches'] = [self.student_a.id, self.student_b.id]
+        session.save()
+
+        response = self.client.get(f'/public/kiosk/select/{self.student_a.id}/')
+        self.assertRedirects(response, '/public/kiosk/student/', fetch_redirect_response=False)
+        self.assertEqual(self.client.session['kiosk_student_id'], self.student_a.id)
+        self.assertNotIn('kiosk_search_matches', self.client.session)
+
+    # ── Student detail page requires session ──────────────────────────
+    def test_student_page_without_session_redirects_home(self):
+        response = self.client.get('/public/kiosk/student/')
+        self.assertRedirects(response, '/public/kiosk/', fetch_redirect_response=False)
+
+    # ── Student detail page renders correctly ─────────────────────────
+    def test_student_page_renders_with_valid_session(self):
+        session = self.client.session
+        session['kiosk_student_id'] = self.student_c.id
+        session.save()
+
+        response = self.client.get('/public/kiosk/student/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Chaimae Karimi")
+        self.assertContains(response, self.student_c.matricule)
+
+    # ── Clear wipes session keys ──────────────────────────────────────
+    def test_clear_removes_session_and_redirects_home(self):
+        session = self.client.session
+        session['kiosk_student_id'] = self.student_c.id
+        session['kiosk_search_matches'] = [self.student_a.id]
+        session.save()
+
+        response = self.client.get('/public/kiosk/clear/')
+        self.assertRedirects(response, '/public/kiosk/', fetch_redirect_response=False)
+        self.assertNotIn('kiosk_student_id', self.client.session)
+        self.assertNotIn('kiosk_search_matches', self.client.session)
+
+    # ── Inactive student not matched ──────────────────────────────────
+    def test_inactive_student_not_found_in_search(self):
+        inactive = Student.objects.create(
+            name="Inactive Child",
+            parent_contact="0611112222",
+            is_active=False,
+        )
+        response = self.client.post('/public/kiosk/search/', {
+            'search_query': inactive.parent_contact,
+        })
+        self.assertRedirects(response, '/public/kiosk/', fetch_redirect_response=False)
+
+
+

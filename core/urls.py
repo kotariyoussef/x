@@ -170,6 +170,15 @@ urlpatterns = [
     path('public/attendance/dashboard/', views.public_teacher_attendance_dashboard, name='public_teacher_attendance_dashboard'),
     path('public/attendance/session/<int:session_id>/', views.public_teacher_attendance_session, name='public_teacher_attendance_session'),
     path('public/attendance/logout/', views.public_teacher_attendance_logout, name='public_teacher_attendance_logout'),
+
+    # Public parent kiosk portal
+    path('public/kiosk/', views.kiosk_home, name='kiosk_home'),
+    path('public/kiosk/search/', views.kiosk_search, name='kiosk_search'),
+    path('public/kiosk/select/', views.kiosk_select, name='kiosk_select'),
+    path('public/kiosk/select/<int:student_id>/', views.kiosk_select_student, name='kiosk_select_student'),
+    path('public/kiosk/student/', views.kiosk_student, name='kiosk_student'),
+    path('public/kiosk/clear/', views.kiosk_clear, name='kiosk_clear'),
 ]
+
 
 

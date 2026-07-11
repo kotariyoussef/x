@@ -1176,3 +1176,51 @@ class MakeupSession(models.Model):
     def __str__(self):
         orig = f"du {self.original_session.date}" if self.original_session else "inconnue"
         return f"Rattrapage {orig} planifié le {self.makeup_session.date}"
+
+
+class Announcement(models.Model):
+    """General school announcements and upcoming events, with optional target filters."""
+    CATEGORY_CHOICES = [
+        ('general', 'Annonce générale'),
+        ('event', 'Événement à venir'),
+    ]
+    
+    title = models.CharField(max_length=200, verbose_name="Titre")
+    content = models.TextField(verbose_name="Contenu")
+    category = models.CharField(
+        max_length=20,
+        choices=CATEGORY_CHOICES,
+        default='general',
+        verbose_name="Catégorie"
+    )
+    event_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Date de l'événement",
+        help_text="Requis pour les événements à venir"
+    )
+    target_levels = models.ManyToManyField(
+        Level,
+        blank=True,
+        related_name='announcements',
+        verbose_name="Niveaux cibles",
+        help_text="Laissez vide pour afficher à tous les niveaux"
+    )
+    target_groups = models.ManyToManyField(
+        CourseGroup,
+        blank=True,
+        related_name='announcements',
+        verbose_name="Groupes cibles",
+        help_text="Laissez vide pour afficher à tous les groupes"
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Actif")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Annonce / Événement"
+        verbose_name_plural = "Annonces & Événements"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.get_category_display()}] {self.title}"
+

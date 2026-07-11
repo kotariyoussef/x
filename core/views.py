@@ -3876,3 +3876,233 @@ def public_teacher_attendance_logout(request):
     return redirect('core:public_teacher_attendance_login')
 
 
+def kiosk_home(request):
+    """
+    Renders the public Parent Kiosk home screen.
+    Includes active general announcements, upcoming events, and a clean interface.
+    """
+    from .models import Announcement, Holiday
+    today = timezone.now().date()
+    
+    # General active announcements
+    announcements = Announcement.objects.filter(
+        category='general',
+        is_active=True
+    ).order_by('-created_at')[:5]
+    
+    # Upcoming events (Holiday + Event Announcements in the future)
+    upcoming_events_list = []
+    
+    # 1. Holidays
+    holidays = Holiday.objects.filter(date__gte=today).order_by('date')[:5]
+    for h in holidays:
+        upcoming_events_list.append({
+            'date': h.date,
+            'title': f"Congé : {h.name}",
+            'description': h.notes or "Tous les groupes concernés" if h.affects_all else "Certains groupes concernés",
+            'type': 'holiday'
+        })
+        
+    # 2. Event announcements
+    events = Announcement.objects.filter(
+        category='event',
+        is_active=True,
+        event_date__gte=today
+    ).order_by('event_date')[:5]
+    for e in events:
+        upcoming_events_list.append({
+            'date': e.event_date,
+            'title': e.title,
+            'description': e.content,
+            'type': 'event'
+        })
+        
+    # Sort events by date
+    upcoming_events_list = sorted(upcoming_events_list, key=lambda x: x['date'])[:6]
+    
+    # Clear previous kiosk search details on landing
+    if 'kiosk_student_id' in request.session:
+        del request.session['kiosk_student_id']
+    if 'kiosk_search_matches' in request.session:
+        del request.session['kiosk_search_matches']
+
+    timeout = getattr(settings, 'KIOSK_TIMEOUT', 45)
+    
+    return render(request, 'core/kiosk_home.html', {
+        'announcements': announcements,
+        'upcoming_events': upcoming_events_list,
+        'timeout': timeout,
+        'SCHOOL_NAME': getattr(settings, 'SCHOOL_NAME', 'Centre Tonaroz'),
+    })
+
+
+@require_POST
+def kiosk_search(request):
+    """
+    Validates search query (matricule or parent contact) and handles matching.
+    """
+    query = request.POST.get('search_query', '').strip()
+    if not query:
+        messages.error(request, "Veuillez entrer un matricule ou un numéro de téléphone.")
+        return redirect('core:kiosk_home')
+        
+    # 1. Try search by matricule (exact, case-insensitive)
+    year_prefix = timezone.now().strftime('%y')
+    prefix = f"M{year_prefix}-"
+    query = prefix + query
+    student = Student.objects.filter(matricule__iexact=query, is_active=True).first()
+    if student:
+        request.session['kiosk_student_id'] = student.id
+        return redirect('core:kiosk_student')
+        
+    # Helper to clean non-digit chars from query and phone fields
+    def clean_phone(p):
+        return "".join(c for c in p if c.isdigit())
+        
+    query_digits = clean_phone(query)
+    
+    # Only perform phone search if the query digits are long enough
+    if len(query_digits) >= 4:
+        active_students = Student.objects.filter(is_active=True)
+        matching_students = []
+        for s in active_students:
+            s_phone = clean_phone(s.parent_contact)
+            
+            # Compare last 9 digits (handles country codes / missing zeros)
+            if len(query_digits) >= 9 and len(s_phone) >= 9:
+                if query_digits[-9:] == s_phone[-9:]:
+                    matching_students.append(s)
+            elif query_digits in s_phone or s_phone in query_digits:
+                matching_students.append(s)
+                
+        if len(matching_students) == 1:
+            request.session['kiosk_student_id'] = matching_students[0].id
+            return redirect('core:kiosk_student')
+        elif len(matching_students) > 1:
+            request.session['kiosk_search_matches'] = [s.id for s in matching_students]
+            return redirect('core:kiosk_select')
+            
+    messages.error(request, "Aucun élève actif trouvé pour ce matricule ou numéro de téléphone.")
+    return redirect('core:kiosk_home')
+
+
+def kiosk_select(request):
+    """
+    Renders selection page if parent contact matched multiple active students.
+    """
+    match_ids = request.session.get('kiosk_search_matches')
+    if not match_ids:
+        messages.error(request, "Aucune recherche active.")
+        return redirect('core:kiosk_home')
+        
+    # Load and validate students
+    students = Student.objects.filter(id__in=match_ids, is_active=True)
+    if not students.exists():
+        messages.error(request, "Aucun élève trouvé.")
+        return redirect('core:kiosk_home')
+        
+    timeout = getattr(settings, 'KIOSK_TIMEOUT', 45)
+    
+    return render(request, 'core/kiosk_select.html', {
+        'students': students,
+        'timeout': timeout,
+        'SCHOOL_NAME': getattr(settings, 'SCHOOL_NAME', 'Centre Tonaroz'),
+    })
+
+
+def kiosk_select_student(request, student_id):
+    """
+    Secure endpoint to select one child from the session-matched list.
+    """
+    match_ids = request.session.get('kiosk_search_matches')
+    if not match_ids or student_id not in match_ids:
+        messages.error(request, "Sélection invalide ou expirée.")
+        return redirect('core:kiosk_home')
+        
+    student = get_object_or_404(Student, pk=student_id, is_active=True)
+    request.session['kiosk_student_id'] = student.id
+    
+    # Clean matches list
+    if 'kiosk_search_matches' in request.session:
+        del request.session['kiosk_search_matches']
+        
+    return redirect('core:kiosk_student')
+
+
+def kiosk_student(request):
+    """
+    Displays detail dashboard for verified student.
+    """
+    student_id = request.session.get('kiosk_student_id')
+    if not student_id:
+        messages.error(request, "Session expirée ou non autorisée.")
+        return redirect('core:kiosk_home')
+        
+    student = get_object_or_404(Student, pk=student_id, is_active=True)
+    
+    # Active enrollments
+    enrollments = student.enrollment_set.filter(is_active=True).select_related('course_group', 'course_group__teacher')
+    active_groups = [e.course_group for e in enrollments]
+    
+    # Attendance summary
+    attendances = Attendance.objects.filter(student=student).order_by('-date')
+    total_atts = attendances.count()
+    present_count = attendances.filter(is_present=True).count()
+    absent_count = total_atts - present_count
+    presence_rate = int(round(present_count / total_atts * 100)) if total_atts > 0 else None
+    
+    # Recent attendance (last 10 records)
+    recent_attendances = attendances[:10]
+    
+    # Remarks (recent attendance notes if available)
+    remarks = []
+    attendance_notes = Attendance.objects.filter(student=student).exclude(notes='').exclude(notes__isnull=True).select_related('course_group', 'course_group__teacher').order_by('-date')[:5]
+    for att in attendance_notes:
+        remarks.append({
+            'date': att.date,
+            'course_group': att.course_group.name,
+            'teacher_name': att.course_group.teacher.name,
+            'note': att.notes
+        })
+        
+    # School announcements targeted to this student
+    from .models import Announcement
+    q_filter = Q(target_levels__isnull=True, target_groups__isnull=True)
+    if student.level:
+        q_filter |= Q(target_levels=student.level)
+    if active_groups:
+        q_filter |= Q(target_groups__in=active_groups)
+        
+    announcements = Announcement.objects.filter(
+        is_active=True
+    ).filter(q_filter).distinct().order_by('-created_at')[:8]
+    
+    timeout = getattr(settings, 'KIOSK_TIMEOUT', 45)
+    
+    return render(request, 'core/kiosk_student.html', {
+        'student': student,
+        'active_groups': active_groups,
+        'total_atts': total_atts,
+        'present_count': present_count,
+        'absent_count': absent_count,
+        'presence_rate': presence_rate,
+        'recent_attendances': recent_attendances,
+        'remarks': remarks,
+        'announcements': announcements,
+        'timeout': timeout,
+        'SCHOOL_NAME': getattr(settings, 'SCHOOL_NAME', 'Centre Tonaroz'),
+    })
+
+
+def kiosk_clear(request):
+    """
+    Clears Kiosk session tokens and redirects to kiosk home.
+    """
+    if 'kiosk_student_id' in request.session:
+        del request.session['kiosk_student_id']
+    if 'kiosk_search_matches' in request.session:
+        del request.session['kiosk_search_matches']
+    return redirect('core:kiosk_home')
+
+
+

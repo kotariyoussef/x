@@ -36,6 +36,7 @@ ALLOWED_HOSTS = [
     '[IP_ADDRESS]',
     'localhost',
     '127.0.0.1',
+    '127.0.0.2',
 ]
 
 
@@ -52,6 +53,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.humanize',
+    "django.contrib.sites",
 
     'import_export',
     'django_filters',
@@ -68,6 +70,8 @@ SCHOOL_ADDRESS = "Rue Marrakech, Im 16, Ap N 3, 2ème Étage, Khouribga"
 SCHOOL_PHONE = "0707477911 / 0661569522"
 SCHOOL_EMAIL = "contact@centre-tonaroz.com"
 SCHOOL_LOGO_PATH = 'images/tonaroz_logo.svg'
+KIOSK_TIMEOUT = 45
+
 
 
 UNFOLD = {
@@ -232,6 +236,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     "django_htmx.middleware.HtmxMiddleware",
+    "django.contrib.sites.middleware.CurrentSiteMiddleware",
     'core.middleware.AdminOnlyMiddleware',
 ]
 
@@ -327,3 +332,5 @@ WHATSAPP_API_KEY = os.environ.get('WA_API_KEY', '')
 WHATSAPP_SESSION_NOTIFICATIONS_ENABLED = False  # Set to True to enable WhatsApp session notifications
 
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
+SITE_ID = 1
