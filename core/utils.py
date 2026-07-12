@@ -1,6 +1,7 @@
 """
 Utilitaires pour le système de gestion d'école
 """
+from reportlab.platypus import Paragraph
 from .models import Session, CourseGroup  # Import necessary models
 from django.db.models import Sum
 from django.utils import timezone
@@ -448,7 +449,6 @@ def calculate_class_gains(course_group, months: List[date]) -> Tuple[Decimal, De
                 gains_late += contribution
             else:
                 gains_regular += contribution
-
     return (
         gains_actual.quantize(Decimal('0.01')),
         gains_theoretical.quantize(Decimal('0.01')),
@@ -462,30 +462,40 @@ def calculate_teacher_hours(teacher, start_date: date, end_date: date) -> Dict:
     Calcule les heures travaillées et les gains/salaires pour un professeur sur une période
     """
     from .models import CourseGroup, Attendance, Session
+    from django.db.models import Q
     
     courses = CourseGroup.objects.filter(
-        teacher=teacher,
-        is_active=True
+        teacher=teacher
     )
     
     total_scheduled_hours = Decimal('0.00')
-    total_taught_hours = Decimal('0.00')
     
     days_count = (end_date - start_date).days + 1
     weeks_count = Decimal(str(days_count)) / Decimal('7.0')
     
-    for course in courses:
+    for course in courses.filter(is_active=True):
         weekly_hours = sum(Decimal(str(sch.duration_hours())) for sch in course.schedules.all())
         scheduled = weekly_hours * weeks_count
         total_scheduled_hours += scheduled
-        
-        done_sessions = Session.objects.filter(
-            group=course,
-            date__range=[start_date, end_date],
-            status='DONE'
-        )
-        taught = sum(Decimal(str(s.duration_hours())) for s in done_sessions)
-        total_taught_hours += taught
+
+    # Filter sessions where the teacher actually taught:
+    # 1. Sessions in groups owned by this teacher where there was no substitute teacher
+    own_sessions = Session.objects.filter(
+        group__teacher=teacher,
+        substitute_teacher__isnull=True,
+        date__range=[start_date, end_date],
+        status='DONE'
+    )
+    # 2. Sessions in other groups where this teacher was the substitute
+    substitute_sessions = Session.objects.filter(
+        substitute_teacher=teacher,
+        date__range=[start_date, end_date],
+        status='DONE'
+    )
+    
+    all_sessions_taught = list(own_sessions) + list(substitute_sessions)
+    total_taught_hours = sum(Decimal(str(s.duration_hours())) for s in all_sessions_taught)
+    total_taught_sessions = len(all_sessions_taught)
     
     if teacher.payment_method == 'PERCENTAGE':
         months = get_months_in_range(start_date, end_date)
@@ -496,15 +506,30 @@ def calculate_teacher_hours(teacher, start_date: date, end_date: date) -> Dict:
         total_share_late = Decimal('0.00')
         courses_breakdown = []
         
-        for course in courses:
+        for course in courses.filter(is_active=True):
             g_act, g_theo, reg_g, late_g = calculate_class_gains(course, months)
             total_gains_actual += g_act
             total_gains_theoretical += g_theo
             
-            share_actual = (g_act * teacher.payment_percentage / Decimal('100.00')).quantize(Decimal('0.01'))
+            # Prorating factor based on sessions taught in this group
+            course_sessions = Session.objects.filter(
+                group=course,
+                date__range=[start_date, end_date],
+                status='DONE'
+            )
+            course_sessions_count = course_sessions.count()
+            course_sessions_taught = course_sessions.filter(substitute_teacher__isnull=True).count()
+            
+            if course_sessions_count > 0:
+                prorate_factor = Decimal(course_sessions_taught) / Decimal(course_sessions_count)
+            else:
+                prorate_factor = Decimal('1.00')
+            
+            share_actual_gross = (g_act * teacher.payment_percentage / Decimal('100.00'))
+            share_actual = (share_actual_gross * prorate_factor).quantize(Decimal('0.01'))
             share_theoretical = (g_theo * teacher.payment_percentage / Decimal('100.00')).quantize(Decimal('0.01'))
-            share_regular = (reg_g * teacher.payment_percentage / Decimal('100.00')).quantize(Decimal('0.01'))
-            share_late = (late_g * teacher.payment_percentage / Decimal('100.00')).quantize(Decimal('0.01'))
+            share_regular = (reg_g * teacher.payment_percentage / Decimal('100.00') * prorate_factor).quantize(Decimal('0.01'))
+            share_late = (late_g * teacher.payment_percentage / Decimal('100.00') * prorate_factor).quantize(Decimal('0.01'))
             
             total_share_regular += share_regular
             total_share_late += share_late
@@ -514,44 +539,64 @@ def calculate_teacher_hours(teacher, start_date: date, end_date: date) -> Dict:
                 'student_count': course.students.filter(is_active=True).count(),
                 'gains_actual': g_act,
                 'gains_theoretical': g_theo,
+                'share_actual_gross': share_actual_gross.quantize(Decimal('0.01')),
                 'share_actual': share_actual,
                 'share_theoretical': share_theoretical,
                 'share_regular': share_regular,
                 'share_late': share_late,
                 'gains_regular': reg_g,
                 'gains_late': late_g,
+                'total_sessions': course_sessions_count,
+                'taught_sessions': course_sessions_taught,
+                'substituted_sessions': course_sessions_count - course_sessions_taught,
             })
             
-        salary_taught = (total_gains_actual * teacher.payment_percentage / Decimal('100.00')).quantize(Decimal('0.01'))
-        salary_scheduled = (total_gains_theoretical * teacher.payment_percentage / Decimal('100.00')).quantize(Decimal('0.01'))
+        # Substitution earnings for percentage teacher
+        substitution_earnings = Decimal('0.00')
+        substitution_details = []
+        for s in substitute_sessions:
+            if teacher.session_rate:
+                amount = teacher.session_rate
+            elif teacher.hourly_rate:
+                amount = (Decimal(str(s.duration_hours())) * teacher.hourly_rate).quantize(Decimal('0.01'))
+            else:
+                amount = Decimal('100.00')
+            substitution_earnings += amount
+            substitution_details.append({
+                'session': s,
+                'amount': amount,
+                'hours': s.duration_hours(),
+            })
+
+        total_share_actual_net = sum(c['share_actual'] for c in courses_breakdown)
+        salary_taught = total_share_actual_net + substitution_earnings
+        salary_theoretical = sum(c['share_theoretical'] for c in courses_breakdown)
         
         return {
             'scheduled_hours': total_scheduled_hours,
             'taught_hours': total_taught_hours,
-            'salary_scheduled': salary_scheduled,
+            'total_hours': total_taught_hours,
+            'salary_scheduled': salary_theoretical,
             'salary_taught': salary_taught,
+            'earnings': salary_taught,
             'salary_regular': total_share_regular,
             'salary_late': total_share_late,
-            'courses': courses.count(),
+            'substitution_earnings': substitution_earnings,
+            'substitution_details': substitution_details,
+            'courses': courses.filter(is_active=True).count(),
             'payment_method': 'PERCENTAGE',
             'payment_percentage': teacher.payment_percentage,
             'gains_actual': total_gains_actual,
             'gains_theoretical': total_gains_theoretical,
             'courses_breakdown': courses_breakdown,
             'months_covered': len(months),
+            'own_sessions_count': own_sessions.count(),
+            'substitute_sessions_count': substitute_sessions.count(),
         }
     elif teacher.payment_method == 'SESSION':
         total_scheduled_sessions = 0
-        total_taught_sessions = 0
         
-        for course in courses:
-            done_sessions = Session.objects.filter(
-                group=course,
-                date__range=[start_date, end_date],
-                status='DONE'
-            )
-            total_taught_sessions += done_sessions.count()
-            
+        for course in courses.filter(is_active=True):
             scheduled_sessions_qs = Session.objects.filter(
                 group=course,
                 date__range=[start_date, end_date]
@@ -565,26 +610,35 @@ def calculate_teacher_hours(teacher, start_date: date, end_date: date) -> Dict:
         return {
             'scheduled_hours': total_scheduled_hours,
             'taught_hours': total_taught_hours,
+            'total_hours': total_taught_hours,
             'scheduled_sessions': total_scheduled_sessions,
             'taught_sessions': total_taught_sessions,
             'salary_scheduled': salary_scheduled,
             'salary_taught': salary_taught,
-            'courses': courses.count(),
+            'earnings': salary_taught,
+            'courses': courses.filter(is_active=True).count(),
             'payment_method': 'SESSION',
             'session_rate': session_rate,
+            'own_sessions_count': own_sessions.count(),
+            'substitute_sessions_count': substitute_sessions.count(),
         }
     else:
-        salary_scheduled = (total_scheduled_hours * teacher.hourly_rate).quantize(Decimal('0.01'))
-        salary_taught = (total_taught_hours * teacher.hourly_rate).quantize(Decimal('0.01'))
+        hourly_rate = teacher.hourly_rate or Decimal('0.00')
+        salary_scheduled = (total_scheduled_hours * hourly_rate).quantize(Decimal('0.01'))
+        salary_taught = (total_taught_hours * hourly_rate).quantize(Decimal('0.01'))
         
         return {
             'scheduled_hours': total_scheduled_hours,
             'taught_hours': total_taught_hours,
+            'total_hours': total_taught_hours,
             'salary_scheduled': salary_scheduled,
             'salary_taught': salary_taught,
-            'courses': courses.count(),
+            'earnings': salary_taught,
+            'courses': courses.filter(is_active=True).count(),
             'payment_method': 'HOURLY',
-            'hourly_rate': teacher.hourly_rate,
+            'hourly_rate': hourly_rate,
+            'own_sessions_count': own_sessions.count(),
+            'substitute_sessions_count': substitute_sessions.count(),
         }
 
 
@@ -1571,6 +1625,300 @@ def generate_student_schedule_pdf(sessions_list, student_name: str, title: str =
     doc.build(elements)
     buffer.seek(0)
     return buffer
+
+
+def generate_teacher_payslip_pdf(teacher, start_date, end_date, result) -> BytesIO:
+    """
+    Génère un bulletin de paie détaillé au format PDF pour un enseignant
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from django.conf import settings
+    
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=40, rightMargin=40, topMargin=40, bottomMargin=40
+    )
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    DARK = colors.HexColor('#1a1a2e')
+    ACCENT = colors.HexColor('#0f3460')
+    
+    title_style = ParagraphStyle(
+        'PayslipTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        textColor=DARK,
+        fontName='Helvetica-Bold',
+        spaceAfter=4,
+        leading=22,
+        alignment=1, # Center
+    )
+    section_style = ParagraphStyle(
+        'PayslipSection',
+        parent=styles['Heading2'],
+        fontSize=11,
+        textColor=ACCENT,
+        fontName='Helvetica-Bold',
+        spaceBefore=10,
+        spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        'PayslipBody',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=DARK,
+        fontName='Helvetica',
+        leading=13,
+    )
+    bold_body_style = ParagraphStyle(
+        'PayslipBoldBody',
+        parent=body_style,
+        fontName='Helvetica-Bold',
+    )
+    
+    elements = []
+    
+    # 1. School Information & Header
+    school_name = getattr(settings, 'SCHOOL_NAME', 'Centre Tonaroz')
+    school_address = getattr(settings, 'SCHOOL_ADDRESS', '')
+    school_phone = getattr(settings, 'SCHOOL_PHONE', '')
+    school_email = getattr(settings, 'SCHOOL_EMAIL', '')
+    
+    header_data = [
+        [
+            Paragraph(f"<b>{school_name}</b><br/>{school_address}<br/>Tél: {school_phone}<br/>Email: {school_email}", body_style),
+            Paragraph(f"<b>BULLETIN DE PAIE</b><br/>Période : {start_date.strftime('%d/%m/%Y')} au {end_date.strftime('%d/%m/%Y')}<br/>Date d'émission: {timezone.now().strftime('%d/%m/%Y')}", body_style)
+        ]
+    ]
+    header_table = Table(header_data, colWidths=[260, 250])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+    ]))
+    elements.append(header_table)
+    elements.append(HRFlowable(width='100%', thickness=1.5, color=ACCENT, spaceBefore=4, spaceAfter=10))
+    
+    # 2. Teacher Profile info
+    method_labels = {
+        'PERCENTAGE': 'Part des gains (%)',
+        'HOURLY': 'Taux horaire',
+        'SESSION': 'Tarif par session'
+    }
+    rate_str = ""
+    if teacher.payment_method == 'PERCENTAGE':
+        rate_str = f"{teacher.payment_percentage}% de part des gains"
+    elif teacher.payment_method == 'SESSION':
+        rate_str = f"{teacher.session_rate} DH par session"
+    else:
+        rate_str = f"{teacher.hourly_rate} DH par heure"
+        
+    profile_data = [
+        [
+            Paragraph(f"<b>Enseignant :</b> {teacher.name}", body_style),
+            Paragraph(f"<b>Téléphone :</b> {teacher.phone}", body_style)
+        ],
+        [
+            Paragraph(f"<b>Mode de paiement :</b> {method_labels.get(teacher.payment_method, teacher.payment_method)}", body_style),
+            Paragraph(f"<b>Taux/Tarif configuré :</b> {rate_str}", body_style)
+        ]
+    ]
+    profile_table = Table(profile_data, colWidths=[260, 250])
+    profile_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    elements.append(profile_table)
+    elements.append(Spacer(1, 10))
+    
+    # 3. Calculations Details
+    elements.append(Paragraph("DÉTAIL DU CALCUL DE LA RÉMUNÉRATION", section_style))
+    
+    calc_header = ['Élément', 'Quantité / Base', 'Taux / Part', 'Montant Brut']
+    calc_rows = []
+    
+    if teacher.payment_method == 'PERCENTAGE':
+        # List breakdown per group
+        for item in result.get('courses_breakdown', []):
+            course_name = item['course'].name
+            total_gains = item['gains_actual']
+            sessions_taught = item['taught_sessions']
+            total_sess = item['total_sessions']
+            share_net = item['share_actual']
+            
+            label = f"Part gains - {course_name} ({sessions_taught}/{total_sess} séances)"
+            calc_rows.append([
+                Paragraph(label, body_style),
+                f"{total_gains:.2f} DH",
+                f"{teacher.payment_percentage}%",
+                f"{share_net:.2f} DH"
+            ])
+            
+        # Substitution work
+        sub_earnings = result.get('substitution_earnings', Decimal('0.00'))
+        if sub_earnings > Decimal('0.00'):
+            sub_count = result.get('substitute_sessions_count', 0)
+            calc_rows.append([
+                Paragraph(f"Remplacements effectués ({sub_count} séances)", body_style),
+                f"{sub_count} séances",
+                "—",
+                f"{sub_earnings:.2f} DH"
+            ])
+    elif teacher.payment_method == 'SESSION':
+        own_count = result.get('own_sessions_count', 0)
+        sub_count = result.get('substitute_sessions_count', 0)
+        rate = result.get('session_rate', Decimal('0.00'))
+        
+        calc_rows.append([
+            Paragraph(f"Séances propres enseignées", body_style),
+            f"{own_count} séances",
+            f"{rate:.2f} DH",
+            f"{(Decimal(own_count)*rate):.2f} DH"
+        ])
+        if sub_count > 0:
+            calc_rows.append([
+                Paragraph(f"Séances de remplacement enseignées", body_style),
+                f"{sub_count} séances",
+                f"{rate:.2f} DH",
+                f"{(Decimal(sub_count)*rate):.2f} DH"
+            ])
+    else: # HOURLY
+        hours = result.get('total_hours', Decimal('0.00'))
+        rate = result.get('hourly_rate', Decimal('0.00'))
+        calc_rows.append([
+            Paragraph(f"Heures enseignées (Séances propres + Remplacements)", body_style),
+            f"{hours:.1f} heures",
+            f"{rate:.2f} DH/h",
+            f"{(hours*rate):.2f} DH"
+        ])
+        
+    # Build calculation table
+    calc_table_data = [calc_header] + calc_rows
+    calc_table = Table(calc_table_data, colWidths=[240, 100, 80, 90])
+    calc_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#edf2f7')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.black),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (1,0), (-1,-1), 'RIGHT'),
+        ('FONTSIZE', (0,0), (-1,-1), 9),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+    ]))
+    elements.append(calc_table)
+    elements.append(Spacer(1, 12))
+    
+    # 4. Payments Logged (Advances/Salary payouts)
+    elements.append(Paragraph("HISTORIQUE DES PAIEMENTS ET AVANCES ENREGISTRÉS", section_style))
+    
+    pay_header = ['Date', 'Type de versement', 'Mode', 'Notes', 'Montant']
+    pay_rows = []
+    
+    payments_qs = result.get('logged_payments', [])
+    total_paid = Decimal('0.00')
+    
+    type_labels = {
+        'ADVANCE': 'Avance / Acompte',
+        'SALARY': 'Règlement de salaire',
+        'ADJUSTMENT': 'Régularisation'
+    }
+    method_labels_fr = {
+        'CASH': 'Espèces',
+        'TRANSFER': 'Virement',
+        'CHECK': 'Chèque'
+    }
+    
+    for p in payments_qs:
+        total_paid += p.amount
+        pay_rows.append([
+            p.payment_date.strftime('%d/%m/%Y'),
+            type_labels.get(p.payment_type, p.payment_type),
+            method_labels_fr.get(p.payment_method, p.payment_method),
+            Paragraph(p.notes or "—", body_style),
+            f"{p.amount:.2f} DH"
+        ])
+        
+    if not pay_rows:
+        pay_rows.append([Paragraph("Aucun paiement enregistré pour cette période.", body_style), "", "", "", "0.00 DH"])
+        
+    pay_table_data = [pay_header] + pay_rows
+    pay_table = Table(pay_table_data, colWidths=[70, 110, 70, 170, 90])
+    pay_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#edf2f7')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.black),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (0,0), (2,-1), 'CENTER'),
+        ('ALIGN', (4,0), (4,-1), 'RIGHT'),
+        ('FONTSIZE', (0,0), (-1,-1), 9),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+    ]))
+    elements.append(pay_table)
+    elements.append(Spacer(1, 15))
+    
+    # 5. Summary Block (Net, Paid, Balance)
+    salary_taught = result.get('salary_taught', Decimal('0.00'))
+    balance = salary_taught - total_paid
+    
+    summary_data = [
+        [
+            Paragraph("TOTAL DES GAINS CALCULÉS (BRUT/NET) :", bold_body_style),
+            Paragraph(f"{salary_taught:.2f} DH", bold_body_style),
+        ],
+        [
+            Paragraph("TOTAL DÉJÀ PAYÉ (AVANCES & RÈGLEMENTS) :", bold_body_style),
+            Paragraph(f"{total_paid:.2f} DH", bold_body_style),
+        ],
+    ]
+
+    if balance >= 0:
+        summary_data.append([
+            Paragraph("SOLDE DÛ À L'ENSEIGNANT (RESTE À PAYER) :", bold_body_style),
+            Paragraph(f"{balance:.2f} DH", bold_body_style),
+        ])
+    else:
+        summary_data.append([
+            Paragraph("SOLDE NÉGATIF (TROP-PERÇU / À RETENIR) :", bold_body_style),
+            Paragraph(f"{-balance:.2f} DH", bold_body_style),
+        ])
+    summary_table = Table(summary_data, colWidths=[380, 130])
+    summary_table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('ALIGN', (1,0), (1,-1), 'RIGHT'),
+        ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#d1fae5') if balance >= 0 else colors.HexColor('#fee2e2')),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 30))
+    
+    # 6. Signatures
+    sig_data = [
+        [
+            Paragraph("<b>Signature de l'Enseignant</b><br/><br/><br/><br/>_________________________", body_style),
+            Paragraph("<b>Signature et Cache du Centre</b><br/><br/><br/><br/>_________________________", body_style)
+        ]
+    ]
+    sig_table = Table(sig_data, colWidths=[250, 260])
+    sig_table.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+    ]))
+    elements.append(sig_table)
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
 
 def generate_thermal_receipt(payment) -> str:
     """

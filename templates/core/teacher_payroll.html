@@ -7,246 +7,552 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1 class="page-title">
-    <i class="bi bi-calculator-fill me-2" style="color:var(--primary);"></i>Calcul de paie
-  </h1>
-  <p class="page-subtitle">Calculateur dynamique de rémunération des professeurs</p>
-</div>
 
-<div class="row g-4">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
-  <!-- Form panel -->
-  <div class="col-lg-4">
-    <div class="card">
-      <div class="card-header d-flex align-items-center gap-2">
-        <i class="bi bi-sliders" style="color:var(--primary);font-size:16px;"></i>
-        <span class="fw-600">Paramètres du calcul</span>
-      </div>
-      <div class="card-body">
-        <form method="post" class="d-flex flex-column gap-3">
-          {% csrf_token %}
+.pr-page { font-family:'Inter',system-ui,sans-serif; display:flex; flex-direction:column; gap:1.5rem; padding:.25rem 0 3rem; }
 
-          <div>
-            <label class="form-label">Professeur</label>
-            <select name="teacher_id" class="form-select" required>
-              <option value="">— Sélectionner —</option>
-              {% for t in teacher_qs %}
-                <option value="{{ t.id }}" {% if result and result.teacher.id == t.id %}selected{% endif %}>
-                  {{ t.name }}
-                  ({% if t.payment_method == 'PERCENTAGE' %}{{ t.payment_percentage|floatformat:0 }}%{% elif t.payment_method == 'SESSION' %}{{ t.session_rate|floatformat:0 }} DH/sess{% else %}{{ t.hourly_rate|floatformat:0 }} DH/h{% endif %})
-                </option>
-              {% endfor %}
-            </select>
-          </div>
+/* ── Hero ── */
+.pr-hero {
+  position:relative; border-radius:20px; padding:2rem 2.5rem; overflow:hidden;
+  background:linear-gradient(135deg,#0f3460 0%,#16213e 40%,#0f3460 100%);
+  color:#fff; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem;
+}
+.pr-hero::after {
+  content:''; position:absolute; top:-60px; right:-60px; width:220px; height:220px;
+  border-radius:50%; background:rgba(255,255,255,.04); pointer-events:none;
+}
+.pr-hero-title { font-size:1.65rem; font-weight:900; letter-spacing:-.03em; margin:0; }
+.pr-hero-sub { font-size:.82rem; color:rgba(255,255,255,.55); margin:.3rem 0 0; }
+.pr-hero-actions { display:flex; gap:.5rem; flex-wrap:wrap; position:relative; z-index:2; }
+.pr-btn { display:inline-flex; align-items:center; gap:.4rem; padding:.5rem 1.1rem; border-radius:10px; font-size:.78rem; font-weight:700; text-decoration:none; cursor:pointer; border:none; transition:all .15s; }
+.pr-btn-primary { background:#10b981; color:#fff; }
+.pr-btn-primary:hover { background:#059669; color:#fff; }
+.pr-btn-outline { background:rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.2); }
+.pr-btn-outline:hover { background:rgba(255,255,255,.22); color:#fff; }
+.pr-btn-danger { background:#ef4444; color:#fff; }
+.pr-btn-danger:hover { background:#dc2626; color:#fff; }
 
-          <div>
-            <label class="form-label">Date de début</label>
-            <input type="date" name="start_date" class="form-control" value="{{ request.POST.start_date }}" required>
-          </div>
-          <div>
-            <label class="form-label">Date de fin</label>
-            <input type="date" name="end_date" class="form-control" value="{{ request.POST.end_date }}" required>
-          </div>
+/* ── Cards ── */
+.pr-card { background:var(--surface,#fff); border-radius:18px; border:1px solid rgba(0,0,0,.07); box-shadow:0 4px 20px rgba(0,0,0,.05); overflow:hidden; }
+.dark .pr-card { background:#1e293b; border-color:rgba(255,255,255,.06); }
+.pr-card-header { display:flex; align-items:center; justify-content:space-between; padding:1.1rem 1.4rem; border-bottom:1px solid rgba(0,0,0,.07); }
+.dark .pr-card-header { border-bottom-color:rgba(255,255,255,.06); }
+.pr-card-title { font-size:.88rem; font-weight:800; letter-spacing:-.01em; display:flex; align-items:center; gap:.4rem; }
+.pr-card-body { padding:1.4rem; }
 
-          <script>
-            const startInput = document.querySelector('input[name="start_date"]');
-            const endInput = document.querySelector('input[name="end_date"]');
+/* ── KPI row ── */
+.pr-kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; }
+.pr-kpi { background:var(--surface); border-radius:14px; border:1px solid rgba(0,0,0,.07); padding:1rem 1.2rem; display:flex; flex-direction:column; gap:.3rem; box-shadow:0 2px 10px rgba(0,0,0,.04); transition:transform .2s; }
+.pr-kpi:hover { transform:translateY(-2px); }
+.dark .pr-kpi { background:#1e293b; border-color:rgba(255,255,255,.06); }
+.pr-kpi-label { font-size:.65rem; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:#94a3b8; }
+.pr-kpi-value { font-size:1.5rem; font-weight:900; letter-spacing:-.04em; }
 
-            if (!startInput.value) {
-              const now = new Date();
-              const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-              const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+/* ── Balance block ── */
+.pr-balance { border-radius:16px; padding:1.5rem 1.75rem; display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
+.pr-balance-item { display:flex; flex-direction:column; gap:.25rem; }
+.pr-balance-lbl { font-size:.65rem; font-weight:700; text-transform:uppercase; letter-spacing:.1em; opacity:.65; }
+.pr-balance-val { font-size:1.45rem; font-weight:900; }
+.pr-bal-positive { background:linear-gradient(135deg,#d1fae5,#a7f3d0); border:1px solid #6ee7b7; color:#064e3b; }
+.pr-bal-negative { background:linear-gradient(135deg,#fee2e2,#fecaca); border:1px solid #fca5a5; color:#7f1d1d; }
 
-              startInput.value = firstDay.toISOString().split('T')[0];
-              endInput.value = lastDay.toISOString().split('T')[0];
-            }
-          </script>
+/* ── Table ── */
+.pr-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.pr-table th { font-size:.65rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; padding:.6rem 1rem; border-bottom:1px solid rgba(0,0,0,.07); text-align:left; }
+.pr-table td { padding:.7rem 1rem; border-bottom:1px solid rgba(0,0,0,.05); color:#334155; vertical-align:middle; }
+.dark .pr-table th { border-bottom-color:rgba(255,255,255,.06); }
+.dark .pr-table td { border-bottom-color:rgba(255,255,255,.04); color:#cbd5e1; }
+.pr-table tr:last-child td { border-bottom:none; }
+.pr-table tr:hover td { background:rgba(0,0,0,.02); }
+.dark .pr-table tr:hover td { background:rgba(255,255,255,.02); }
 
-          <button type="submit" class="btn btn-primary w-100">
-            <i class="bi bi-cpu"></i> Calculer la rémunération
-          </button>
-        </form>
-      </div>
+/* ── Badge ── */
+.pr-badge { display:inline-flex; align-items:center; padding:.18rem .65rem; border-radius:99px; font-size:.68rem; font-weight:700; }
+.pr-badge-advance { background:#fef3c7; color:#92400e; }
+.pr-badge-salary { background:#d1fae5; color:#065f46; }
+.pr-badge-adjustment { background:#e0e7ff; color:#3730a3; }
+.pr-badge-cash { background:#f1f5f9; color:#475569; }
+.pr-badge-transfer { background:#dbeafe; color:#1e40af; }
+.pr-badge-check { background:#fce7f3; color:#9d174d; }
+
+/* ── Quick-add form ── */
+.pr-form-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:1rem; }
+.pr-form-label { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:#94a3b8; margin-bottom:.3rem; display:block; }
+.pr-form-input { width:100%; padding:.5rem .8rem; border:1px solid #e2e8f0; border-radius:10px; font-size:.85rem; font-family:inherit; outline:none; background:var(--surface); color:inherit; transition:border-color .15s; }
+.pr-form-input:focus { border-color:#0f3460; box-shadow:0 0 0 3px rgba(15,52,96,.12); }
+.dark .pr-form-input { background:#0f172a; border-color:rgba(255,255,255,.1); color:#f1f5f9; }
+.pr-form-col-full { grid-column:1/-1; }
+
+/* ── Empty state ── */
+.pr-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:3rem 1rem; gap:.75rem; color:#94a3b8; }
+.pr-empty-icon { font-size:2.5rem; }
+.pr-empty-title { font-size:.95rem; font-weight:700; }
+
+/* ── Section header ── */
+.pr-section-hdr { display:flex; align-items:center; gap:.5rem; font-size:.8rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; padding-bottom:.6rem; border-bottom:1px solid rgba(0,0,0,.07); margin-bottom:1rem; }
+.dark .pr-section-hdr { border-bottom-color:rgba(255,255,255,.06); }
+
+/* ── Layout ── */
+.pr-grid { display:grid; grid-template-columns:340px 1fr; gap:1.5rem; align-items:start; }
+@media(max-width:1100px){ .pr-grid { grid-template-columns:1fr; } }
+@media(max-width:768px){ .pr-kpi-row { grid-template-columns:repeat(2,1fr); } .pr-form-grid { grid-template-columns:1fr; } .pr-balance { grid-template-columns:1fr; } }
+@media(max-width:480px){ .pr-kpi-row { grid-template-columns:1fr; } }
+</style>
+
+<div class="pr-page">
+
+  <!-- HERO -->
+  <div class="pr-hero">
+    <div>
+      <h1 class="pr-hero-title"><i class="bi bi-calculator-fill me-2"></i>Calcul de paie</h1>
+      <p class="pr-hero-sub">Calculateur dynamique de rémunération · Suivi des avances · Gestion des soldes</p>
+    </div>
+    <div class="pr-hero-actions">
+      {% if result %}
+        <a href="{% url 'core:export_teacher_payslip_pdf' %}?teacher_id={{ result.teacher.id }}&start_date={{ request.POST.start_date }}&end_date={{ request.POST.end_date }}"
+           class="pr-btn pr-btn-primary" target="_blank">
+          <i class="bi bi-file-earmark-pdf-fill"></i> Télécharger Bulletin PDF
+        </a>
+      {% endif %}
     </div>
   </div>
 
-  <!-- Results panel -->
-  <div class="col-lg-8">
-    {% if result %}
-      <!-- Result header -->
-      <div class="card mb-4">
-        <div class="card-header d-flex align-items-center justify-content-between">
-          <div class="d-flex align-items-center gap-2">
-            <div class="stat-card-icon" style="width:28px;height:28px;font-size:13px;background:#d1fae5;">
-              <i class="bi bi-wallet2" style="color:#10b981;"></i>
+  <!-- MAIN GRID: FORM + RESULTS -->
+  <div class="pr-grid">
+
+    <!-- LEFT: Form + Quick-Add -->
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+
+      <!-- Calculation Form -->
+      <div class="pr-card">
+        <div class="pr-card-header">
+          <span class="pr-card-title"><i class="bi bi-sliders" style="color:var(--primary);"></i>Paramètres du calcul</span>
+        </div>
+        <div class="pr-card-body">
+          <form method="post" class="d-flex flex-column gap-3" id="calcForm">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="calculate">
+
+            <div>
+              <label class="pr-form-label">Professeur</label>
+              <select name="teacher_id" class="pr-form-input" required id="teacherSelect">
+                <option value="">— Sélectionner —</option>
+                {% for t in teacher_qs %}
+                  <option value="{{ t.id }}" {% if result and result.teacher.id == t.id %}selected{% endif %}>
+                    {{ t.name }}
+                    ({% if t.payment_method == 'PERCENTAGE' %}{{ t.payment_percentage|floatformat:0 }}%{% elif t.payment_method == 'SESSION' %}{{ t.session_rate|floatformat:0 }} DH/sess{% else %}{{ t.hourly_rate|floatformat:0 }} DH/h{% endif %})
+                  </option>
+                {% endfor %}
+              </select>
             </div>
-            <span class="fw-600">{{ result.teacher.name }}</span>
-          </div>
-          <span class="badge badge-primary" style="font-size:12px;">
-            {% if result.payment_method == 'PERCENTAGE' %}Part {{ result.payment_percentage|floatformat:1 }}%{% elif result.payment_method == 'SESSION' %}{{ result.session_rate|floatformat:2 }} DH/session{% else %}{{ result.hourly_rate|floatformat:2 }} DH/h{% endif %}
-          </span>
+
+            <div>
+              <label class="pr-form-label">Date de début</label>
+              <input type="date" name="start_date" class="pr-form-input" id="startDate" value="{{ request.POST.start_date }}" required>
+            </div>
+            <div>
+              <label class="pr-form-label">Date de fin</label>
+              <input type="date" name="end_date" class="pr-form-input" id="endDate" value="{{ request.POST.end_date }}" required>
+            </div>
+
+            <script>
+              const si = document.getElementById('startDate');
+              const ei = document.getElementById('endDate');
+              if (!si.value) {
+                const now = new Date();
+                const first = new Date(now.getFullYear(), now.getMonth(), 1);
+                const last  = new Date(now.getFullYear(), now.getMonth()+1, 0);
+                si.value = first.toISOString().split('T')[0];
+                ei.value = last.toISOString().split('T')[0];
+              }
+            </script>
+
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="bi bi-cpu"></i> Calculer la rémunération
+            </button>
+          </form>
         </div>
       </div>
 
-      <!-- KPI cards -->
-      {% if result.payment_method == 'PERCENTAGE' %}
-        <div class="row g-3 mb-4">
-          <div class="col-md-3">
-            <div class="stat-card">
-              <div class="stat-card-label">CA Réel collecté</div>
-              <div class="stat-card-value" style="font-size:18px;color:var(--primary);">{{ result.gains_actual|floatformat:2 }} DH</div>
+      <!-- Quick-Add Payment Form (only shown after calculation) -->
+      {% if result %}
+      <div class="pr-card" style="border-top:3px solid #10b981;">
+        <div class="pr-card-header">
+          <span class="pr-card-title"><i class="bi bi-plus-circle-fill" style="color:#10b981;"></i>Enregistrer un paiement</span>
+        </div>
+        <div class="pr-card-body">
+          <form method="post" id="payForm">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save_payment">
+            <input type="hidden" name="teacher_id" value="{{ result.teacher.id }}">
+            <input type="hidden" name="start_date" value="{{ request.POST.start_date }}">
+            <input type="hidden" name="end_date" value="{{ request.POST.end_date }}">
+
+            <div class="pr-form-grid" style="margin-bottom:.9rem;">
+              <div>
+                <label class="pr-form-label">Montant (DH)</label>
+                <input type="number" name="amount" class="pr-form-input" step="0.01" min="0.01"
+                  placeholder="Ex: 1500.00" required>
+              </div>
+              <div>
+                <label class="pr-form-label">Date du versement</label>
+                <input type="date" name="payment_date" class="pr-form-input" id="payDate">
+                <script>document.getElementById('payDate').value = new Date().toISOString().split('T')[0];</script>
+              </div>
+              <div>
+                <label class="pr-form-label">Type</label>
+                <select name="payment_type" class="pr-form-input">
+                  <option value="ADVANCE">Avance / Acompte</option>
+                  <option value="SALARY" selected>Règlement de salaire</option>
+                  <option value="ADJUSTMENT">Régularisation</option>
+                </select>
+              </div>
+              <div>
+                <label class="pr-form-label">Mode de paiement</label>
+                <select name="payment_method" class="pr-form-input">
+                  <option value="CASH" selected>Espèces</option>
+                  <option value="TRANSFER">Virement</option>
+                  <option value="CHECK">Chèque</option>
+                </select>
+              </div>
+              <div>
+                <label class="pr-form-label">Mois de la période</label>
+                <select name="period_month" class="pr-form-input" id="periMonth">
+                  {% for m in "123456789101112"|make_list %}{% endfor %}
+                  <option value="1">Janvier</option><option value="2">Février</option>
+                  <option value="3">Mars</option><option value="4">Avril</option>
+                  <option value="5">Mai</option><option value="6">Juin</option>
+                  <option value="7">Juillet</option><option value="8">Août</option>
+                  <option value="9">Septembre</option><option value="10">Octobre</option>
+                  <option value="11">Novembre</option><option value="12">Décembre</option>
+                </select>
+              </div>
+              <div>
+                <label class="pr-form-label">Année</label>
+                <input type="number" name="period_year" class="pr-form-input" id="periYear"
+                  min="2020" max="2100" value="{{ request.POST.start_date|slice:':4' }}">
+              </div>
+              <div class="pr-form-col-full">
+                <label class="pr-form-label">Notes (facultatif)</label>
+                <input type="text" name="notes" class="pr-form-input" placeholder="Ex: Avance du 1er du mois…">
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-success w-100">
+              <i class="bi bi-check2-circle"></i> Enregistrer le paiement
+            </button>
+          </form>
+          <script>
+            // Pre-select month from the selected period start date
+            const sd = document.getElementById('startDate');
+            if (sd && sd.value) {
+              const parts = sd.value.split('-');
+              document.getElementById('periMonth').value = parseInt(parts[1], 10);
+              document.getElementById('periYear').value = parts[0];
+            }
+          </script>
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    <!-- RIGHT: Results -->
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }} d-flex align-items-center gap-2" role="alert" style="border-radius:14px;">
+            <i class="bi bi-{% if message.tags == 'success' %}check-circle-fill{% else %}x-circle-fill{% endif %}"></i>
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      {% if result %}
+
+        <!-- Teacher Info Header -->
+        <div class="pr-card">
+          <div class="pr-card-header">
+            <div class="d-flex align-items-center gap-2">
+              <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0f3460,#16213e);display:flex;align-items:center;justify-content:center;">
+                <i class="bi bi-person-workspace" style="color:#fff;font-size:16px;"></i>
+              </div>
+              <div>
+                <div style="font-weight:800; font-size:.95rem;">{{ result.teacher.name }}</div>
+                <div style="font-size:.75rem; color:#94a3b8;">
+                  {{ request.POST.start_date }} → {{ request.POST.end_date }}
+                </div>
+              </div>
+            </div>
+            <span class="badge badge-primary" style="font-size:.75rem;">
+              {% if result.payment_method == 'PERCENTAGE' %}Part {{ result.payment_percentage|floatformat:1 }}%
+              {% elif result.payment_method == 'SESSION' %}{{ result.session_rate|floatformat:2 }} DH/session
+              {% else %}{{ result.hourly_rate|floatformat:2 }} DH/h{% endif %}
+            </span>
+          </div>
+        </div>
+
+        <!-- KPI Cards by payment method -->
+        {% if result.payment_method == 'PERCENTAGE' %}
+          <div class="pr-kpi-row">
+            <div class="pr-kpi">
+              <div class="pr-kpi-label">CA Réel Collecté</div>
+              <div class="pr-kpi-value" style="color:var(--primary); font-size:1.2rem;">{{ result.gains_actual|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH</span></div>
+            </div>
+            <div class="pr-kpi">
+              <div class="pr-kpi-label">Part Régulière</div>
+              <div class="pr-kpi-value" style="color:var(--info); font-size:1.2rem;">{{ result.salary_regular|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH</span></div>
+            </div>
+            <div class="pr-kpi">
+              <div class="pr-kpi-label">Part Inscriptions Tardives</div>
+              <div class="pr-kpi-value" style="color:var(--warning); font-size:1.2rem;">{{ result.salary_late|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH</span></div>
+            </div>
+            <div class="pr-kpi" style="border-color:#10b981;">
+              <div class="pr-kpi-label">Gains Calculés (Net)</div>
+              <div class="pr-kpi-value" style="color:#059669; font-size:1.2rem;">{{ result.salary_taught|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH</span></div>
             </div>
           </div>
-          <div class="col-md-3">
-            <div class="stat-card">
-              <div class="stat-card-label">Base prof (régulière)</div>
-              <div class="stat-card-value" style="font-size:18px;color:var(--info);">{{ result.salary_regular|floatformat:2 }} DH</div>
+        {% elif result.payment_method == 'SESSION' %}
+          <div class="pr-kpi-row" style="grid-template-columns:repeat(3,1fr);">
+            <div class="pr-kpi">
+              <div class="pr-kpi-label">Séances Enseignées</div>
+              <div class="pr-kpi-value" style="color:var(--primary);">{{ result.taught_sessions }}</div>
+            </div>
+            <div class="pr-kpi">
+              <div class="pr-kpi-label">Tarif / Session</div>
+              <div class="pr-kpi-value" style="color:var(--info);">{{ result.session_rate|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH</span></div>
+            </div>
+            <div class="pr-kpi" style="border-color:#10b981;">
+              <div class="pr-kpi-label">Gains Calculés</div>
+              <div class="pr-kpi-value" style="color:#059669;">{{ result.salary_taught|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH</span></div>
             </div>
           </div>
-          <div class="col-md-3">
-            <div class="stat-card">
-              <div class="stat-card-label">Part inscriptions tardives</div>
-              <div class="stat-card-value" style="font-size:18px;color:var(--warning);">{{ result.salary_late|floatformat:2 }} DH</div>
+        {% else %}
+          <div class="pr-kpi-row" style="grid-template-columns:repeat(3,1fr);">
+            <div class="pr-kpi">
+              <div class="pr-kpi-label">Heures Enseignées</div>
+              <div class="pr-kpi-value" style="color:var(--primary);">{{ result.taught_hours|floatformat:1 }} <span style="font-size:.75rem; font-weight:500;">h</span></div>
+            </div>
+            <div class="pr-kpi">
+              <div class="pr-kpi-label">Taux Horaire</div>
+              <div class="pr-kpi-value" style="color:var(--info);">{{ result.hourly_rate|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH/h</span></div>
+            </div>
+            <div class="pr-kpi" style="border-color:#10b981;">
+              <div class="pr-kpi-label">Gains Calculés</div>
+              <div class="pr-kpi-value" style="color:#059669;">{{ result.salary_taught|floatformat:0 }} <span style="font-size:.75rem; font-weight:500;">DH</span></div>
             </div>
           </div>
-          <div class="col-md-3">
-            <div class="stat-card" style="background:linear-gradient(135deg, #a7f3d0 0%, #6ee7b7 100%); border-color:#6ee7b7; box-shadow: 0 4px 15px rgba(167,243,208,0.5);">
-              <div class="stat-card-label" style="color:#065f46;">Net à payer (réel)</div>
-              <div class="stat-card-value" style="font-size:18px; color:#064e3b; font-weight:700;">{{ result.salary_taught|floatformat:2 }} DH</div>
+        {% endif %}
+
+        <!-- Balance Summary -->
+        <div class="pr-balance {% if result.balance >= 0 %}pr-bal-positive{% else %}pr-bal-negative{% endif %}">
+          <div class="pr-balance-item">
+            <div class="pr-balance-lbl">Gains calculés (Net)</div>
+            <div class="pr-balance-val">{{ result.salary_taught|floatformat:2 }} DH</div>
+          </div>
+          <div class="pr-balance-item">
+            <div class="pr-balance-lbl">Total déjà versé</div>
+            <div class="pr-balance-val">{{ result.total_paid|floatformat:2 }} DH</div>
+          </div>
+          <div class="pr-balance-item">
+            <div class="pr-balance-lbl">
+              {% if result.balance >= 0 %}
+                <i class="bi bi-arrow-down-circle-fill"></i> Reste à payer à l'enseignant
+              {% else %}
+                <i class="bi bi-arrow-up-circle-fill"></i> Trop-perçu (à retenir)
+              {% endif %}
+            </div>
+            <div class="pr-balance-val" style="font-size:1.8rem;">
+              {% if result.balance >= 0 %}{{ result.balance|floatformat:2 }}{% else %}{{ result.balance|floatformat:2 }}{% endif %} DH
             </div>
           </div>
         </div>
 
-        <!-- Course breakdown -->
-        <div class="card mb-4">
-          <div class="card-header fw-600">
-            <i class="bi bi-graph-up-arrow me-1"></i>Détail par groupe ({{ result.courses_breakdown|length }})
+        <!-- Payments Logged -->
+        <div class="pr-card">
+          <div class="pr-card-header">
+            <span class="pr-card-title">
+              <i class="bi bi-cash-stack" style="color:#10b981;"></i>Historique des versements ({{ result.logged_payments|length }})
+            </span>
           </div>
-          <div class="table-responsive">
-            <table class="table table-hover mb-0">
-              <thead>
-                <tr>
-                  <th>Groupe</th><th>Matière</th><th class="text-center">Élèves</th>
-                  <th class="text-end">Prix/mois</th><th class="text-end">CA Théorique</th>
-                  <th class="text-end">CA Réel</th><th class="text-end">Part rég.</th><th class="text-end">Part tardive</th><th class="text-end">Total prof</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in result.courses_breakdown %}
+          <div>
+            {% if result.logged_payments %}
+              <table class="pr-table">
+                <thead><tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Mode</th>
+                  <th>Période</th>
+                  <th>Notes</th>
+                  <th class="text-end">Montant</th>
+                </tr></thead>
+                <tbody>
+                  {% for p in result.logged_payments %}
                   <tr>
-                    <td><strong><a href="{% url 'core:group_detail' item.course.id %}" class="text-decoration-none">{{ item.course.name }}</a></strong></td>
+                    <td>{{ p.payment_date|date:"d/m/Y" }}</td>
                     <td>
-                      {{ item.course.subject }}
-                      {% if item.course.level %}
-                        <a href="{% url 'core:level_detail' item.course.level.id %}" class="text-decoration-none">
-                          <span class="badge badge-secondary"><i class="bi bi-layers"></i> {{ item.course.level.name }}</span>
-                        </a>
+                      {% if p.payment_type == 'ADVANCE' %}
+                        <span class="pr-badge pr-badge-advance"><i class="bi bi-arrow-up-right me-1"></i>Avance</span>
+                      {% elif p.payment_type == 'SALARY' %}
+                        <span class="pr-badge pr-badge-salary"><i class="bi bi-check2 me-1"></i>Salaire</span>
+                      {% else %}
+                        <span class="pr-badge pr-badge-adjustment"><i class="bi bi-sliders me-1"></i>Régularisation</span>
                       {% endif %}
                     </td>
+                    <td>
+                      {% if p.payment_method == 'CASH' %}
+                        <span class="pr-badge pr-badge-cash"><i class="bi bi-cash me-1"></i>Espèces</span>
+                      {% elif p.payment_method == 'TRANSFER' %}
+                        <span class="pr-badge pr-badge-transfer"><i class="bi bi-bank me-1"></i>Virement</span>
+                      {% else %}
+                        <span class="pr-badge pr-badge-check"><i class="bi bi-file-earmark-check me-1"></i>Chèque</span>
+                      {% endif %}
+                    </td>
+                    <td style="font-weight:600;">{{ p.period_month|stringformat:"02d" }}/{{ p.period_year }}</td>
+                    <td style="color:#94a3b8; font-size:.8rem;">{{ p.notes|default:"—" }}</td>
+                    <td class="text-end" style="font-weight:800; color:#10b981;">{{ p.amount|floatformat:2 }} DH</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+                <tfoot>
+                  <tr style="background:rgba(0,0,0,.02);">
+                    <td colspan="5" style="font-weight:800; font-size:.85rem; padding:.8rem 1rem;">Total versé</td>
+                    <td class="text-end" style="font-weight:900; color:#10b981; font-size:.95rem; padding:.8rem 1rem;">{{ result.total_paid|floatformat:2 }} DH</td>
+                  </tr>
+                </tfoot>
+              </table>
+            {% else %}
+              <div class="pr-empty">
+                <div class="pr-empty-icon"><i class="bi bi-inbox"></i></div>
+                <div class="pr-empty-title">Aucun versement enregistré pour cette période</div>
+                <div style="font-size:.8rem;">Utilisez le formulaire à gauche pour enregistrer une avance ou un règlement.</div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Courses Breakdown (PERCENTAGE only) -->
+        {% if result.payment_method == 'PERCENTAGE' and result.courses_breakdown %}
+          <div class="pr-card">
+            <div class="pr-card-header">
+              <span class="pr-card-title"><i class="bi bi-graph-up-arrow me-1"></i>Détail par groupe ({{ result.courses_breakdown|length }})</span>
+              {% if result.substitute_sessions_count > 0 %}
+                <span class="pr-badge pr-badge-transfer"><i class="bi bi-arrow-left-right me-1"></i>{{ result.substitute_sessions_count }} remplacement(s)</span>
+              {% endif %}
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="pr-table">
+                <thead><tr>
+                  <th>Groupe</th>
+                  <th class="text-center">Élèves</th>
+                  <th class="text-center">Séances<br><small>Ens./Total</small></th>
+                  <th class="text-end">CA Théorique</th>
+                  <th class="text-end">CA Réel</th>
+                  <th class="text-end">Part rég.</th>
+                  <th class="text-end">Part tardive</th>
+                  <th class="text-end" style="color:#059669;">Part nette</th>
+                </tr></thead>
+                <tbody>
+                  {% for item in result.courses_breakdown %}
+                  <tr>
+                    <td>
+                      <strong><a href="{% url 'core:group_detail' item.course.id %}" class="text-decoration-none">{{ item.course.name }}</a></strong>
+                      <br><small style="color:#94a3b8;">{{ item.course.subject }}</small>
+                    </td>
                     <td class="text-center">{{ item.student_count }}</td>
-                    <td class="text-end">{{ item.course.monthly_price|floatformat:2 }} DH</td>
+                    <td class="text-center">
+                      <span style="font-weight:700;">{{ item.taught_sessions }}</span><span style="color:#94a3b8;">/{{ item.total_sessions }}</span>
+                      {% if item.substituted_sessions > 0 %}
+                        <br><small style="color:#f59e0b;font-size:.7rem;">{{ item.substituted_sessions }} remplacé(s)</small>
+                      {% endif %}
+                    </td>
                     <td class="text-end">{{ item.gains_theoretical|floatformat:2 }} DH</td>
                     <td class="text-end" style="color:var(--success);">{{ item.gains_actual|floatformat:2 }} DH</td>
                     <td class="text-end" style="color:var(--info);">{{ item.share_regular|floatformat:2 }} DH</td>
                     <td class="text-end" style="color:var(--warning);">{{ item.share_late|floatformat:2 }} DH</td>
-                    <td class="text-end fw-600" style="color:var(--success);">{{ item.share_actual|floatformat:2 }} DH</td>
+                    <td class="text-end" style="font-weight:800; color:#059669;">{{ item.share_actual|floatformat:2 }} DH</td>
                   </tr>
-                {% endfor %}
-                <tr style="background:var(--surface-alt);">
-                  <td colspan="4"><strong>Total</strong></td>
-                  <td class="text-end fw-600">{{ result.gains_theoretical|floatformat:2 }} DH</td>
-                  <td class="text-end fw-600" style="color:var(--success);">{{ result.gains_actual|floatformat:2 }} DH</td>
-                  <td class="text-end fw-600" style="color:var(--info);">{{ result.salary_regular|floatformat:2 }} DH</td>
-                  <td class="text-end fw-600" style="color:var(--warning);">{{ result.salary_late|floatformat:2 }} DH</td>
-                  <td class="text-end fw-600" style="color:var(--success);font-size:15px;">{{ result.salary_taught|floatformat:2 }} DH</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      {% elif result.payment_method == 'SESSION' %}
-        <div class="row g-3 mb-4">
-          <div class="col-md-4">
-            <div class="stat-card">
-              <div class="stat-card-label">Sessions enseignées</div>
-              <div class="stat-card-value" style="color:var(--primary);">{{ result.taught_sessions }}<span style="font-size:14px;font-weight:400;"> sess</span></div>
+                  {% endfor %}
+                </tbody>
+                <tfoot>
+                  <tr style="background:rgba(0,0,0,.02);">
+                    <td colspan="4" style="font-weight:800; font-size:.85rem; padding:.75rem 1rem;">Total</td>
+                    <td class="text-end fw-bold" style="padding:.75rem 1rem;">{{ result.gains_actual|floatformat:2 }} DH</td>
+                    <td class="text-end fw-bold" style="color:var(--info); padding:.75rem 1rem;">{{ result.salary_regular|floatformat:2 }} DH</td>
+                    <td class="text-end fw-bold" style="color:var(--warning); padding:.75rem 1rem;">{{ result.salary_late|floatformat:2 }} DH</td>
+                    <td class="text-end fw-bold" style="color:#059669; padding:.75rem 1rem;">{{ result.salary_taught|floatformat:2 }} DH</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
-          <div class="col-md-4">
-            <div class="stat-card">
-              <div class="stat-card-label">Tarif par session</div>
-              <div class="stat-card-value" style="color:var(--info);">{{ result.session_rate|floatformat:2 }}<span style="font-size:14px;font-weight:400;"> DH</span></div>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="stat-card" style="background:linear-gradient(135deg, #a7f3d0 0%, #6ee7b7 100%); border-color:#6ee7b7; box-shadow: 0 4px 15px rgba(167,243,208,0.5);">
-              <div class="stat-card-label" style="color:#065f46;">Net à payer</div>
-              <div class="stat-card-value" style="color:#064e3b; font-weight:700;">{{ result.salary_taught|floatformat:2 }}<span style="font-size:14px;font-weight:400;color:#065f46;"> DH</span></div>
-            </div>
-          </div>
-        </div>
-      {% else %}
-        <div class="row g-3 mb-4">
-          <div class="col-md-4">
-            <div class="stat-card">
-              <div class="stat-card-label">Heures travaillées</div>
-              <div class="stat-card-value" style="color:var(--primary);">{{ result.taught_hours|floatformat:1 }}<span style="font-size:14px;font-weight:400;"> h</span></div>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="stat-card">
-              <div class="stat-card-label">Taux horaire</div>
-              <div class="stat-card-value" style="color:var(--info);">{{ result.hourly_rate|floatformat:2 }}<span style="font-size:14px;font-weight:400;"> DH</span></div>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="stat-card" style="background:linear-gradient(135deg, #a7f3d0 0%, #6ee7b7 100%); border-color:#6ee7b7; box-shadow: 0 4px 15px rgba(167,243,208,0.5);">
-              <div class="stat-card-label" style="color:#065f46;">Net à payer</div>
-              <div class="stat-card-value" style="color:#064e3b; font-weight:700;">{{ result.salary_taught|floatformat:2 }}<span style="font-size:14px;font-weight:400;color:#065f46;"> DH</span></div>
-            </div>
-          </div>
-        </div>
-      {% endif %}
+        {% endif %}
 
-      <!-- Sessions table -->
-      <div class="card">
-        <div class="card-header fw-600">
-          <i class="bi bi-clock-history me-1"></i>Sessions enseignées ({{ result.sessions|length }})
-        </div>
-        <div class="table-responsive">
-          <table class="table table-hover mb-0">
-            <thead><tr><th>Date</th><th>Groupe</th><th>Horaire</th><th>Salle</th><th class="text-end">Heures</th></tr></thead>
-            <tbody>
-              {% for item in result.sessions %}
+        <!-- Sessions list -->
+        <div class="pr-card">
+          <div class="pr-card-header">
+            <span class="pr-card-title"><i class="bi bi-clock-history me-1"></i>Sessions enseignées ({{ result.sessions|length }})</span>
+            {% if result.own_sessions_count > 0 or result.substitute_sessions_count > 0 %}
+            <div style="display:flex; gap:.5rem; font-size:.75rem;">
+              <span class="pr-badge pr-badge-salary">{{ result.own_sessions_count }} propres</span>
+              {% if result.substitute_sessions_count > 0 %}
+                <span class="pr-badge pr-badge-transfer">{{ result.substitute_sessions_count }} rempl.</span>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="pr-table">
+              <thead><tr>
+                <th>Date</th>
+                <th>Groupe</th>
+                <th>Horaire</th>
+                <th>Salle</th>
+                <th>Rôle</th>
+                <th class="text-end">Heures</th>
+              </tr></thead>
+              <tbody>
+                {% for item in result.sessions %}
                 <tr>
                   <td>{{ item.session.date|date:"d/m/Y" }}</td>
                   <td><strong><a href="{% url 'core:group_detail' item.session.group.id %}" class="text-decoration-none">{{ item.session.group.name }}</a></strong></td>
                   <td><span class="badge badge-secondary">{{ item.session.start_time|time:"H:i" }} – {{ item.session.end_time|time:"H:i" }}</span></td>
                   <td>{{ item.session.room.name }}</td>
-                  <td class="text-end fw-600">{{ item.hours|floatformat:1 }}h</td>
+                  <td>
+                    {% if item.session.substitute_teacher and item.session.substitute_teacher.id == result.teacher.id %}
+                      <span class="pr-badge pr-badge-transfer"><i class="bi bi-arrow-left-right me-1"></i>Remplacement</span>
+                    {% else %}
+                      <span class="pr-badge pr-badge-salary"><i class="bi bi-person-check me-1"></i>Titulaire</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end fw-bold">{{ item.hours|floatformat:1 }}h</td>
                 </tr>
-              {% empty %}
-                <tr><td colspan="5" class="text-center py-4 text-muted">Aucune séance validée dans cette période</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                {% empty %}
+                <tr><td colspan="6" class="text-center py-4" style="color:#94a3b8;">Aucune séance validée dans cette période</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-    {% else %}
-      <div class="card">
-        <div class="card-body empty-state">
-          <div class="empty-state-icon"><i class="bi bi-calculator"></i></div>
-          <div class="empty-state-title">Résultats ici</div>
-          <div class="empty-state-text">Remplissez les paramètres à gauche pour calculer la rémunération.</div>
+      {% else %}
+        <!-- Empty state before calculation -->
+        <div class="pr-card">
+          <div class="pr-card-body pr-empty" style="padding:4rem 2rem;">
+            <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#dbeafe,#eff6ff);display:flex;align-items:center;justify-content:center;">
+              <i class="bi bi-calculator" style="font-size:2rem;color:var(--primary);"></i>
+            </div>
+            <div class="pr-empty-title">Résultats ici</div>
+            <div style="font-size:.82rem; text-align:center; max-width:280px;">Sélectionnez un professeur et une période, puis cliquez sur <strong>Calculer la rémunération</strong>.</div>
+          </div>
         </div>
-      </div>
-    {% endif %}
+      {% endif %}
+
+    </div>
   </div>
 
 </div>
-
-<style>.fw-600 { font-weight: 600; }</style>
-
 {% endblock %}

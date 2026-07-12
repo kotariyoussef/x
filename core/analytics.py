@@ -545,11 +545,18 @@ class TeacherAnalytics:
         Full payroll for every active teacher over a date range.
         Uses the existing calculate_teacher_hours util internally.
         """
-        from core.utils import calculate_teacher_hours
+        from core.utils import calculate_teacher_hours, get_months_in_range
+        from django.db.models import Q, Sum
         _, _, _, _, _, _, Session, _, Teacher = _models()
+
+        # Import TeacherPayment lazily
+        from core.models import TeacherPayment
 
         teachers = Teacher.objects.filter(is_active=True)
         results = []
+
+        # Pre-build list of target period months for payment lookups
+        target_months = get_months_in_range(start_date, end_date)
 
         for teacher in teachers:
             data = calculate_teacher_hours(teacher, start_date, end_date)
@@ -564,6 +571,20 @@ class TeacherAnalytics:
                 date__range=[start_date, end_date],
             ).count()
 
+            # Calculate amount already paid in the matching period months
+            total_paid = Decimal('0.00')
+            if target_months:
+                q_filter = Q()
+                for m in target_months:
+                    q_filter |= Q(period_month=m.month, period_year=m.year)
+                paid_agg = TeacherPayment.objects.filter(
+                    Q(teacher=teacher) & q_filter
+                ).aggregate(s=Sum('amount'))['s']
+                total_paid = paid_agg or Decimal('0.00')
+
+            salary_taught = data.get('salary_taught', Decimal('0.00')) or Decimal('0.00')
+            balance = salary_taught - total_paid
+
             results.append({
                 'teacher_id': teacher.id,
                 'teacher_name': teacher.name,
@@ -571,7 +592,9 @@ class TeacherAnalytics:
                 'session_count': session_count,
                 'substitute_count': substitute_count,
                 'total_sessions': session_count + substitute_count,
-                **data,  # total_hours, earnings, etc. from existing util
+                'total_paid': total_paid,
+                'balance': balance,
+                **data,  # total_hours, earnings, salary_taught, etc. from existing util
             })
 
         results.sort(key=lambda r: r.get('earnings', 0) or 0, reverse=True)

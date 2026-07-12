@@ -95,6 +95,7 @@ urlpatterns = [
     
     # Payroll
     path('payroll/teacher/', views.teacher_payroll, name='teacher_payroll'),
+    path('payroll/teacher/pdf/', views.export_teacher_payslip_pdf, name='export_teacher_payslip_pdf'),
 
     # WhatsApp Integration
     path('whatsapp/', views.whatsapp_dashboard, name='whatsapp_dashboard'),

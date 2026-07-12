@@ -76,10 +76,10 @@
       <p class="te-hero-sub">Détail des paies mensuelles calculées, volume horaire et taux de remplacement</p>
     </div>
     <div class="te-hero-actions">
-      <a href="{% url 'core:export_payroll_pdf' %}" class="te-btn te-btn-emerald">
+      <a href="{% url 'core:export_payroll_pdf' %}?start_date={{ start_date }}&end_date={{ end_date }}" class="te-btn te-btn-emerald">
         <span class="material-symbols-outlined" style="font-size:15px;">picture_as_pdf</span> PDF de Paie
       </a>
-      <a href="{% url 'core:export_csv_view' %}?type=payroll" class="te-btn te-btn-outline">
+      <a href="{% url 'core:export_csv_view' %}?type=payroll&start_date={{ start_date }}&end_date={{ end_date }}" class="te-btn te-btn-outline">
         <span class="material-symbols-outlined" style="font-size:15px;">file_download</span> CSV Paie
       </a>
     </div>
@@ -135,6 +135,9 @@
             <th style="text-align:center;">Remplacements</th>
             <th style="text-align:center;">Heures totales</th>
             <th style="text-align:right;">Gains calculés (DH)</th>
+            <th style="text-align:right;">Déjà versé (DH)</th>
+            <th style="text-align:right;">Solde</th>
+            <th style="text-align:center;">Bulletin</th>
           </tr>
         </thead>
         <tbody>
@@ -151,9 +154,22 @@
             <td style="text-align:center; {% if r.substitute_count > 0 %}color:#6366f1; font-weight:700;{% endif %}">+{{ r.substitute_count }}</td>
             <td style="text-align:center; font-weight:700;">{{ r.total_hours|floatformat:1 }}h</td>
             <td style="text-align:right; font-weight:900; color:#10b981; font-size:.92rem;" class="te-val-earnings" data-val="{{ r.earnings }}">{{ r.earnings|floatformat:0 }} DH</td>
+            <td style="text-align:right; font-weight:700; color:#0284c7;">{{ r.total_paid|default:'0'|floatformat:0 }} DH</td>
+            <td style="text-align:right; font-weight:900;"
+                class="{% if r.balance < 0 %}text-danger{% else %}text-success{% endif %}">
+              {% if r.balance is not None %}{{ r.balance|floatformat:0 }} DH{% else %}—{% endif %}
+            </td>
+            <td style="text-align:center;">
+              {% if r.teacher_id %}
+              <a href="{% url 'core:export_teacher_payslip_pdf' %}?teacher_id={{ r.teacher_id }}&start_date={{ start_date }}&end_date={{ end_date }}"
+                 class="te-chip te-chip-green" style="text-decoration:none;" target="_blank" title="Télécharger le bulletin PDF">
+                <span class="material-symbols-outlined" style="font-size:13px;">download</span>
+              </a>
+              {% else %}—{% endif %}
+            </td>
           </tr>
           {% empty %}
-          <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:2rem;">Aucun calcul de paie disponible.</td></tr>
+          <tr><td colspan="9" style="text-align:center; color:#94a3b8; padding:2rem;">Aucun calcul de paie disponible.</td></tr>
           {% endfor %}
         </tbody>
       </table>

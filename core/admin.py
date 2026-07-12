@@ -13,7 +13,7 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.import_export.forms import ExportForm, ImportForm
 from unfold.sites import UnfoldAdminSite
 
-from .models import Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session, CourseGroupSchedule, Level, LevelCategory, WhatsAppSendLog, Holiday, TeacherLeave, TeacherAvailability, MakeupSession, Announcement
+from .models import Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session, CourseGroupSchedule, Level, LevelCategory, WhatsAppSendLog, Holiday, TeacherLeave, TeacherAvailability, MakeupSession, Announcement, TeacherPayment
 from django.core.exceptions import ValidationError
 
 from django.conf import settings
@@ -386,13 +386,15 @@ class TeacherAdmin(ModelAdmin, ImportExportModelAdmin):
             'fields': ('name', 'phone', 'email')
         }),
         ('Informations professionnelles', {
-            'fields': ('payment_method', 'payment_percentage', 'hourly_rate', 'is_active', 'created_at')
+            'fields': ('payment_method', 'payment_percentage', 'hourly_rate', 'session_rate', 'is_active', 'created_at')
         }),
     )
     
     def payment_rate_display(self, obj):
         if obj.payment_method == 'PERCENTAGE':
             return format_html('<strong>{}% (Gains)</strong>', obj.payment_percentage)
+        elif obj.payment_method == 'SESSION':
+            return format_html('<strong>{} DH/session</strong>', obj.session_rate)
         return format_html('<strong>{} DH/h</strong>', obj.hourly_rate)
     payment_rate_display.short_description = 'Tarif / Mode'
     
@@ -712,4 +714,16 @@ class AnnouncementAdmin(ModelAdmin):
     list_filter = ('category', 'is_active', 'created_at', 'event_date')
     search_fields = ('title', 'content')
     filter_horizontal = ('target_levels', 'target_groups')
+
+
+@admin.register(TeacherPayment)
+class TeacherPaymentAdmin(ModelAdmin):
+    list_display = ('teacher', 'payment_date', 'period_display', 'amount', 'payment_type', 'payment_method')
+    list_filter = ('payment_type', 'payment_method', 'payment_date', 'teacher')
+    search_fields = ('teacher__name', 'notes')
+    ordering = ('-payment_date', '-id')
+
+    def period_display(self, obj):
+        return f"{obj.period_month:02d}/{obj.period_year}"
+    period_display.short_description = 'Période'
 

@@ -176,6 +176,11 @@ UNFOLD = {
                         "title": "Catégories de niveau",
                         "icon": "category",
                         "link": reverse_lazy("admin:core_levelcategory_changelist"),
+                    },
+                    {
+                        "title": "Paie Professeurs",
+                        "icon": "money",
+                        "link": reverse_lazy("admin:core_teacherpayment_changelist"),
                     }
                 ],
             },

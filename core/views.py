@@ -698,25 +698,55 @@ def session_attendance(request, session_id):
 
 def teacher_payroll(request):
     """Calculate payroll for a teacher over a date range."""
-    from .models import Teacher, Session
-    from .utils import calculate_teacher_hours
+    from .models import Teacher, Session, TeacherPayment
+    from .utils import calculate_teacher_hours, get_months_in_range
+    from django.db.models import Q
+    from django.contrib import messages
     
     teacher_qs = Teacher.objects.filter(is_active=True)
 
     result = None
     if request.method == 'POST':
+        action = request.POST.get('action')
         teacher_id = request.POST.get('teacher_id')
         start = request.POST.get('start_date')
         end = request.POST.get('end_date')
+        
         if not (teacher_id and start and end):
             return HttpResponseBadRequest('Missing parameters')
+            
         teacher = get_object_or_404(Teacher, pk=teacher_id)
         start_d = datetime.strptime(start, '%Y-%m-%d').date()
         end_d = datetime.strptime(end, '%Y-%m-%d').date()
+        
+        if action == 'save_payment':
+            amount = request.POST.get('amount')
+            pay_date_str = request.POST.get('payment_date')
+            method = request.POST.get('payment_method')
+            pay_type = request.POST.get('payment_type')
+            month = request.POST.get('period_month')
+            year = request.POST.get('period_year')
+            notes = request.POST.get('notes', '')
+            
+            if amount and month and year:
+                pay_date = datetime.strptime(pay_date_str, '%Y-%m-%d').date() if pay_date_str else timezone.now().date()
+                TeacherPayment.objects.create(
+                    teacher=teacher,
+                    amount=Decimal(amount),
+                    payment_date=pay_date,
+                    payment_method=method,
+                    payment_type=pay_type,
+                    period_month=int(month),
+                    period_year=int(year),
+                    notes=notes
+                )
+                messages.success(request, f"Paiement de {amount} DH enregistré pour {teacher.name}.")
+            else:
+                messages.error(request, "Erreur lors de l'enregistrement : paramètres manquants.")
 
         # Get sessions list for reference
         sessions = Session.objects.filter(
-            group__teacher=teacher,
+            Q(group__teacher=teacher, substitute_teacher__isnull=True) | Q(substitute_teacher=teacher),
             status='DONE',
             date__range=[start_d, end_d]
         ).order_by('date', 'start_time')
@@ -727,10 +757,27 @@ def teacher_payroll(request):
 
         # Calculate earnings using our upgraded helper
         payroll_data = calculate_teacher_hours(teacher, start_d, end_d)
+        
+        # Get target months in date range for payment log
+        target_months = get_months_in_range(start_d, end_d)
+        q_filter = Q()
+        for m in target_months:
+            q_filter |= Q(period_month=m.month, period_year=m.year)
+            
+        logged_payments = []
+        total_paid = Decimal('0.00')
+        if target_months:
+            logged_payments = TeacherPayment.objects.filter(
+                Q(teacher=teacher) & q_filter
+            ).order_by('payment_date', 'id')
+            total_paid = sum(p.amount for p in logged_payments)
 
         result = {
             'teacher': teacher,
             'sessions': sessions_list,
+            'logged_payments': logged_payments,
+            'total_paid': total_paid,
+            'balance': payroll_data['salary_taught'] - total_paid,
             **payroll_data
         }
 
@@ -3672,12 +3719,77 @@ def export_attendance_pdf(request):
 @staff_member_required
 def export_payroll_pdf(request):
     today = date.today()
-    start = today.replace(day=1)
-    end = today
+    month_start = today.replace(day=1)
+    
+    start_str = request.GET.get('start_date')
+    end_str = request.GET.get('end_date')
+    
+    from datetime import datetime
+    try:
+        start = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else month_start
+    except ValueError:
+        start = month_start
+    try:
+        end = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+    except ValueError:
+        end = today
+        
     buf = ReportExporter.teacher_payroll_pdf(start, end)
     resp = HttpResponse(buf.read(), content_type='application/pdf')
-    resp['Content-Disposition'] = f'attachment; filename="paie_{date.today()}.pdf"'
+    resp['Content-Disposition'] = f'attachment; filename="paie_{start}_{end}.pdf"'
     return resp
+
+
+@staff_member_required
+def export_teacher_payslip_pdf(request):
+    """
+    Export detailed PDF payslip for a specific teacher and period.
+    """
+    from .models import Teacher, Session, TeacherPayment
+    from .utils import calculate_teacher_hours, generate_teacher_payslip_pdf, get_months_in_range
+    from django.db.models import Q
+    from datetime import datetime
+    
+    teacher_id = request.GET.get('teacher_id')
+    start_str = request.GET.get('start_date')
+    end_str = request.GET.get('end_date')
+    
+    if not (teacher_id and start_str and end_str):
+        return HttpResponseBadRequest("Missing required parameters")
+        
+    teacher = get_object_or_404(Teacher, pk=teacher_id)
+    try:
+        start = datetime.strptime(start_str, '%Y-%m-%d').date()
+        end = datetime.strptime(end_str, '%Y-%m-%d').date()
+    except ValueError:
+        return HttpResponseBadRequest("Invalid date format")
+        
+    # Recalculate payroll data
+    payroll_data = calculate_teacher_hours(teacher, start, end)
+    
+    # Get payments for matching period months
+    target_months = get_months_in_range(start, end)
+    q_filter = Q()
+    for m in target_months:
+        q_filter |= Q(period_month=m.month, period_year=m.year)
+        
+    logged_payments = []
+    if target_months:
+        logged_payments = TeacherPayment.objects.filter(
+            Q(teacher=teacher) & q_filter
+        ).order_by('payment_date', 'id')
+    
+    result = {
+        'teacher': teacher,
+        'logged_payments': logged_payments,
+        **payroll_data
+    }
+    
+    pdf_buf = generate_teacher_payslip_pdf(teacher, start, end, result)
+    response = HttpResponse(pdf_buf.read(), content_type='application/pdf')
+    filename = f"bulletin_{teacher.name.replace(' ', '_')}_{start}_{end}.pdf"
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
 
 
 @staff_member_required
@@ -3701,8 +3813,19 @@ def export_csv_view(request):
         data = [{k: v for k, v in r.items() if k not in ('groups', 'wa_link')} for r in raw]
         fname = f'absences_{today}.csv'
     elif report_type == 'payroll':
-        data = TeacherAnalytics.payroll_summary(today.replace(day=1), today)
-        fname = f'paie_{today}.csv'
+        start_str = request.GET.get('start_date')
+        end_str = request.GET.get('end_date')
+        from datetime import datetime
+        try:
+            start = datetime.strptime(start_str, '%Y-%m-%d').date() if start_str else today.replace(day=1)
+        except ValueError:
+            start = today.replace(day=1)
+        try:
+            end = datetime.strptime(end_str, '%Y-%m-%d').date() if end_str else today
+        except ValueError:
+            end = today
+        data = TeacherAnalytics.payroll_summary(start, end)
+        fname = f'paie_{start}_{end}.csv'
     else:
         data = []
         fname = 'export.csv'

@@ -20,6 +20,12 @@ class TeacherPaymentMethod(models.TextChoices):
     SESSION = 'SESSION', 'Tarif par session'
 
 
+class TeacherPaymentType(models.TextChoices):
+    ADVANCE = 'ADVANCE', 'Avance / Acompte'
+    SALARY = 'SALARY', 'Règlement de salaire'
+    ADJUSTMENT = 'ADJUSTMENT', 'Régularisation'
+
+
 class TeacherLeaveType(models.TextChoices):
     SICK = 'SICK', 'Maladie'
     VACATION = 'VACATION', 'Vacances'
@@ -183,6 +189,38 @@ class TeacherLeave(models.Model):
 
     def __str__(self):
         return f"{self.teacher.name} – {self.get_leave_type_display()} du {self.start_date} au {self.end_date}"
+
+
+class TeacherPayment(models.Model):
+    """Paiements et avances des enseignants"""
+    teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='payroll_payments', verbose_name="Enseignant")
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))], verbose_name="Montant (DH)")
+    payment_date = models.DateField(default=timezone.now, verbose_name="Date de paiement")
+    payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices, default=PaymentMethod.CASH, verbose_name="Mode de paiement")
+    payment_type = models.CharField(max_length=20, choices=TeacherPaymentType.choices, default=TeacherPaymentType.SALARY, verbose_name="Type de paiement")
+    period_month = models.PositiveSmallIntegerField(verbose_name="Mois de la période")
+    period_year = models.PositiveSmallIntegerField(verbose_name="Année de la période")
+    notes = models.TextField(blank=True, verbose_name="Notes / Détails")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Paiement Enseignant"
+        verbose_name_plural = "Paiements Enseignants"
+        ordering = ['-payment_date', '-id']
+
+    def clean(self):
+        super().clean()
+        if self.period_month < 1 or self.period_month > 12:
+            raise ValidationError({'period_month': "Le mois doit être compris entre 1 et 12."})
+        if self.period_year < 2000 or self.period_year > 2100:
+            raise ValidationError({'period_year': "L'année doit être valide."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.teacher.name} – {self.amount} DH ({self.get_payment_type_display()} - {self.period_month}/{self.period_year})"
 
 
 def check_teacher_availability(teacher, day, start_time, end_time, date_val=None):
