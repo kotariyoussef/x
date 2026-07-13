@@ -1649,9 +1649,7 @@
             <a class="nav-dropdown-item {% active_if 'session_exceptions_list' %}" href="{% url 'core:session_exceptions_list' %}">
               <i class="bi bi-slash-circle" style="color: var(--danger);" aria-hidden="true"></i> Exceptions de séances
             </a>
-            <a class="nav-dropdown-item {% active_if 'attendance_report' %}" href="{% url 'core:attendance_report' %}">
-              <i class="bi bi-clipboard2-check-fill" style="color: var(--success);" aria-hidden="true"></i> Rapport de présence
-            </a>
+            
           </div>
         </div>
 
@@ -1670,55 +1668,42 @@
             <a class="nav-dropdown-item {% active_if 'levels_list' %}" href="{% url 'core:levels_list' %}">
               <i class="bi bi-layers-fill" style="color: var(--info);" aria-hidden="true"></i> Niveaux scolaires
             </a>
-            <a class="nav-dropdown-item {% active_if 'level_categories_list' %}" href="{% url 'core:level_categories_list' %}">
+            {% comment %} <a class="nav-dropdown-item {% active_if 'level_categories_list' %}" href="{% url 'core:level_categories_list' %}">
               <i class="bi bi-diagram-3-fill" style="color: #6366f1;" aria-hidden="true"></i> Catégories de niveaux
-            </a>
+            </a> {% endcomment %}
             <div class="dropdown-divider"></div>
             <a class="nav-dropdown-item {% active_if 'teachers_list' 'teacher_detail' %}" href="{% url 'core:teachers_list' %}">
               <i class="bi bi-person-workspace" style="color: var(--success);" aria-hidden="true"></i> Professeurs
             </a>
-            <a class="nav-dropdown-item {% active_if 'rooms_list' %}" href="{% url 'core:rooms_list' %}">
+            {% comment %} <a class="nav-dropdown-item {% active_if 'rooms_list' %}" href="{% url 'core:rooms_list' %}">
               <i class="bi bi-door-open-fill" style="color: var(--warning);" aria-hidden="true"></i> Salles
-            </a>
+            </a> {% endcomment %}
             <a class="nav-dropdown-item {% active_if 'teacher_payroll' %}" href="{% url 'core:teacher_payroll' %}">
               <i class="bi bi-calculator-fill" style="color: var(--danger);" aria-hidden="true"></i> Paie professeurs
+            </a>
+            <a class="nav-dropdown-item {% active_if 'attendance_report' %}" href="{% url 'core:attendance_report' %}">
+              <i class="bi bi-clipboard2-check-fill" style="color: var(--success);" aria-hidden="true"></i> Rapport de présence
             </a>
           </div>
         </div>
 
         <!-- WhatsApp Dropdown -->
-        <div class="nav-dropdown">
-          <button type="button" class="nav-item-link {% active_if 'whatsapp_dashboard' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' 'whatsapp_bulk_announcements' %}"
-            title="WhatsApp" aria-haspopup="true" aria-expanded="false" aria-controls="whatsapp-menu">
-            <i class="bi bi-whatsapp" style="position: relative;" aria-hidden="true">
-              {% if whatsapp_connected %}
-              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #25d366; border-radius: 50%; display: inline-block;"></span>
-              {% else %}
-              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #9ca3af; border-radius: 50%; display: inline-block;"></span>
-              {% endif %}
-            </i>
-            <span class="nav-label-text">WhatsApp</span>
-            <i class="bi bi-chevron-down" style="font-size: 0.9em;" aria-hidden="true"></i>
-            <span class="visually-hidden">{% if whatsapp_connected %}(connecté){% else %}(déconnecté){% endif %}</span>
-          </button>
-          <div class="nav-dropdown-menu" id="whatsapp-menu">
-            <a class="nav-dropdown-item {% active_if 'whatsapp_dashboard' %}" href="{% url 'core:whatsapp_dashboard' %}">
-              <i class="bi bi-whatsapp" style="color: #25d366;" aria-hidden="true"></i> Tableau de bord
-            </a>
-            <a class="nav-dropdown-item {% active_if 'whatsapp_payment_reminders' %}" href="{% url 'core:whatsapp_payment_reminders' %}">
-              <i class="bi bi-cash-coin" style="color: var(--success);" aria-hidden="true"></i> Rappels de paiement
-            </a>
-            <a class="nav-dropdown-item {% active_if 'whatsapp_absence_notifications' %}" href="{% url 'core:whatsapp_absence_notifications' %}">
-              <i class="bi bi-person-x-fill" style="color: var(--danger);" aria-hidden="true"></i> Notifications d'absence
-            </a>
-            <a class="nav-dropdown-item {% active_if 'whatsapp_bulk_announcements' %}" href="{% url 'core:whatsapp_bulk_announcements' %}">
-              <i class="bi bi-megaphone-fill" style="color: var(--warning);" aria-hidden="true"></i> Annonces groupées
-            </a>
-          </div>
-        </div>
+        <!-- WhatsApp Dashboard Button -->
+        <a class="nav-item-link {% active_if 'whatsapp_dashboard' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' 'whatsapp_bulk_announcements' %}"
+          href="{% url 'core:whatsapp_dashboard' %}" title="WhatsApp Dashboard" id="whatsappBtn">
+          <i class="bi bi-whatsapp" style="position: relative;" aria-hidden="true">
+            {% if whatsapp_connected %}
+            <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #25d366; border-radius: 50%; display: inline-block;"></span>
+            {% else %}
+            <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #9ca3af; border-radius: 50%; display: inline-block;"></span>
+            {% endif %}
+          </i>
+          <span class="nav-label-text">WhatsApp</span>
+          <span class="visually-hidden">{% if whatsapp_connected %}(connecté){% else %}(déconnecté){% endif %}</span>
+        </a>
 
         <!-- Analytiques & Rapports Dropdown -->
-        <div class="nav-dropdown">
+        {% comment %} <div class="nav-dropdown">
           <button type="button" class="nav-item-link {% active_if 'analytics_dashboard' 'analytics_revenue' 'analytics_attendance' 'analytics_students' 'analytics_rooms' 'analytics_teachers' 'analytics_operational' 'admin_statistics' %}"
             title="Analytiques & Rapports" aria-haspopup="true" aria-expanded="false" aria-controls="analytics-menu">
             <i class="bi bi-bar-chart-line-fill" aria-hidden="true"></i>
@@ -1752,7 +1737,7 @@
               <i class="bi bi-graph-up" style="color: var(--text-secondary);" aria-hidden="true"></i> Statistiques générales
             </a>
           </div>
-        </div>
+        </div> {% endcomment %}
 
       </nav>
 
@@ -1768,10 +1753,10 @@
         </div>
 
         <!-- Clock -->
-        <div class="navbar-clock">
+        {% comment %} <div class="navbar-clock">
           <i class="bi bi-clock" aria-hidden="true"></i>
           <span id="current-time"></span>
-        </div>
+        </div> {% endcomment %}
 
         <!-- Admin shortcut (staff only) -->
         {% if user.is_staff %}
@@ -1844,9 +1829,9 @@
       <a class="mobile-nav-link {% active_if 'teachers_list' 'teacher_detail' %}" href="{% url 'core:teachers_list' %}">
         <i class="bi bi-person-workspace" aria-hidden="true"></i> Professeurs
       </a>
-      <a class="mobile-nav-link {% active_if 'rooms_list' %}" href="{% url 'core:rooms_list' %}">
+      {% comment %} <a class="mobile-nav-link {% active_if 'rooms_list' %}" href="{% url 'core:rooms_list' %}">
         <i class="bi bi-door-open-fill" aria-hidden="true"></i> Salles
-      </a>
+      </a> {% endcomment %}
       <a class="mobile-nav-link {% active_if 'teacher_payroll' %}" href="{% url 'core:teacher_payroll' %}">
         <i class="bi bi-calculator-fill" aria-hidden="true"></i> Paie professeurs
       </a>
@@ -2075,9 +2060,18 @@
       updateTime();
       setInterval(updateTime, 1000);
 
+      // ── Auto-open WhatsApp dashboard on cockpit page ─────────────────
+      if ($('body').attr('data-page') === 'cockpit' || window.location.href.includes('/cockpit/')) {
+        const whatsappBtn = document.getElementById('whatsappBtn');
+        if (whatsappBtn) {
+          setTimeout(function () {
+            window.location.href = whatsappBtn.href;
+          }, 500);
+        }
+      }
+
       // ── Nav dropdowns (Planning / Pédagogie / WhatsApp / Analytiques) ──
-      // Generic: works for any number of .nav-dropdown blocks.
-      let hoverTimer = null;
+      // Click-only dropdown functionality for all devices
 
       function openDropdown($dropdown) {
         const $menu = $dropdown.find('.nav-dropdown-menu');
@@ -2102,21 +2096,7 @@
         $('.nav-dropdown').removeAttr('data-open');
       }
 
-      // Hover open with a short delay (desktop, mouse users only)
-      $(document).on('mouseenter', '.nav-dropdown', function () {
-        if (!window.matchMedia('(hover: hover)').matches) return;
-        const $dropdown = $(this);
-        clearTimeout(hoverTimer);
-        hoverTimer = setTimeout(function () { openDropdown($dropdown); }, 180);
-      });
-
-      $(document).on('mouseleave', '.nav-dropdown', function () {
-        clearTimeout(hoverTimer);
-        const $dropdown = $(this);
-        hoverTimer = setTimeout(function () { closeDropdown($dropdown); }, 200);
-      });
-
-      // Click / keyboard-activate toggle (also covers touch devices)
+      // Click to toggle dropdown (no hover)
       $(document).on('click', '.nav-dropdown > .nav-item-link', function (e) {
         e.preventDefault();
         e.stopPropagation();

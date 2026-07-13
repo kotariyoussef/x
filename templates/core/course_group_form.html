@@ -112,7 +112,13 @@
           <label for="{{ form.teacher.id_for_label }}" class="form-label">
             {{ form.teacher.label }} <span style="color:var(--danger);">*</span>
           </label>
-          {{ form.teacher }}
+          <div class="d-flex align-items-center gap-2">
+            {{ form.teacher }}
+            <button type="button" id="open-quick-add-teacher" class="btn btn-outline-primary btn-sm flex-shrink-0"
+                    title="Ajouter un nouveau professeur" style="white-space:nowrap;">
+              <i class="bi bi-plus-circle"></i> Nouveau
+            </button>
+          </div>
           {% if form.teacher.errors %}<div class="invalid-feedback d-block">{% for e in form.teacher.errors %}{{ e }}{% endfor %}</div>{% endif %}
         </div>
       </div>
@@ -207,6 +213,121 @@
   </div>
 </form>
 
+<!-- ============================================================
+     Teacher Quick-Add Modal
+     ============================================================ -->
+<div id="quick-add-teacher-overlay" role="dialog" aria-modal="true" aria-labelledby="qat-modal-title"
+     style="display:none;position:fixed;inset:0;z-index:9999;
+            background:rgba(0,0,0,.45);backdrop-filter:blur(3px);
+            display:none;align-items:center;justify-content:center;padding:1rem;">
+
+  <div id="quick-add-teacher-modal"
+       style="background:var(--bg-card,#fff);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);
+              width:100%;max-width:520px;max-height:90vh;overflow-y:auto;
+              animation:qatSlideIn .22s ease;">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;
+                padding:1.1rem 1.4rem;border-bottom:1px solid var(--border,#e5e7eb);">
+      <div style="display:flex;align-items:center;gap:.6rem;">
+        <div style="width:36px;height:36px;border-radius:8px;
+                    background:linear-gradient(135deg,#3b82f6,#06b6d4);
+                    display:flex;align-items:center;justify-content:center;">
+          <i class="bi bi-person-plus-fill" style="color:#fff;font-size:16px;"></i>
+        </div>
+        <span id="qat-modal-title" style="font-weight:700;font-size:1rem;color:var(--text-primary,#0f172a);">Nouveau professeur</span>
+      </div>
+      <button type="button" id="close-quick-add-teacher" aria-label="Fermer"
+              style="background:none;border:none;cursor:pointer;font-size:1.3rem;
+                     color:var(--text-muted,#64748b);line-height:1;padding:.25rem;">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:1.25rem 1.4rem;">
+      <div id="qat-alert" class="alert alert-danger mb-3" style="display:none;font-size:.85rem;"></div>
+
+      <!-- Name -->
+      <div class="mb-3">
+        <label for="qat-name" class="form-label">Nom complet <span style="color:var(--danger);">*</span></label>
+        <input id="qat-name" name="qat_name" type="text" class="form-control" placeholder="Nom complet" autocomplete="off">
+        <div id="qat-name-err" class="invalid-feedback"></div>
+      </div>
+
+      <!-- Phone + Email -->
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          <label for="qat-phone" class="form-label">Téléphone <span style="color:var(--danger);">*</span></label>
+          <input id="qat-phone" name="qat_phone" type="tel" class="form-control" placeholder="Téléphone" autocomplete="off">
+          <div id="qat-phone-err" class="invalid-feedback"></div>
+        </div>
+        <div class="col-md-6">
+          <label for="qat-email" class="form-label">Email</label>
+          <input id="qat-email" name="qat_email" type="email" class="form-control" placeholder="Email (optionnel)" autocomplete="off">
+          <div id="qat-email-err" class="invalid-feedback"></div>
+        </div>
+      </div>
+
+      <!-- Payment method -->
+      <div class="mb-3">
+        <label for="qat-payment-method" class="form-label">Mode de rémunération <span style="color:var(--danger);">*</span></label>
+        <select id="qat-payment-method" name="qat_payment_method" class="form-select">
+          <option value="HOURLY">Tarif horaire</option>
+          <option value="PERCENTAGE">Pourcentage des recettes</option>
+          <option value="SESSION">Tarif par séance</option>
+          <option value="FIXED">Salaire fixe</option>
+        </select>
+        <div id="qat-pm-err" class="invalid-feedback"></div>
+      </div>
+
+      <!-- Conditional rate fields -->
+      <div id="qat-field-hourly" class="mb-3">
+        <label for="qat-hourly-rate" class="form-label">Tarif horaire</label>
+        <div class="input-group">
+          <input id="qat-hourly-rate" name="qat_hourly_rate" type="number" class="form-control" step="0.01" min="0" placeholder="0.00">
+          <span class="input-group-text">DH/h</span>
+        </div>
+        <div id="qat-hourly-err" class="invalid-feedback"></div>
+      </div>
+      <div id="qat-field-percentage" class="mb-3" style="display:none;">
+        <label for="qat-percentage" class="form-label">Pourcentage (%)</label>
+        <div class="input-group">
+          <input id="qat-percentage" name="qat_percentage" type="number" class="form-control" step="0.01" min="0" max="100" placeholder="0.00">
+          <span class="input-group-text">%</span>
+        </div>
+        <div id="qat-pct-err" class="invalid-feedback"></div>
+      </div>
+      <div id="qat-field-session" class="mb-3" style="display:none;">
+        <label for="qat-session-rate" class="form-label">Tarif par séance</label>
+        <div class="input-group">
+          <input id="qat-session-rate" name="qat_session_rate" type="number" class="form-control" step="0.01" min="0" placeholder="0.00">
+          <span class="input-group-text">DH/séance</span>
+        </div>
+        <div id="qat-session-err" class="invalid-feedback"></div>
+      </div>
+
+    </div><!-- /body -->
+
+    <!-- Footer -->
+    <div style="display:flex;justify-content:flex-end;gap:.6rem;
+                padding:1rem 1.4rem;border-top:1px solid var(--border,#e5e7eb);">
+      <button type="button" id="qat-cancel" class="btn btn-outline-secondary">Annuler</button>
+      <button type="button" id="qat-submit" class="btn btn-primary">
+        <i class="bi bi-check-lg"></i> Enregistrer
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes qatSlideIn {
+  from { opacity:0; transform:translateY(-18px) scale(.97); }
+  to   { opacity:1; transform:translateY(0)      scale(1);   }
+}
+#quick-add-teacher-overlay.qat-open { display:flex !important; }
+</style>
+
 <!-- Empty form template (hidden) -->
 <div id="empty-form-template" class="d-none">
   <div class="row g-3 align-items-end schedule-form-row mb-3 pb-3" style="border-bottom:1px solid var(--border);" data-form-index="__prefix__">
@@ -237,7 +358,10 @@
   </div>
 </div>
 
-<style>.fw-600 { font-weight: 600; }</style>
+<style>.fw-600 { font-weight: 600; }
+/* make teacher select grow to fill the flex row */
+#id_teacher { flex: 1; }
+</style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -326,5 +450,145 @@ document.addEventListener('DOMContentLoaded', function () {
     checkRowConflict(row);
   });
 });
+
+// ──────────────────────────────────────────────
+// Teacher Quick-Add popup
+// ──────────────────────────────────────────────
+(function () {
+  const overlay   = document.getElementById('quick-add-teacher-overlay');
+  const openBtn   = document.getElementById('open-quick-add-teacher');
+  const closeBtn  = document.getElementById('close-quick-add-teacher');
+  const cancelBtn = document.getElementById('qat-cancel');
+  const submitBtn = document.getElementById('qat-submit');
+  const alertBox  = document.getElementById('qat-alert');
+  const pmSel     = document.getElementById('qat-payment-method');
+
+  // Payment-method conditional fields
+  const pmFields = {
+    HOURLY:     document.getElementById('qat-field-hourly'),
+    PERCENTAGE: document.getElementById('qat-field-percentage'),
+    SESSION:    document.getElementById('qat-field-session'),
+  };
+
+  function togglePmFields() {
+    const v = pmSel.value;
+    Object.entries(pmFields).forEach(([key, el]) => {
+      if (el) el.style.display = (key === v) ? '' : 'none';
+    });
+  }
+  pmSel.addEventListener('change', togglePmFields);
+  togglePmFields();
+
+  function openModal() {
+    overlay.classList.add('qat-open');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('qat-name').focus();
+  }
+
+  function closeModal() {
+    overlay.classList.remove('qat-open');
+    document.body.style.overflow = '';
+    clearErrors();
+    alertBox.style.display = 'none';
+  }
+
+  function clearErrors() {
+    ['qat-name','qat-phone','qat-email','qat-pm','qat-hourly','qat-pct','qat-session'].forEach(id => {
+      const errEl = document.getElementById(id + '-err');
+      if (errEl) errEl.textContent = '';
+    });
+    document.querySelectorAll('#quick-add-teacher-modal .form-control, #quick-add-teacher-modal .form-select')
+      .forEach(el => el.classList.remove('is-invalid'));
+  }
+
+  function showFieldError(fieldKey, msg) {
+    const map = {
+      name:               ['qat-name',    'qat-name-err'],
+      phone:              ['qat-phone',   'qat-phone-err'],
+      email:              ['qat-email',   'qat-email-err'],
+      payment_method:     ['qat-payment-method', 'qat-pm-err'],
+      hourly_rate:        ['qat-hourly-rate', 'qat-hourly-err'],
+      payment_percentage: ['qat-percentage', 'qat-pct-err'],
+      session_rate:       ['qat-session-rate', 'qat-session-err'],
+    };
+    const pair = map[fieldKey];
+    if (!pair) return;
+    const inputEl = document.getElementById(pair[0]);
+    const errEl   = document.getElementById(pair[1]);
+    if (inputEl) inputEl.classList.add('is-invalid');
+    if (errEl)   errEl.textContent = msg.replace(/^\*\s*/, '');
+  }
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) closeModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && overlay.classList.contains('qat-open')) closeModal();
+  });
+
+  submitBtn.addEventListener('click', function () {
+    clearErrors();
+    alertBox.style.display = 'none';
+
+    const body = new URLSearchParams({
+      csrfmiddlewaretoken: '{{ csrf_token }}',
+      name:               document.getElementById('qat-name').value.trim(),
+      phone:              document.getElementById('qat-phone').value.trim(),
+      email:              document.getElementById('qat-email').value.trim(),
+      payment_method:     pmSel.value,
+      hourly_rate:        document.getElementById('qat-hourly-rate').value,
+      payment_percentage: document.getElementById('qat-percentage').value,
+      session_rate:       document.getElementById('qat-session-rate').value,
+    });
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Enregistrement…';
+
+    fetch('{% url "core:teacher_quick_add" %}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest' },
+      body: body,
+    })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (ok && data.success) {
+        // Inject new teacher into the select & auto-select it
+        const teacherSel = document.getElementById('id_teacher');
+        const opt = document.createElement('option');
+        opt.value = data.id;
+        opt.textContent = data.name;
+        opt.selected = true;
+        teacherSel.appendChild(opt);
+        // Deselect others
+        Array.from(teacherSel.options).forEach(o => { if (o !== opt) o.selected = false; });
+        // Trigger change so conflict checker refreshes
+        teacherSel.dispatchEvent(new Event('change'));
+        closeModal();
+      } else {
+        if (data.errors) {
+          Object.entries(data.errors).forEach(([k, v]) => showFieldError(k, v));
+          // Show a summary in the alert box too
+          const msgs = Object.values(data.errors).map(m => m.replace(/^\*\s*/, '')).join(' — ');
+          alertBox.textContent = msgs;
+          alertBox.style.display = 'block';
+        } else {
+          alertBox.textContent = 'Une erreur est survenue. Veuillez réessayer.';
+          alertBox.style.display = 'block';
+        }
+      }
+    })
+    .catch(() => {
+      alertBox.textContent = 'Erreur réseau. Veuillez réessayer.';
+      alertBox.style.display = 'block';
+    })
+    .finally(() => {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> Enregistrer';
+    });
+  });
+}());
 </script>
 {% endblock %}

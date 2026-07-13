@@ -78,10 +78,28 @@ html, body {
 
 body, h1, h2, h3, h4, h5, h6,
 input, select, textarea, button {
-  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Match the clean, readable text size of the main site */
+.text-xs {
+  font-size: 0.85rem !important; /* ~13.6px instead of 12px */
+}
+.text-sm {
+  font-size: 0.95rem !important; /* ~15.2px instead of 14px */
+}
+.text-base {
+  font-size: 1.05rem !important; /* ~16.8px instead of 16px */
+}
+.text-lg {
+  font-size: 1.2rem !important;
+}
+.text-xl {
+  font-size: 1.35rem !important;
+}
+
 
 /* Smooth scroll */
 html {

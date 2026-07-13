@@ -181,6 +181,11 @@ UNFOLD = {
                         "title": "Paie Professeurs",
                         "icon": "money",
                         "link": reverse_lazy("admin:core_teacherpayment_changelist"),
+                    },
+                    {
+                        "title": "Annonce",
+                        "icon": "announcement",
+                        "link": reverse_lazy("admin:core_announcement_changelist"),
                     }
                 ],
             },
@@ -222,7 +227,7 @@ UNFOLD = {
                         "title": "Santé Opérationnelle",
                         "icon": "analytics",
                         "link": reverse_lazy("admin:analytics_operational"),
-                    },
+                    }
                 ],
             }
         ],

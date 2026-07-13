@@ -1194,6 +1194,14 @@ def print_students_list(request):
     elements.append(Spacer(1, 0.3*inch))
     elements.append(Paragraph(f"Total: <b>{len(table_data) - 1}</b> élèves", styles['Normal']))
     
+    for row_index, student in enumerate(students, start=1):  # start=1 because row 0 is the header
+        if student.payment_status() == 'UNPAID':
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, row_index), (-1, row_index), colors.HexColor('#ffcccc')),
+                ('TEXTCOLOR', (0, row_index), (-1, row_index), colors.red),
+                ('FONTNAME', (0, row_index), (-1, row_index), 'Helvetica-Bold'),
+            ]))
+
     # Build PDF
     doc.build(elements)
     pdf_buffer.seek(0)
@@ -2852,6 +2860,19 @@ def teacher_create(request):
     else:
         form = TeacherForm()
     return render(request, 'core/teacher_form.html', {'form': form, 'action': 'Créer'})
+
+
+@require_http_methods(['POST'])
+def teacher_quick_add(request):
+    """AJAX endpoint: quickly create a teacher from a popup and return JSON."""
+    from .forms import TeacherForm
+    form = TeacherForm(request.POST)
+    if form.is_valid():
+        teacher = form.save()
+        return JsonResponse({'success': True, 'id': teacher.id, 'name': teacher.name})
+    # Collect all field errors
+    errors = {field: errs.as_text() for field, errs in form.errors.items()}
+    return JsonResponse({'success': False, 'errors': errors}, status=400)
 
 
 @require_http_methods(['GET', 'POST'])

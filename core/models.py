@@ -416,20 +416,30 @@ class CourseGroupSchedule(models.Model):
                     f"de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')} le {s.get_day_display()}."
                 )
 
-        # Check teacher conflicts
-        overlapping_teachers = CourseGroupSchedule.objects.filter(
-            course_group__teacher=self.course_group.teacher,
-            day=self.day,
-            course_group__is_active=True
-        )
-        if self.pk:
-            overlapping_teachers = overlapping_teachers.exclude(pk=self.pk)
-        for s in overlapping_teachers:
-            if overlaps(self.start_time, self.end_time, s.start_time, s.end_time):
-                raise ValidationError(
-                    f"Le professeur '{self.course_group.teacher.name}' est déjà affecté au groupe '{s.course_group.name}' "
-                    f"de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')} le {s.get_day_display()}."
-                )
+        # Check teacher conflicts. Use teacher_id to avoid touching the relation
+        # which may not be set when validating inline formsets for a new
+        # CourseGroup (parent form not yet saved). The real checks will run
+        # again on save when the parent exists.
+        teacher_id = getattr(self.course_group, 'teacher_id', None)
+        if teacher_id:
+            overlapping_teachers = CourseGroupSchedule.objects.filter(
+                course_group__teacher_id=teacher_id,
+                day=self.day,
+                course_group__is_active=True
+            )
+            if self.pk:
+                overlapping_teachers = overlapping_teachers.exclude(pk=self.pk)
+            for s in overlapping_teachers:
+                if overlaps(self.start_time, self.end_time, s.start_time, s.end_time):
+                    teacher_name = None
+                    try:
+                        teacher_name = self.course_group.teacher.name
+                    except Exception:
+                        teacher_name = str(teacher_id)
+                    raise ValidationError(
+                        f"Le professeur '{teacher_name}' est déjà affecté au groupe '{s.course_group.name}' "
+                        f"de {s.start_time.strftime('%H:%M')} à {s.end_time.strftime('%H:%M')} le {s.get_day_display()}."
+                    )
 
         # Check teacher availability/leave
         # if self.course_group and self.course_group.teacher:
@@ -799,7 +809,7 @@ class Payment(models.Model):
                 try:
                     super().save(*args, **kwargs)
                     return
-                except IntegrityError:
+                except IntegrityError as e:
                     continue
             raise RuntimeError("Unable to assign a unique payment receipt number")
 

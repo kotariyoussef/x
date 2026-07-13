@@ -37,6 +37,7 @@ urlpatterns = [
     
     path('teachers/', views.teachers_list, name='teachers_list'),
     path('teachers/create/', views.teacher_create, name='teacher_create'),
+    path('teachers/quick-add/', views.teacher_quick_add, name='teacher_quick_add'),
     path('teachers/search/', views.teacher_search, name='teacher_search'),
     path('teachers/print/', views.print_teachers_list, name='print_teachers_list'),
     path('teachers/<int:teacher_id>/', views.teacher_detail, name='teacher_detail'),

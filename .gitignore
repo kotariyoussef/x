@@ -93,3 +93,5 @@ whatsapp_service/whatsapp_session/
 
 .env
 .env.*
+
+*.md
