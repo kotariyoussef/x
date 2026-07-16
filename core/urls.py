@@ -85,7 +85,14 @@ urlpatterns = [
     path('sessions/create-ajax/', views.session_create_ajax, name='session_create_ajax'),
     path('sessions/<int:session_id>/update-ajax/', views.session_update_ajax, name='session_update_ajax'),
     path('sessions/<int:session_id>/reset-ajax/', views.session_reset_to_default_ajax, name='session_reset_to_default_ajax'),
+    path('sessions/<int:session_id>/reschedule-suggestions-ajax/', views.session_reschedule_suggestions_ajax, name='session_reschedule_suggestions_ajax'),
+    path('sessions/<int:session_id>/reschedule-apply-ajax/', views.session_reschedule_apply_ajax, name='session_reschedule_apply_ajax'),
+    path('sessions/<int:session_id>/reset-attendance-ajax/', views.session_reset_attendance_ajax, name='session_reset_attendance_ajax'),
+    path('schedule/lock-toggle-ajax/', views.schedule_lock_toggle_ajax, name='schedule_lock_toggle_ajax'),
+    path('sessions/<int:session_id>/history/', views.session_history_view, name='session_history'),
     path('sessions/exceptions/', views.session_exceptions_list, name='session_exceptions_list'),
+    path('sessions/search-ajax/', views.sessions_search_ajax, name='sessions_search_ajax'),
+
     
     # Cashier
     path('cashier/payment/create/', views.payment_create, name='payment_create'),
@@ -166,6 +173,16 @@ urlpatterns = [
     path('analytics/export/payroll/pdf/', views.export_payroll_pdf, name='export_payroll_pdf'),
     path('analytics/export/churn/pdf/', views.export_churn_pdf, name='export_churn_pdf'),
     path('analytics/export/csv/', views.export_csv_view, name='export_csv_view'),
+
+    # New Academic Scheduling Routes
+    path('schedule/conflict-suggestions/', views.conflict_suggestions_ajax, name='conflict_suggestions_ajax'),
+    path('schedule/publish/', views.publish_schedule_ajax, name='publish_schedule_ajax'),
+    path('schedule/bulk/', views.bulk_operations_ajax, name='bulk_operations_ajax'),
+    path('schedule/export/<str:token>/', views.export_calendar_feed, name='export_calendar_feed'),
+    path('teachers/workload/', views.teacher_workload_dashboard, name='teacher_workload_dashboard'),
+    path('schedule/analytics/', views.schedule_analytics_dashboard, name='schedule_analytics_dashboard'),
+    path('student/schedule/', views.student_schedule_portal, name='student_schedule_portal'),
+    path('sessions/history/<int:session_id>/restore/', views.restore_history_ajax, name='restore_history_ajax'),
 
     # Public teacher attendance portal
     path('public/attendance/', views.public_teacher_attendance_login, name='public_teacher_attendance_login'),

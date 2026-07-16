@@ -20,9 +20,8 @@ class StudentFilter(django_filters.FilterSet):
         label='Statut de paiement',
         choices=[
             ('', '-- Tous les statuts --'),
-            ('ok', '✓ À jour'),
-            ('partial', '⚠ Partiel'),
-            ('unpaid', '✗ Impayé'),
+            ('paid', '✓ Payé'),
+            ('unpaid', '✗ Impayé / Incomplet'),
         ],
         widget=forms.Select(attrs={'class': 'form-select'})
     )
@@ -65,16 +64,16 @@ class StudentFilter(django_filters.FilterSet):
             Q(name__icontains=value) | 
             Q(matricule__icontains=value) |
             Q(parent_contact__icontains=value) | 
+            Q(parent_contact_2__icontains=value) |
             Q(parent_name__icontains=value) |
             Q(phone__icontains=value) |
             Q(main_school__icontains=value)
         )
     
     def filter_payment_status(self, queryset, name, value):
-        """Filter by payment status (requires calculating status for each student)"""
         if not value:
             return queryset
-        
+
         from django.db.models import Prefetch, Sum
         from django.utils import timezone
         from decimal import Decimal
@@ -82,45 +81,56 @@ class StudentFilter(django_filters.FilterSet):
         from core.models import Enrollment, Payment
 
         current_month = timezone.now().date().replace(day=1)
-        
-        # Prefetch active enrollments and schedules to avoid any DB queries inside calculate_enrollment_expected_fee
-        enrollments_qs = Enrollment.objects.filter(is_active=True).select_related('course_group').prefetch_related('course_group__schedules')
-        students_prefetched = queryset.prefetch_related(
-            Prefetch('enrollment_set', queryset=enrollments_qs, to_attr='active_enrollments')
+
+        enrollments_qs = (
+            Enrollment.objects.filter(is_active=True)
+            .select_related('course_group')
+            .prefetch_related('course_group__schedules')
         )
 
-        # Get all payments for this month in a single query
-        payments_summary = Payment.objects.filter(
-            month_covered=current_month,
-            status__in=PAID_STATUSES
-        ).values('student_id').annotate(total_paid=Sum('amount'))
-        
-        paid_map = {p['student_id']: p['total_paid'] for p in payments_summary}
+        students = queryset.prefetch_related(
+            Prefetch(
+                'enrollment_set',
+                queryset=enrollments_qs,
+                to_attr='active_enrollments'
+            )
+        )
+
+        payments_summary = (
+            Payment.objects.filter(
+                month_covered=current_month,
+                status__in=PAID_STATUSES
+            )
+            .values('student_id')
+            .annotate(total_paid=Sum('amount'))
+        )
+
+        paid_map = {
+            p['student_id']: p['total_paid'] or Decimal('0.00')
+            for p in payments_summary
+        }
 
         student_ids = []
-        for student in students_prefetched:
+
+        for student in students:
             required = Decimal('0.00')
+
             for enrollment in student.active_enrollments:
-                required += calculate_enrollment_expected_fee(enrollment, current_month)
+                required += calculate_enrollment_expected_fee(
+                    enrollment,
+                    current_month
+                )
 
             paid = paid_map.get(student.id, Decimal('0.00'))
 
-            if required == 0:
-                status = 'OK'
-            elif paid >= required:
-                status = 'OK'
-            elif paid > 0:
-                status = 'PARTIAL'
-            else:
-                status = 'UNPAID'
+            is_paid = (required == 0) or (paid >= required)
 
-            if value == 'ok' and status == 'OK':
+            if value == "paid" and is_paid:
                 student_ids.append(student.id)
-            elif value == 'partial' and status == 'PARTIAL':
+            elif value == "unpaid" and not is_paid:
+                # Includes both partial and completely unpaid
                 student_ids.append(student.id)
-            elif value == 'unpaid' and status == 'UNPAID':
-                student_ids.append(student.id)
-        
+
         return queryset.filter(id__in=student_ids)
 
 

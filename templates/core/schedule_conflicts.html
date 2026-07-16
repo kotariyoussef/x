@@ -125,7 +125,14 @@
           {% if student_conflicts %}<span class="badge ms-1" style="background:#a855f7;color:#fff;">{{ student_conflicts|length }}</span>{% endif %}
         </button>
       </li>
+      <li class="nav-item ms-1">
+        <button class="nav-link position-relative" data-bs-toggle="tab" data-bs-target="#info-pane">
+          <i class="bi bi-info-circle me-1"></i>Informations
+          {% if info_alerts %}<span class="badge bg-info ms-1">{{ info_alerts|length }}</span>{% endif %}
+        </button>
+      </li>
     </ul>
+
   </div>
 
   <div class="card-body">
@@ -454,6 +461,63 @@
         </div>
         {% endif %}
       </div>
+
+      <!-- ═══════════ INFORMATIONAL ALERTS ═══════════ -->
+      <div class="tab-pane fade" id="info-pane">
+        {% if info_alerts %}
+        <div class="alert alert-info mb-4" style="font-size:13px;">
+          <i class="bi bi-info-circle-fill me-2"></i>Notes informatives sur le planning (séances modifiées manuellement, rattrapages).
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Détail</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for info in info_alerts %}
+              <tr title="{{ info.description }}">
+                <td>
+                  {% if info.type == 'MANUAL_OVERRIDE' %}
+                    <span class="badge bg-info"><i class="bi bi-pencil-square"></i> Modification</span>
+                  {% elif info.type == 'MAKEUP_SESSION' %}
+                    <span class="badge bg-success"><i class="bi bi-arrow-repeat"></i> Rattrapage</span>
+                  {% else %}
+                    <span class="badge bg-secondary">{{ info.type }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="badge bg-light text-dark">
+                    <i class="bi bi-calendar-event"></i>
+                    {{ info.date|date:"d/m/Y" }}
+                  </span>
+                </td>
+                <td style="font-size:13px;">{{ info.description }}</td>
+                <td class="text-end">
+                  {% if info.session1 %}
+                  <a href="{% url 'core:session_edit' info.session1.id %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-pencil"></i> Éditer
+                  </a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <div class="empty-state-icon" style="color:var(--success);opacity:1;"><i class="bi bi-check-circle-fill"></i></div>
+          <div class="empty-state-title">Aucune note d'information</div>
+          <div class="empty-state-text">Toutes les séances suivent leur cours standard.</div>
+        </div>
+        {% endif %}
+      </div>
+
 
     </div>
   </div>

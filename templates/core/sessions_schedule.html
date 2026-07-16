@@ -15,29 +15,39 @@
     <div>
       <h1 class="h3 mb-0">
         <i class="bi bi-calendar3"></i> Planification Hebdomadaire
+        {% if is_week_locked %}
+          <span class="badge bg-danger fs-6 ms-2"><i class="bi bi-lock-fill"></i> Verrouillé</span>
+        {% endif %}
       </h1>
       <p class="text-muted mt-2 mb-0">
         {{ week_start|date:"d F Y" }} - {{ week_end|date:"d F Y" }}
       </p>
     </div>
-    <div class="btn-group">
-      <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-primary">
-        <i class="bi bi-list"></i> Vue liste
-      </a>
-    </div>
-    <div class="btn-group ms-2">
-      <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Imprimer</button>
-      <ul class="dropdown-menu dropdown-menu-end">
-        <li><a class="dropdown-item" href="{% url 'core:print_admin_schedule' %}?week={{ week_start|date:'Y-m-d' }}">Plan complet (admin)</a></li>
-        <li>
-          {% if teacher_filter %}
-            <a class="dropdown-item" href="{% url 'core:print_teacher_schedule' teacher_filter %}?week={{ week_start|date:'Y-m-d' }}">Plan professeur (filtré)</a>
-          {% else %}
-            <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#printTeacherModal">Plan professeur...</a>
-          {% endif %}
-        </li>
-        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#printStudentModal">Plan élève...</a></li>
-      </ul>
+    <div class="d-flex align-items-center gap-2">
+      <div class="btn-group">
+        <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-primary">
+          <i class="bi bi-list"></i> Vue liste
+        </a>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Imprimer</button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="{% url 'core:print_admin_schedule' %}?week={{ week_start|date:'Y-m-d' }}">Plan complet (admin)</a></li>
+          <li>
+            {% if teacher_filter %}
+              <a class="dropdown-item" href="{% url 'core:print_teacher_schedule' teacher_filter %}?week={{ week_start|date:'Y-m-d' }}">Plan professeur (filtré)</a>
+            {% else %}
+              <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#printTeacherModal">Plan professeur...</a>
+            {% endif %}
+          </li>
+          <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#printStudentModal">Plan élève...</a></li>
+        </ul>
+      </div>
+      {% if request.user.is_superuser %}
+        <button class="btn btn-outline-danger" id="toggleScheduleLockBtn" onclick="openLockModal()">
+          <i class="bi bi-lock-fill"></i> Verrouillage
+        </button>
+      {% endif %}
     </div>
   </div>
 
@@ -109,26 +119,50 @@
   </div>
 
   <!-- Navigation and Filters -->
-  <div class="card border-0 shadow-sm mb-4">
+  <div class="card border-0 shadow-sm mb-4" id="filtersCard">
     <div class="card-body">
-      <div class="row g-3 align-items-end">
-        
+
+      <!-- ── Row 1: Search bar ─────────────────────────────────────────── -->
+      <div class="row g-2 mb-3">
+        <div class="col-12">
+          <div class="input-group">
+            <span class="input-group-text bg-white border-end-0">
+              <i class="bi bi-search text-muted"></i>
+            </span>
+            <input type="text"
+                   id="scheduleSearchInput"
+                   class="form-control border-start-0 ps-0"
+                   placeholder="Rechercher par groupe, matière, professeur ou salle…"
+                   value="{{ search_query }}"
+                   autocomplete="off">
+            <button class="btn btn-outline-secondary" type="button" id="scheduleSearchClearBtn"
+                    {% if not search_query %}style="display:none"{% endif %}
+                    title="Effacer la recherche">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Row 2: Dimension filters + week nav ──────────────────────── -->
+      <div class="row g-2 align-items-end">
+
         <!-- Week Navigation -->
         <div class="col-md-3">
-          <label class="form-label fw-bold">
+          <label class="form-label fw-bold small text-muted mb-1">
             <i class="bi bi-calendar-week"></i> Navigation
           </label>
           <div class="btn-group w-100">
-            <a href="?week={{ prev_week|date:'Y-m-d' }}{% if view_mode != 'room' %}&view={{ view_mode }}{% endif %}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}" 
-               class="btn btn-outline-secondary">
+            <a href="?week={{ prev_week|date:'Y-m-d' }}{% if view_mode != 'room' %}&view={{ view_mode }}{% endif %}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+               class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-chevron-left"></i>
             </a>
-            <a href="?week={{ today|date:'Y-m-d' }}{% if view_mode != 'room' %}&view={{ view_mode }}{% endif %}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}" 
-               class="btn btn-outline-secondary flex-grow-1">
+            <a href="?week={{ today|date:'Y-m-d' }}{% if view_mode != 'room' %}&view={{ view_mode }}{% endif %}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+               class="btn btn-outline-secondary btn-sm flex-grow-1">
               <i class="bi bi-calendar-check"></i> Cette semaine
             </a>
-            <a href="?week={{ next_week|date:'Y-m-d' }}{% if view_mode != 'room' %}&view={{ view_mode }}{% endif %}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}" 
-               class="btn btn-outline-secondary">
+            <a href="?week={{ next_week|date:'Y-m-d' }}{% if view_mode != 'room' %}&view={{ view_mode }}{% endif %}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+               class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-chevron-right"></i>
             </a>
           </div>
@@ -136,15 +170,15 @@
 
         <!-- View Mode Toggle -->
         <div class="col-md-2">
-          <label class="form-label fw-bold">
+          <label class="form-label fw-bold small text-muted mb-1">
             <i class="bi bi-eye"></i> Vue
           </label>
           <div class="btn-group w-100" role="group">
-            <a href="?week={{ week_start|date:'Y-m-d' }}&view=room{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}" 
+            <a href="?week={{ week_start|date:'Y-m-d' }}&view=room{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
                class="btn btn-sm {% if view_mode == 'room' %}btn-primary{% else %}btn-outline-primary{% endif %}">
               <i class="bi bi-door-open"></i> Salles
             </a>
-            <a href="?week={{ week_start|date:'Y-m-d' }}&view=teacher{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}" 
+            <a href="?week={{ week_start|date:'Y-m-d' }}&view=teacher{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
                class="btn btn-sm {% if view_mode == 'teacher' %}btn-primary{% else %}btn-outline-primary{% endif %}">
               <i class="bi bi-person"></i> Profs
             </a>
@@ -153,10 +187,10 @@
 
         <!-- Room Filter -->
         <div class="col-md-2">
-          <label class="form-label fw-bold">
+          <label class="form-label fw-bold small text-muted mb-1">
             <i class="bi bi-door-open"></i> Salle
           </label>
-          <select name="room_id" class="form-select form-select-sm" onchange="applyFilter(this)">
+          <select id="filterRoom" name="room_id" class="form-select form-select-sm" onchange="applyFilter(this)">
             <option value="">Toutes</option>
             {% for room in rooms %}
               <option value="{{ room.id }}" {% if room_filter == room.id|stringformat:'s' %}selected{% endif %}>
@@ -168,10 +202,10 @@
 
         <!-- Teacher Filter -->
         <div class="col-md-2">
-          <label class="form-label fw-bold">
+          <label class="form-label fw-bold small text-muted mb-1">
             <i class="bi bi-person"></i> Professeur
           </label>
-          <select name="teacher_id" class="form-select form-select-sm" onchange="applyFilter(this)">
+          <select id="filterTeacher" name="teacher_id" class="form-select form-select-sm" onchange="applyFilter(this)">
             <option value="">Tous</option>
             {% for teacher in teachers %}
               <option value="{{ teacher.id }}" {% if teacher_filter == teacher.id|stringformat:'s' %}selected{% endif %}>
@@ -181,23 +215,41 @@
           </select>
         </div>
 
+        <!-- Group Filter -->
+        <div class="col-md-2">
+          <label class="form-label fw-bold small text-muted mb-1">
+            <i class="bi bi-people"></i> Groupe
+          </label>
+          <select id="filterGroup" name="group_id" class="form-select form-select-sm" onchange="applyFilter(this)">
+            <option value="">Tous</option>
+            {% for course in courses %}
+              <option value="{{ course.id }}" {% if group_filter == course.id|stringformat:'s' %}selected{% endif %}>
+                {{ course.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
         <!-- Status Filter -->
-        <div class="col-md-1.5 col-md">
-          <label class="form-label fw-bold">
+        <div class="col-md-1">
+          <label class="form-label fw-bold small text-muted mb-1">
             <i class="bi bi-flag"></i> Statut
           </label>
-          <select name="status" class="form-select form-select-sm" onchange="applyFilter(this)">
+          <select id="filterStatus" name="status" class="form-select form-select-sm" onchange="applyFilter(this)">
             <option value="">Tous</option>
-            <option value="PLANNED" {% if status_filter == 'PLANNED' %}selected{% endif %}>Prévue</option>
-            <option value="DONE" {% if status_filter == 'DONE' %}selected{% endif %}>Terminée</option>
+            <option value="PLANNED"   {% if status_filter == 'PLANNED'   %}selected{% endif %}>Prévue</option>
+            <option value="DONE"      {% if status_filter == 'DONE'      %}selected{% endif %}>Terminée</option>
             <option value="CANCELLED" {% if status_filter == 'CANCELLED' %}selected{% endif %}>Annulée</option>
           </select>
         </div>
 
-        <!-- Exceptions Filter -->
-        <div class="col-md-1.5 col-md d-flex align-items-center pb-1">
-          <div class="form-check form-switch w-100">
-            <input class="form-check-input" type="checkbox" role="switch" id="exceptionsFilter" name="exceptions_only" {% if exceptions_only %}checked{% endif %} onchange="toggleExceptionsFilter(this)">
+        <!-- Exceptions Toggle -->
+        <div class="col-auto d-flex align-items-center pb-1">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   id="exceptionsFilter" name="exceptions_only"
+                   {% if exceptions_only %}checked{% endif %}
+                   onchange="toggleExceptionsFilter(this)">
             <label class="form-check-label fw-bold small text-nowrap" for="exceptionsFilter">
               <i class="bi bi-exclamation-circle text-warning"></i> Exceptions
             </label>
@@ -206,41 +258,73 @@
 
       </div>
 
-      <!-- Active Filters Display -->
+      <!-- ── Active filter chips ───────────────────────────────────────── -->
       {% if filters_active %}
-        <div class="mt-3 pt-3 border-top">
-          <div class="d-flex gap-2 flex-wrap align-items-center">
-            <small class="text-muted">Filtres actifs:</small>
-            {% if room_filter %}
-              <span class="badge bg-light text-dark border">
-                Salle filtrée
-                <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="text-dark ms-1">×</a>
+        <div class="mt-3 pt-2 border-top d-flex gap-2 flex-wrap align-items-center" id="activeFilterChips">
+          <small class="text-muted me-1">Filtres actifs :</small>
+
+          {% if search_query %}
+            <span class="badge rounded-pill bg-primary bg-opacity-10 text-primary border border-primary-subtle fw-normal px-3 py-2">
+              <i class="bi bi-search me-1"></i>« {{ search_query }} »
+              <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+                 class="text-primary ms-1 text-decoration-none" title="Retirer ce filtre">×</a>
+            </span>
+          {% endif %}
+
+          {% if room_filter %}
+            {% for room in rooms %}{% if room.id|stringformat:'s' == room_filter %}
+              <span class="badge rounded-pill bg-info bg-opacity-10 text-info border border-info-subtle fw-normal px-3 py-2">
+                <i class="bi bi-door-open me-1"></i>{{ room.name }}
+                <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+                   class="text-info ms-1 text-decoration-none" title="Retirer ce filtre">×</a>
               </span>
-            {% endif %}
-            {% if teacher_filter %}
-              <span class="badge bg-light text-dark border">
-                Professeur filtré
-                <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="text-dark ms-1">×</a>
+            {% endif %}{% endfor %}
+          {% endif %}
+
+          {% if teacher_filter %}
+            {% for teacher in teachers %}{% if teacher.id|stringformat:'s' == teacher_filter %}
+              <span class="badge rounded-pill bg-success bg-opacity-10 text-success border border-success-subtle fw-normal px-3 py-2">
+                <i class="bi bi-person me-1"></i>{{ teacher.name }}
+                <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+                   class="text-success ms-1 text-decoration-none" title="Retirer ce filtre">×</a>
               </span>
-            {% endif %}
-            {% if status_filter %}
-              <span class="badge bg-light text-dark border">
-                Statut: {{ status_filter }}
-                <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}" class="text-dark ms-1">×</a>
+            {% endif %}{% endfor %}
+          {% endif %}
+
+          {% if group_filter %}
+            {% for course in courses %}{% if course.id|stringformat:'s' == group_filter %}
+              <span class="badge rounded-pill bg-warning bg-opacity-10 text-warning border border-warning-subtle fw-normal px-3 py-2">
+                <i class="bi bi-people me-1"></i>{{ course.name }}
+                <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+                   class="text-warning ms-1 text-decoration-none" title="Retirer ce filtre">×</a>
               </span>
-            {% endif %}
-            {% if exceptions_only %}
-              <span class="badge bg-light text-dark border">
-                Exceptions uniquement
-                <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="text-dark ms-1">×</a>
-              </span>
-            {% endif %}
-            <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}" class="btn btn-sm btn-outline-secondary ms-auto">
-              <i class="bi bi-x-circle"></i> Effacer tout
-            </a>
-          </div>
+            {% endif %}{% endfor %}
+          {% endif %}
+
+          {% if status_filter %}
+            <span class="badge rounded-pill bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle fw-normal px-3 py-2">
+              <i class="bi bi-flag me-1"></i>
+              {% if status_filter == 'PLANNED' %}Prévue{% elif status_filter == 'DONE' %}Terminée{% elif status_filter == 'CANCELLED' %}Annulée{% else %}{{ status_filter }}{% endif %}
+              <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}{% if exceptions_only %}&exceptions_only=on{% endif %}"
+                 class="text-secondary ms-1 text-decoration-none" title="Retirer ce filtre">×</a>
+            </span>
+          {% endif %}
+
+          {% if exceptions_only %}
+            <span class="badge rounded-pill bg-warning bg-opacity-10 text-warning border border-warning-subtle fw-normal px-3 py-2">
+              <i class="bi bi-exclamation-circle me-1"></i>Exceptions uniquement
+              <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}{% if room_filter %}&room_id={{ room_filter }}{% endif %}{% if teacher_filter %}&teacher_id={{ teacher_filter }}{% endif %}{% if group_filter %}&group_id={{ group_filter }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
+                 class="text-warning ms-1 text-decoration-none" title="Retirer ce filtre">×</a>
+            </span>
+          {% endif %}
+
+          <a href="?week={{ week_start|date:'Y-m-d' }}&view={{ view_mode }}"
+             class="btn btn-sm btn-outline-danger ms-auto">
+            <i class="bi bi-x-circle"></i> Effacer tout
+          </a>
         </div>
       {% endif %}
+
     </div>
   </div>
 
@@ -303,11 +387,12 @@
                            draggable="true" 
                            ondragstart="drag(event)" 
                            data-session-id="{{ session.id }}"
+                           data-is-recurring="{% if session.schedule_id %}true{% else %}false{% endif %}"
                            data-start-time="{{ session.start_time|time:'H:i' }}"
                            data-end-time="{{ session.end_time|time:'H:i' }}"
                            data-date="{{ session.date|date:'Y-m-d' }}"
                            data-room-id="{{ session.room_id }}"
-                           onclick="showSessionDetail({{ session.id }})">
+                           onclick="showSessionDetail({{ session.id }}, event)">
                         <div class="session-time d-flex justify-content-between align-items-center">
                           <span>
                             <i class="bi bi-clock"></i>
@@ -513,7 +598,85 @@
     </div>
   </div>
 
+  <!-- Lock Schedule Modal -->
+  <div class="modal fade" id="lockScheduleModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-lock-fill text-danger"></i> Verrouillage du planning</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="lockScheduleForm" onsubmit="submitLockToggle(event)">
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="lockSwitch" name="is_locked" {% if is_week_locked %}checked{% endif %}>
+              <label class="form-check-label fw-bold" for="lockSwitch">Verrouiller le planning</label>
+            </div>
+            
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label for="lockStartDate" class="form-label small">Date de début (optionnel)</label>
+                <input type="date" id="lockStartDate" name="start_date" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label for="lockEndDate" class="form-label small">Date de fin (optionnel)</label>
+                <input type="date" id="lockEndDate" name="end_date" class="form-control">
+              </div>
+            </div>
+            
+            <div class="mb-3">
+              <label for="lockNotes" class="form-label small">Notes / Motif du verrouillage</label>
+              <textarea id="lockNotes" name="notes" class="form-control" rows="2" placeholder="Ex: Verrouillage pour la période d'examen"></textarea>
+            </div>
+            
+            <div id="lockModalError" class="alert alert-danger d-none py-2 px-3 small mb-3"></div>
+            
+            <div class="d-flex justify-content-end gap-2">
+              <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+              <button type="submit" class="btn btn-danger btn-sm px-4">Enregistrer</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Propagation Scope Confirmation Modal -->
+  <div class="modal fade" id="propagationScopeModal" tabindex="-1" aria-labelledby="propagationScopeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow" style="border-radius: var(--radius-lg);">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-bold text-dark" id="propagationScopeModalLabel">Choix de la portée de modification</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body py-3">
+          <p class="text-secondary">Cette séance fait partie d'une série récurrente. Souhaitez-vous appliquer cette modification uniquement à cette séance ou la propager aux autres ?</p>
+          
+          <div class="form-group mb-3">
+            <label class="form-label fw-semibold text-secondary">Portée de la modification</label>
+            <select id="propagationScopeSelect" class="form-select">
+              <option value="only_this">Uniquement cette séance</option>
+              <option value="this_week">Toutes les séances de cette semaine</option>
+              <option value="future">Cette séance et toutes les suivantes</option>
+              <option value="academic_year">Toutes les séances de l'année académique</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label fw-semibold text-secondary">Raison du changement</label>
+            <input type="text" id="propagationReasonInput" class="form-control" placeholder="Ex: Remplacement, Indisponibilité salle, etc." value="Mise à jour rapide via planning">
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button type="button" class="btn btn-primary" id="propagationConfirmBtn">Confirmer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <script>
+
 // URL templates for printing (replace the placeholder 0 with id)
 const PRINT_STUDENT_URL_TEMPLATE = "{% url 'core:print_student_schedule' 0 %}";
 const PRINT_TEACHER_URL_TEMPLATE = "{% url 'core:print_teacher_schedule' 0 %}";
@@ -546,13 +709,60 @@ function applyFilter(selectElement) {
   window.location.search = params.toString();
 }
 
+// ── Schedule search input ─────────────────────────────────────────────────────
+// Debounces the text search: 400 ms after the user stops typing we navigate
+// to the same URL with the updated `q` param so results reflect the query and
+// the filter chips are rendered server-side (URL-persistable).
+(function () {
+  const input   = document.getElementById('scheduleSearchInput');
+  const clearBtn = document.getElementById('scheduleSearchClearBtn');
+  if (!input) return;
+
+  let debounceTimer = null;
+
+  input.addEventListener('input', function () {
+    clearBtn.style.display = this.value ? '' : 'none';
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const q = this.value.trim();
+      if (q) {
+        params.set('q', q);
+      } else {
+        params.delete('q');
+      }
+      window.location.search = params.toString();
+    }, 400);
+  });
+
+  clearBtn.addEventListener('click', function () {
+    input.value = '';
+    this.style.display = 'none';
+    const params = new URLSearchParams(window.location.search);
+    params.delete('q');
+    window.location.search = params.toString();
+  });
+
+  // Also focus the input on Ctrl+F / Cmd+F equivalent (Ctrl+K or /)
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      input.focus();
+      input.select();
+    }
+  });
+})();
+
+
 // ─────────────────────────────────────────────────────────────────
 // Show session detail — modal opens ONLY after fetch completes
 // so Bootstrap measures the real content height and never jumps.
 // ─────────────────────────────────────────────────────────────────
-function showSessionDetail(sessionId) {
+function showSessionDetail(sessionId, event) {
   // Stop click from bubbling to the cell or triggering drag events
-  event.stopPropagation();
+  if (event && typeof event.stopPropagation === 'function') {
+    event.stopPropagation();
+  }
 
   const modalEl = document.getElementById('sessionDetailModal');
   const contentDiv = document.getElementById('sessionDetailContent');
@@ -585,7 +795,7 @@ function showSessionDetail(sessionId) {
 
         html = `
           <div class="session-detail-content">
-            <form id="modal-edit-session-form" onsubmit="saveSessionModalChanges(event, ${data.id})">
+            <form id="modal-edit-session-form" data-is-recurring="${data.is_recurring}" onsubmit="saveSessionModalChanges(event, ${data.id})">
               <div class="row mb-3">
                 <div class="col-md-7">
                   <h6 class="text-muted small mb-1 fw-bold">Groupe / Cours</h6>
@@ -652,15 +862,28 @@ function showSessionDetail(sessionId) {
                     <button type="button" class="btn btn-success btn-sm px-3" onclick="updateSessionStatus(${data.id}, 'PLANNED')">
                       <i class="bi bi-arrow-counterclockwise"></i> Restaurer
                     </button>
+                    <button type="button" class="btn btn-info btn-sm px-3 text-white" onclick="findRescheduleSuggestions(${data.id})">
+                      <i class="bi bi-magic"></i> Trouver un rattrapage
+                    </button>
                   ` : `
                     <button type="button" class="btn btn-outline-danger btn-sm px-3" onclick="updateSessionStatus(${data.id}, 'CANCELLED')">
                       <i class="bi bi-x-circle-fill"></i> Annuler la session
                     </button>
                   `}
+                  <a href="/sessions/${data.id}/history/" target="_blank" class="btn btn-outline-secondary btn-sm px-3">
+                    <i class="bi bi-clock-history"></i> Historique
+                  </a>
                 </div>
+              </div>
+              
+              <!-- Reschedule suggestions placeholder -->
+              <div id="rescheduleSuggestionsContainer" class="d-none mt-3 p-3 border rounded bg-light">
+                <h6 class="fw-bold mb-2 text-info"><i class="bi bi-magic"></i> Suggestions de rattrapage</h6>
+                <div id="rescheduleSuggestionsList" style="max-height: 200px; overflow-y: auto; font-size:12px;"></div>
               </div>
             </form>
           </div>
+
         `;
       } else {
         // ── PAST session: read-only + retrospective controls ───────
@@ -737,8 +960,15 @@ function showSessionDetail(sessionId) {
                   <i class="bi bi-check"></i> Marquer terminée
                 </button>
               ` : ''}
+              <button type="button" class="btn btn-outline-warning btn-sm px-3" onclick="resetSessionAttendance(${data.id})">
+                <i class="bi bi-trash"></i> Réinitialiser présences
+              </button>
+              <a href="/sessions/${data.id}/history/" target="_blank" class="btn btn-outline-secondary btn-sm px-3">
+                <i class="bi bi-clock-history"></i> Historique
+              </a>
             </div>
           </div>
+
         `;
       }
 
@@ -760,7 +990,6 @@ function saveSessionModalChanges(e, sessionId) {
   e.preventDefault();
   const form = e.target;
   const formData = new FormData(form);
-  const csrfToken = getCookie('csrftoken');
   const alertDiv = document.getElementById('modalConflictAlert');
   
   alertDiv.classList.add('d-none');
@@ -770,30 +999,23 @@ function saveSessionModalChanges(e, sessionId) {
     bodyParams.append(pair[0], pair[1]);
   }
   
-  fetch(`/sessions/${sessionId}/update-ajax/`, {
-    method: 'POST',
-    headers: {
-      'X-CSRFToken': csrfToken,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: bodyParams.toString()
-  })
-  .then(response => response.json())
-  .then(data => {
-    if (data.success) {
-      bootstrap.Modal.getInstance(document.getElementById('sessionDetailModal')).hide();
+  const isRecurring = form.getAttribute('data-is-recurring') === 'true';
+  
+  performSessionUpdate(
+    sessionId,
+    bodyParams,
+    isRecurring,
+    (data) => {
+      const detailModal = getOrCreateModal('sessionDetailModal');
+      if (detailModal) detailModal.hide();
       showToast('Succès', data.message, 'success');
       setTimeout(() => { location.reload(); }, 600);
-    } else {
-      alertDiv.innerText = data.error;
+    },
+    (errorMsg) => {
+      alertDiv.innerText = errorMsg;
       alertDiv.classList.remove('d-none');
     }
-  })
-  .catch(error => {
-    console.error('Error:', error);
-    alertDiv.innerText = 'Erreur lors de la mise à jour.';
-    alertDiv.classList.remove('d-none');
-  });
+  );
 }
 
 // Quick status update — updates badge and buttons inline without full reload
@@ -865,58 +1087,169 @@ function updateSessionStatus(sessionId, newStatus) {
   });
 }
 
-// Student search for print modal
-let studentSearchTimer = null;
-document.getElementById('studentSearchInput').addEventListener('input', function () {
-  const q = this.value.trim();
-  clearTimeout(studentSearchTimer);
-  if (!q) {
-    document.getElementById('studentSearchResults').innerHTML = '';
-    return;
-  }
-  studentSearchTimer = setTimeout(() => {
-    fetch(`/cashier/student-search/?q=${encodeURIComponent(q)}`)
-      .then(r => r.json())
-      .then(data => {
-        const container = document.getElementById('studentSearchResults');
-        container.innerHTML = '';
-        (data.results || []).forEach(item => {
-          const a = document.createElement('a');
-          const template = PRINT_STUDENT_URL_TEMPLATE || `{% url 'core:print_student_schedule' 0 %}`;
-          a.href = template.replace('/0/', `/${item.id}/`) + `?week={{ week_start|date:'Y-m-d' }}`;
-          a.className = 'list-group-item list-group-item-action';
-          a.innerText = item.text;
-          container.appendChild(a);
-        });
-      });
-  }, 350);
-});
+// Student & Teacher print-modal search listeners
+// Wrapped in DOMContentLoaded so the elements exist before we query them.
+document.addEventListener('DOMContentLoaded', function () {
 
-// Teacher search for print modal
-let teacherSearchTimer = null;
-document.getElementById('teacherSearchInput').addEventListener('input', function () {
-  const q = this.value.trim();
-  clearTimeout(teacherSearchTimer);
-  if (!q) {
-    document.getElementById('teacherSearchResults').innerHTML = '';
-    return;
+  // Student search for print modal
+  let studentSearchTimer = null;
+  const studentInput = document.getElementById('studentSearchInput');
+  if (studentInput) {
+    studentInput.addEventListener('input', function () {
+      const q = this.value.trim();
+      clearTimeout(studentSearchTimer);
+      if (!q) { document.getElementById('studentSearchResults').innerHTML = ''; return; }
+      studentSearchTimer = setTimeout(() => {
+        fetch(`/cashier/student-search/?q=${encodeURIComponent(q)}`)
+          .then(r => r.json())
+          .then(data => {
+            const container = document.getElementById('studentSearchResults');
+            container.innerHTML = '';
+            (data.results || []).forEach(item => {
+              const a = document.createElement('a');
+              const template = PRINT_STUDENT_URL_TEMPLATE || `{% url 'core:print_student_schedule' 0 %}`;
+              a.href = template.replace('/0/', `/${item.id}/`) + `?week={{ week_start|date:'Y-m-d' }}`;
+              a.className = 'list-group-item list-group-item-action';
+              a.innerText = item.text;
+              container.appendChild(a);
+            });
+          });
+      }, 350);
+    });
   }
-  teacherSearchTimer = setTimeout(() => {
-    fetch(`/teachers/search/?q=${encodeURIComponent(q)}`)
+
+  // Teacher search for print modal
+  let teacherSearchTimer = null;
+  const teacherInput = document.getElementById('teacherSearchInput');
+  if (teacherInput) {
+    teacherInput.addEventListener('input', function () {
+      const q = this.value.trim();
+      clearTimeout(teacherSearchTimer);
+      if (!q) { document.getElementById('teacherSearchResults').innerHTML = ''; return; }
+      teacherSearchTimer = setTimeout(() => {
+        fetch(`/teachers/search/?q=${encodeURIComponent(q)}`)
+          .then(r => r.json())
+          .then(data => {
+            const container = document.getElementById('teacherSearchResults');
+            container.innerHTML = '';
+            (data.results || []).forEach(item => {
+              const a = document.createElement('a');
+              const template = PRINT_TEACHER_URL_TEMPLATE || `{% url 'core:print_teacher_schedule' 0 %}`;
+              a.href = template.replace('/0/', `/${item.id}/`) + `?week={{ week_start|date:'Y-m-d' }}`;
+              a.className = 'list-group-item list-group-item-action';
+              a.innerText = item.text;
+              container.appendChild(a);
+            });
+          });
+      }, 350);
+    });
+  }
+
+}); // end DOMContentLoaded (print search)
+
+// ── Modal Helper ─────────────────────────────────────────────────────────────
+function getOrCreateModal(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return null;
+  let instance = bootstrap.Modal.getInstance(el);
+  if (!instance) {
+    instance = new bootstrap.Modal(el);
+  }
+  return instance;
+}
+
+// ── Session Update Dispatcher ────────────────────────────────────────────────
+// Decides whether to update immediately (for non-recurring sessions) or show
+// the propagation scope modal (for recurring sessions).
+function performSessionUpdate(sessionId, params, isRecurring, onSuccess, onError) {
+  if (!isRecurring) {
+    const body = new URLSearchParams(params);
+    body.set('scope', 'only_this');
+    body.set('change_reason', 'Mise à jour rapide via planning');
+    
+    const csrfToken = getCookie('csrftoken');
+    fetch(`/sessions/${sessionId}/update-ajax/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrfToken,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString()
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        onSuccess(data);
+      } else {
+        onError(data.error || 'Erreur inconnue.');
+      }
+    })
+    .catch(err => {
+      onError('Erreur réseau : ' + err.message);
+    });
+  } else {
+    showPropagationModal(sessionId, params, onSuccess, onError);
+  }
+}
+
+// ── Propagation Scope Helper ─────────────────────────────────────────────────
+// Presents the propagation-scope modal, waits for the user's choice, then
+// fires the AJAX update with the selected scope and change_reason appended.
+let _propagationCallback = null;
+let _propagationErrCallback = null;
+let _propagationSessionId = null;
+let _propagationParams = null;
+
+function showPropagationModal(sessionId, params, onSuccess, onError) {
+  _propagationSessionId = sessionId;
+  _propagationParams    = params;
+  _propagationCallback  = onSuccess;
+  _propagationErrCallback = onError;
+
+  // Reset the select to default and show
+  document.getElementById('propagationScopeSelect').value = 'only_this';
+  document.getElementById('propagationReasonInput').value = 'Mise à jour rapide via planning';
+  
+  const modal = getOrCreateModal('propagationScopeModal');
+  if (modal) modal.show();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  const confirmBtn = document.getElementById('propagationConfirmBtn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', function () {
+      const scope  = document.getElementById('propagationScopeSelect').value;
+      const reason = document.getElementById('propagationReasonInput').value.trim() || 'Mise à jour rapide via planning';
+      const csrfToken = getCookie('csrftoken');
+
+      const body = new URLSearchParams(_propagationParams);
+      body.set('scope', scope);
+      body.set('change_reason', reason);
+
+      const modal = getOrCreateModal('propagationScopeModal');
+      if (modal) modal.hide();
+
+      fetch(`/sessions/${_propagationSessionId}/update-ajax/`, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrfToken,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString()
+      })
       .then(r => r.json())
       .then(data => {
-        const container = document.getElementById('teacherSearchResults');
-        container.innerHTML = '';
-        (data.results || []).forEach(item => {
-          const a = document.createElement('a');
-          const template = PRINT_TEACHER_URL_TEMPLATE || `{% url 'core:print_teacher_schedule' 0 %}`;
-          a.href = template.replace('/0/', `/${item.id}/`) + `?week={{ week_start|date:'Y-m-d' }}`;
-          a.className = 'list-group-item list-group-item-action';
-          a.innerText = item.text;
-          container.appendChild(a);
-        });
+        if (data.success) {
+          if (_propagationCallback) _propagationCallback(data);
+        } else {
+          if (_propagationErrCallback) _propagationErrCallback(data.error || 'Erreur inconnue.');
+        }
+      })
+      .catch(err => {
+        if (_propagationErrCallback) _propagationErrCallback('Erreur réseau : ' + err.message);
       });
-  }, 350);
+    });
+  }
 });
 
 // Drag & Drop
@@ -957,51 +1290,42 @@ function drop(ev) {
   const targetTeacherId = cell.getAttribute('data-teacher-id');
   const startTime    = card.getAttribute('data-start-time');
   const endTime      = card.getAttribute('data-end-time');
-  const csrfToken    = getCookie('csrftoken');
+  const isRecurring  = card.getAttribute('data-is-recurring') === 'true';
   
-  let body = `date=${targetDate}&start_time=${startTime}&end_time=${endTime}`;
-  if (targetRoomId)    body += `&room_id=${targetRoomId}`;
-  if (targetTeacherId) body += `&teacher_id=${targetTeacherId}`;
+  const params = new URLSearchParams();
+  params.append('date', targetDate);
+  params.append('start_time', startTime);
+  params.append('end_time', endTime);
+  if (targetRoomId)    params.append('room_id', targetRoomId);
+  if (targetTeacherId) params.append('teacher_id', targetTeacherId);
   
-  fetch(`/sessions/${sessionId}/update-ajax/`, {
-    method: 'POST',
-    headers: {
-      'X-CSRFToken': csrfToken,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: body
-  })
-  .then(response => response.json())
-  .then(data => {
-    if (data.success) {
+  performSessionUpdate(
+    sessionId,
+    params,
+    isRecurring,
+    (data) => {
       const placeholder = cell.querySelector('.text-center.text-muted');
       if (placeholder) placeholder.remove();
       
       const sessionBlocks = Array.from(cell.querySelectorAll('.session-block'));
       if (!sessionBlocks.includes(card)) sessionBlocks.push(card);
-      
       sessionBlocks
         .sort((a, b) => a.getAttribute('data-start-time').localeCompare(b.getAttribute('data-start-time')))
         .forEach(block => cell.appendChild(block));
       
       card.setAttribute('data-date', targetDate);
       if (targetRoomId) card.setAttribute('data-room-id', targetRoomId);
-      
       if (targetRoomId && data.room_name && card.querySelector('.session-info')) {
         card.querySelector('.session-info').innerHTML = `<i class="bi bi-door-open"></i> ${data.room_name}`;
       }
-      
       card.classList.remove('session-conflict');
       showToast('Succès', data.message, 'success');
       setTimeout(() => { location.reload(); }, 800);
-    } else {
-      alert('Erreur: ' + data.error);
+    },
+    (errMsg) => {
+      alert('Erreur: ' + errMsg);
     }
-  })
-  .catch(error => {
-    console.error('Error:', error);
-    alert('Erreur lors du déplacement de la session.');
-  });
+  );
 }
 
 // Right-click context menu
@@ -1046,7 +1370,8 @@ function quickAddSession(e) {
     document.getElementById('quick-substitute-select').value = "";
   }
   
-  new bootstrap.Modal(document.getElementById('sessionCreateModal')).show();
+  const modal = getOrCreateModal('sessionCreateModal');
+  if (modal) modal.show();
   $('#contextMenu').hide();
 }
 
@@ -1074,7 +1399,8 @@ function saveNewSession(e) {
   .then(response => response.json())
   .then(data => {
     if (data.success) {
-      bootstrap.Modal.getInstance(document.getElementById('sessionCreateModal')).hide();
+      const modal = getOrCreateModal('sessionCreateModal');
+      if (modal) modal.hide();
       showToast('Succès', data.message, 'success');
       setTimeout(() => { location.reload(); }, 600);
     } else {
@@ -1100,6 +1426,63 @@ function quickAddSessionFromCell(el, e) {
     teacherId: cell.dataset.teacherId || null
   };
   quickAddSession(e);
+}
+
+// Schedule Lock Dialogs & Toggle Form Submission
+function openLockModal() {
+  const modal = getOrCreateModal('lockScheduleModal');
+  if (modal) modal.show();
+}
+
+function submitLockToggle(e) {
+  e.preventDefault();
+  const form = e.target;
+  const formData = new FormData(form);
+  const csrfToken = getCookie('csrftoken');
+  const alertDiv = document.getElementById('lockModalError');
+  if (alertDiv) alertDiv.classList.add('d-none');
+
+  const bodyParams = new URLSearchParams();
+  for (const pair of formData.entries()) {
+    bodyParams.append(pair[0], pair[1]);
+  }
+  if (!formData.has('is_locked')) {
+    bodyParams.append('is_locked', 'off');
+  }
+
+  fetch('/schedule/lock-toggle-ajax/', {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': csrfToken,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: bodyParams.toString()
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      const modal = getOrCreateModal('lockScheduleModal');
+      if (modal) modal.hide();
+      showToast('Succès', data.message, 'success');
+      setTimeout(() => { location.reload(); }, 600);
+    } else {
+      if (alertDiv) {
+        alertDiv.innerText = data.error;
+        alertDiv.classList.remove('d-none');
+      } else {
+        alert('Erreur: ' + data.error);
+      }
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    if (alertDiv) {
+      alertDiv.innerText = 'Erreur lors de la modification du verrouillage.';
+      alertDiv.classList.remove('d-none');
+    } else {
+      alert('Erreur réseau.');
+    }
+  });
 }
 
 // Helpers
@@ -1177,7 +1560,8 @@ function resetSessionToDefault(sessionId) {
   .then(response => response.json())
   .then(data => {
     if (data.success) {
-      bootstrap.Modal.getInstance(document.getElementById('sessionDetailModal')).hide();
+      const modal = getOrCreateModal('sessionDetailModal');
+      if (modal) modal.hide();
       showToast('Succès', data.message, 'success');
       setTimeout(() => { location.reload(); }, 800);
     } else {

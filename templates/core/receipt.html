@@ -66,11 +66,11 @@
     }
 
     .info-item .label {
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 12px; /* Bumped from 11px */
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: #64748b;
+      color: #475569; /* WCAG AA contrast boost from #64748b */
       margin-bottom: 3px;
     }
 
@@ -91,9 +91,9 @@
     }
 
     .amount-box .amount-label {
-      font-size: 12px;
+      font-size: 13px; /* Bumped from 12px */
       color: #065f46;
-      font-weight: 600;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       margin-bottom: 6px;
@@ -102,14 +102,14 @@
     .amount-box .amount-value {
       font-size: 36px;
       font-weight: 800;
-      color: #059669;
+      color: #047857; /* Boosted contrast from #059669 */
       letter-spacing: -0.02em;
     }
 
     .amount-box .amount-unit {
       font-size: 18px;
-      font-weight: 500;
-      color: #10b981;
+      font-weight: 600;
+      color: #065f46; /* Boosted contrast from #10b981 */
     }
 
     /* Divider */
@@ -122,8 +122,8 @@
     /* Thank you */
     .thank-you {
       text-align: center;
-      color: #64748b;
-      font-size: 13px;
+      color: #334155; /* WCAG AA contrast boost from #64748b */
+      font-size: 13.5px;
       padding: 12px 0;
     }
 
@@ -138,11 +138,11 @@
     /* Footer */
     .receipt-footer {
       background: #f8fafc;
-      border-top: 1px solid #e2e8f0;
+      border-top: 1px solid #cbd5e1;
       padding: 16px 32px;
       text-align: center;
-      font-size: 11px;
-      color: #94a3b8;
+      font-size: 12px; /* Bumped from 11px */
+      color: #475569; /* WCAG AA contrast boost from #94a3b8 */
     }
 
     @media print {
@@ -160,7 +160,7 @@
     <div class="receipt-header">
       <img src="{% static SCHOOL_LOGO_PATH %}" alt="{{ SCHOOL_NAME }} Logo" class="logo">
       <h1 style="color: #1e293b; font-size: 20px; margin-top: 10px;">Reçu de paiement</h1>
-      <div class="receipt-no" style="color: #64748b; font-weight: 500;">N° {{ payment.receipt_number }}</div>
+      <div class="receipt-no" style="color: #334155; font-weight: 600;">N° {{ payment.receipt_number }}</div>
     </div>
 
     <!-- Body -->
@@ -195,21 +195,21 @@
       <hr class="divider">
 
       {% for detail in payment.get_prorated_details %}
-        <div style="background: #fffdf5; border: 1px solid #fef3c7; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
-          <div style="font-size: 11px; font-weight: 700; color: #d97706; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.05em;">
-            ⚠️ Inscription en cours de mois : {{ detail.course_group.name }}
+        <div style="background: #fffbeb; border: 1.5px solid #d97706; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+          <div style="font-size: 12px; font-weight: 700; color: #b45309; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.05em;">
+            <span aria-hidden="true">⚠️</span> Inscription en cours de mois : {{ detail.course_group.name }}
           </div>
-          <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
-            <span style="color: #64748b;">Nombre de sessions restants</span>
+          <div style="display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 6px;">
+            <span style="color: #334155;">Nombre de sessions restants</span>
             <strong style="color: #1e293b;">{{ detail.remaining_sessions }} / {{ detail.total_sessions }}</strong>
           </div>
-          <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
-            <span style="color: #64748b;">Prix par session</span>
+          <div style="display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 6px;">
+            <span style="color: #334155;">Prix par session</span>
             <strong style="color: #1e293b;">{{ detail.session_price|floatformat:2 }} DH</strong>
           </div>
-          <div style="display: flex; justify-content: space-between; font-size: 13px; border-top: 1px dashed #f59e0b; padding-top: 6px; margin-top: 6px;">
+          <div style="display: flex; justify-content: space-between; font-size: 13.5px; border-top: 1px dashed #d97706; padding-top: 6px; margin-top: 6px;">
             <span style="color: #1e293b; font-weight: 600;">Total proratisé</span>
-            <strong style="color: #d97706; font-weight: 700;">{{ detail.prorated_price|floatformat:2 }} DH</strong>
+            <strong style="color: #b45309; font-weight: 700;">{{ detail.prorated_price|floatformat:2 }} DH</strong>
           </div>
         </div>
       {% endfor %}
@@ -243,8 +243,8 @@
   <!-- Print button -->
   <div style="text-align:center;margin-top:24px;">
     <button class="print-btn" onclick="window.print()"
-            style="background:#6366f1;color:#fff;border:none;padding:10px 28px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">
-      🖨 Imprimer le reçu
+            style="background:#4f46e5;color:#fff;border:none;padding:12px 32px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;min-height:44px;">
+      <span aria-hidden="true">🖨</span> Imprimer le reçu
     </button>
   </div>
 

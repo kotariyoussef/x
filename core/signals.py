@@ -157,15 +157,24 @@ if settings.WHATSAPP_SESSION_NOTIFICATIONS_ENABLED:
 
         # Notify enrolled students via parent contact
         try:
+            import time
             enrolled_students = (
                 instance.group.students
                 .filter(is_active=True, enrollment__is_active=True)
                 .distinct()
             )
             for student in enrolled_students:
-                phone = student.parent_contact or student.phone
-                if phone:
-                    _notify(phone, message, student=student, message_type=msg_type)
+                phones = [
+                    p for p in [student.parent_contact, student.parent_contact_2, student.phone]
+                    if p
+                ]
+                # Deduplicate while preserving order (parent_contact_2 may equal student.phone)
+                seen = set()
+                for phone in phones:
+                    if phone not in seen:
+                        seen.add(phone)
+                        _notify(phone, message, student=student, message_type=msg_type)
+                        time.sleep(1.5)
         except Exception:
             pass
 

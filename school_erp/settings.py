@@ -183,6 +183,11 @@ UNFOLD = {
                         "link": reverse_lazy("admin:core_teacherpayment_changelist"),
                     },
                     {
+                        "title": "Messages WhatsApp",
+                        "icon": "message",
+                        "link": reverse_lazy("admin:message_templates"),
+                    },
+                    {
                         "title": "Annonce",
                         "icon": "announcement",
                         "link": reverse_lazy("admin:core_announcement_changelist"),
@@ -339,7 +344,7 @@ LOGOUT_REDIRECT_URL = '/admin/login/'
 
 # WhatsApp integration settings
 WHATSAPP_API_KEY = os.environ.get('WA_API_KEY', '')
-WHATSAPP_SESSION_NOTIFICATIONS_ENABLED = False  # Set to True to enable WhatsApp session notifications
+WHATSAPP_SESSION_NOTIFICATIONS_ENABLED = True  # Set to True to enable WhatsApp session notifications
 
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 

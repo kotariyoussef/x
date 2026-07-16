@@ -196,8 +196,8 @@ app.post('/send', requireApiKey, async (req, res) => {
             }
         } else {
             lastResponse = await client.sendMessage(chatId, message);
-            console.log(`Message successfully sent to ${chatId}. Message ID: ${lastResponse.id.id}`);
-            res.json({ success: true, messageId: lastResponse.id.id });
+            console.log(`Message successfully sent to ${chatId}.`);
+            res.json({ success: true, messageId: lastResponse?.id?.id || null });
         }
     } catch (error) {
         console.error('Failed to send message:', error);

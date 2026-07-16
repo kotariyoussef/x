@@ -17,7 +17,7 @@
     font-size: 26px; font-weight: 800;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
-  .info-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 2px; }
+  .info-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); margin-bottom: 2px; } /* WCAG contrast boost */
   .info-value { font-size: 14px; font-weight: 500; color: var(--text-primary); }
   .fw-600 { font-weight: 600; }
   .fw-700 { font-weight: 700; }
@@ -39,24 +39,30 @@
         <h1 class="page-title mb-1">{{ student.name }}</h1>
         <div class="d-flex flex-wrap gap-3 align-items-center">
           {% if student.matricule %}
-            <span style="font-size:13px;font-weight:700;color:var(--primary);background:var(--primary-light);padding:2px 10px;border-radius:6px;letter-spacing:0.05em;">
-              <i class="bi bi-hash me-1"></i>{{ student.matricule }}
+            <span style="font-size:13px;font-weight:700;color:#1d4ed8;background:var(--primary-light);padding:2px 10px;border-radius:6px;letter-spacing:0.05em;">
+              <i class="bi bi-hash me-1" aria-hidden="true"></i>{{ student.matricule }}
             </span>
           {% endif %}
-          <span class="text-muted" style="font-size:13.5px;">
-            <i class="bi bi-telephone me-1"></i>{{ student.parent_contact }}
+          <span style="font-size:13.5px;color:var(--text-secondary);">
+            <i class="bi bi-telephone me-1" aria-hidden="true"></i>{{ student.parent_contact }}
           </span>
+          {% if student.parent_contact_2 %}
+          <span style="font-size:13.5px;color:var(--text-secondary);">
+            <i class="bi bi-telephone me-1" aria-hidden="true"></i>{{ student.parent_contact_2 }}
+            <span style="font-size:11px;opacity:.7;">(2)</span>
+          </span>
+          {% endif %}
           {% if student.parent_name %}
-            <span class="text-muted" style="font-size:13.5px;">
-              <i class="bi bi-person me-1"></i>{{ student.parent_name }}
+            <span style="font-size:13.5px;color:var(--text-secondary);">
+              <i class="bi bi-person me-1" aria-hidden="true"></i>{{ student.parent_name }}
             </span>
           {% endif %}
         </div>
         <div class="mt-2 d-flex flex-wrap gap-2">
-          <span class="badge badge-primary"><i class="bi bi-book"></i> {{ total_enrolled }} groupe{{ total_enrolled|pluralize }}</span>
+          <span class="badge badge-primary"><i class="bi bi-book" aria-hidden="true"></i> {{ total_enrolled }} groupe{{ total_enrolled|pluralize }}</span>
           {% if student.level %}
             <a href="{% url 'core:level_detail' student.level.id %}" class="text-decoration-none">
-              <span class="badge badge-secondary"><i class="bi bi-layers-fill"></i> {{ student.level.name }}</span>
+              <span class="badge badge-secondary"><i class="bi bi-layers-fill" aria-hidden="true"></i> {{ student.level.name }}</span>
             </a>
           {% endif %}
           {% with status=payment_status.status %}
@@ -71,11 +77,11 @@
         </div>
       </div>
       <div class="col-12 col-sm-auto d-flex flex-wrap gap-2">
-        <a href="{% url 'core:student_edit' student.id %}" class="btn btn-outline-primary">
-          <i class="bi bi-pencil"></i> Éditer
+        <a href="{% url 'core:student_edit' student.id %}" class="btn btn-outline-primary" style="min-height: 44px; display: inline-flex; align-items: center;">
+          <i class="bi bi-pencil" aria-hidden="true"></i> Éditer
         </a>
-        <a href="{% url 'core:payment_create' %}?student_id={{ student.id }}" class="btn btn-success">
-          <i class="bi bi-cash-coin"></i> Payer
+        <a href="{% url 'core:payment_create' %}?student_id={{ student.id }}" class="btn btn-success" style="min-height: 44px; display: inline-flex; align-items: center;">
+          <i class="bi bi-cash-coin" aria-hidden="true"></i> Payer
         </a>
       </div>
     </div>
@@ -90,10 +96,10 @@
         <div>
           <div class="stat-card-label">Assiduité (30 jours)</div>
           <div class="stat-card-value">{{ attendance_rate }}<span style="font-size:16px;font-weight:500;color:var(--text-secondary);">%</span></div>
-          <small class="text-muted">{{ attended_classes }}/{{ total_classes }} cours</small>
+          <span style="font-size:13.5px;color:var(--text-secondary);">{{ attended_classes }}/{{ total_classes }} cours</span>
         </div>
         <div class="stat-card-icon" style="background:{% if attendance_rate >= 80 %}#d1fae5{% elif attendance_rate >= 60 %}#fef3c7{% else %}#fee2e2{% endif %};">
-          <i class="bi bi-check-circle-fill" style="color:{% if attendance_rate >= 80 %}#10b981{% elif attendance_rate >= 60 %}#f59e0b{% else %}#ef4444{% endif %};"></i>
+          <i class="bi bi-check-circle-fill" style="color:{% if attendance_rate >= 80 %}#10b981{% elif attendance_rate >= 60 %}#f59e0b{% else %}#ef4444{% endif %};" aria-hidden="true"></i>
         </div>
       </div>
       <div class="mt-auto pt-3">
@@ -109,11 +115,11 @@
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <div class="stat-card-label">Paiement du mois</div>
-          <div class="stat-card-value" style="font-size:20px;">{{ payment_status.paid|floatformat:0 }} <span style="font-size:13px;font-weight:400;color:var(--text-muted);">/ {{ payment_status.required|floatformat:0 }} DH</span></div>
-          <small class="text-muted">Restant : <strong>{{ payment_status.remaining|floatformat:0 }} DH</strong></small>
+          <div class="stat-card-value" style="font-size:20px;">{{ payment_status.paid|floatformat:0 }} <span style="font-size:13.5px;font-weight:600;color:var(--text-secondary);">/ {{ payment_status.required|floatformat:0 }} DH</span></div>
+          <span style="font-size:13.5px;color:var(--text-secondary);">Restant : <strong>{{ payment_status.remaining|floatformat:0 }} DH</strong></span>
         </div>
         <div class="stat-card-icon" style="background:#dbeafe;">
-          <i class="bi bi-cash-coin" style="color:#3b82f6;"></i>
+          <i class="bi bi-cash-coin" style="color:#3b82f6;" aria-hidden="true"></i>
         </div>
       </div>
       <div class="mt-auto pt-3">
@@ -129,7 +135,7 @@
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <div class="stat-card-label">Frais mensuels</div>
-          <div class="stat-card-value" style="font-size:20px;">{{ payment_status.required|floatformat:0 }}<span style="font-size:13px;font-weight:400;color:var(--text-muted);"> DH</span></div>
+          <div class="stat-card-value" style="font-size:20px;">{{ payment_status.required|floatformat:0 }}<span style="font-size:13.5px;font-weight:600;color:var(--text-secondary);"> DH</span></div>
           <div class="mt-1 d-flex flex-wrap gap-1">
             {% for em in enrollments %}
               <span class="badge badge-secondary">{{ em.course_group.monthly_price|floatformat:0 }} DH</span>
@@ -137,7 +143,7 @@
           </div>
         </div>
         <div class="stat-card-icon" style="background:var(--primary-light);">
-          <i class="bi bi-wallet2" style="color:var(--primary);"></i>
+          <i class="bi bi-wallet2" style="color:var(--primary);" aria-hidden="true"></i>
         </div>
       </div>
       <!-- invisible spacer to match the 4px progress bar + mt-3 on the other cards -->
@@ -149,11 +155,11 @@
 </div>
 
 <!-- ── Tabs ───────────────────────────────────────────────────────── -->
-<ul class="nav nav-tabs mb-4">
-  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#enrollments"><i class="bi bi-book-half"></i> Cours ({{ total_enrolled }})</button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#attendance"><i class="bi bi-calendar-check"></i> Assiduité</button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#payments"><i class="bi bi-receipt"></i> Paiements</button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#info"><i class="bi bi-info-circle"></i> Infos</button></li>
+<ul class="nav nav-tabs mb-4" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#enrollments" role="tab" style="min-height: 44px;"><i class="bi bi-book-half" aria-hidden="true"></i> Cours ({{ total_enrolled }})</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#attendance" role="tab" style="min-height: 44px;"><i class="bi bi-calendar-check" aria-hidden="true"></i> Assiduité</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#payments" role="tab" style="min-height: 44px;"><i class="bi bi-receipt" aria-hidden="true"></i> Paiements</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#info" role="tab" style="min-height: 44px;"><i class="bi bi-info-circle" aria-hidden="true"></i> Infos</button></li>
 </ul>
 
 <div class="tab-content">
@@ -163,8 +169,8 @@
     <div class="card">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span class="fw-600">Groupes inscrits</span>
-        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#enrollmentModal">
-          <i class="bi bi-plus-lg"></i> Ajouter cours
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#enrollmentModal" style="min-height:40px; display:inline-flex; align-items:center;">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter cours
         </button>
       </div>
       <div class="table-responsive">
@@ -189,10 +195,10 @@
                 <td>
                   {% if enrollment.course_group.level %}
                     <a href="{% url 'core:level_detail' enrollment.course_group.level.id %}" class="text-decoration-none">
-                      <span class="badge badge-secondary"><i class="bi bi-layers"></i> {{ enrollment.course_group.level.name }}</span>
+                      <span class="badge badge-secondary"><i class="bi bi-layers" aria-hidden="true"></i> {{ enrollment.course_group.level.name }}</span>
                     </a>
                   {% else %}
-                    <span class="badge badge-secondary">-</span>
+                    <span class="badge badge-secondary">—</span>
                   {% endif %}
                 </td>
                 <td>{{ enrollment.course_group.teacher.name }}</td>
@@ -210,9 +216,10 @@
                 </td>
                 <td class="text-end"><strong>{{ enrollment.course_group.monthly_price }} DH</strong></td>
                 <td>
-                  <button class="btn btn-sm btn-outline-danger"
-                          onclick="removeEnrollment({{ enrollment.id }}, '{{ enrollment.course_group.name|escapejs }}')">
-                    <i class="bi bi-trash"></i>
+                  <button class="btn btn-sm btn-outline-danger" style="min-height: 40px; display: inline-flex; align-items: center;"
+                          onclick="removeEnrollment({{ enrollment.id }}, '{{ enrollment.course_group.name|escapejs }}')"
+                          aria-label="Désinscrire {{ student.name }} du groupe {{ enrollment.course_group.name }}">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
                   </button>
                 </td>
               </tr>
@@ -389,8 +396,8 @@
     <div class="card">
       <div class="card-header d-flex align-items-center justify-content-between fw-600">
         Derniers paiements
-        <a href="{% url 'core:payment_create' %}?student_id={{ student.id }}" class="btn btn-sm btn-success">
-          <i class="bi bi-plus-lg"></i> Ajouter paiement
+        <a href="{% url 'core:payment_create' %}?student_id={{ student.id }}" class="btn btn-sm btn-success" style="min-height: 40px; display: inline-flex; align-items: center;">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter paiement
         </a>
       </div>
       <div class="table-responsive">
@@ -410,8 +417,8 @@
                   </span>
                 </td>
                 <td>
-                  <a href="{% url 'core:receipt_download' payment.id %}" class="btn btn-sm btn-outline-primary" title="Télécharger le reçu PDF">
-                    <i class="bi bi-file-earmark-pdf"></i> PDF
+                  <a href="{% url 'core:receipt_download' payment.id %}" class="btn btn-sm btn-outline-primary" title="Télécharger le reçu PDF" aria-label="Télécharger le reçu PDF N° {{ payment.receipt_number }}" style="min-height:40px; display:inline-flex; align-items:center;">
+                    <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF
                   </a>
                 </td>
               </tr>
@@ -479,7 +486,8 @@
           <div class="card-header fw-600">Contact du parent</div>
           <div class="card-body d-flex flex-column gap-3">
             {% if student.parent_name %}<div><div class="info-label">Nom du parent</div><div class="info-value">{{ student.parent_name }}</div></div>{% endif %}
-            <div><div class="info-label">Téléphone</div><div class="info-value">{{ student.parent_contact }}</div></div>
+            <div><div class="info-label">Téléphone 1</div><div class="info-value">{{ student.parent_contact }}</div></div>
+            {% if student.parent_contact_2 %}<div><div class="info-label">Téléphone 2</div><div class="info-value">{{ student.parent_contact_2 }}</div></div>{% endif %}
             {% if student.address %}<div><div class="info-label">Adresse</div><div class="info-value">{{ student.address }}</div></div>{% endif %}
             {% if student.notes %}<div><div class="info-label">Notes</div><div class="info-value">{{ student.notes }}</div></div>{% endif %}
           </div>
@@ -530,11 +538,11 @@
 
 <!-- Breadcrumb actions -->
 <div class="mt-4 d-flex gap-2">
-  <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary">
-    <i class="bi bi-arrow-left"></i> Retour à la liste
+  <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary" style="min-height: 44px; display: inline-flex; align-items: center;">
+    <i class="bi bi-arrow-left" aria-hidden="true"></i> Retour à la liste
   </a>
-  <a href="{% url 'core:student_delete_confirm' student.id %}" class="btn btn-outline-danger ms-auto">
-    <i class="bi bi-trash"></i> Supprimer cet élève
+  <a href="{% url 'core:student_delete_confirm' student.id %}" class="btn btn-outline-danger ms-auto" style="min-height: 44px; display: inline-flex; align-items: center;">
+    <i class="bi bi-trash" aria-hidden="true"></i> Supprimer cet élève
   </a>
 </div>
 

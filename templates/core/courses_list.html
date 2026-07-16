@@ -20,13 +20,15 @@
 <!-- Filters -->
 <div class="card mb-4">
   <div class="card-body">
-    <form method="get" class="row g-3">
-      <div class="col-md-3">{{ filter.form.name }}</div>
-      <div class="col-md-2">{{ filter.form.level }}</div>
-      <div class="col-md-3">{{ filter.form.teacher }}</div>
-      <div class="col-md-2">{{ filter.form.room }}</div>
+    <form method="get" class="row g-3" role="search" aria-label="Filtrer les groupes de cours">
+      <div class="col-md-3" aria-label="Filtrer par nom">{{ filter.form.name }}</div>
+      <div class="col-md-2" aria-label="Filtrer par niveau">{{ filter.form.level }}</div>
+      <div class="col-md-3" aria-label="Filtrer par professeur">{{ filter.form.teacher }}</div>
+      <div class="col-md-2" aria-label="Filtrer par salle">{{ filter.form.room }}</div>
       <div class="col-md-2">
-        <button class="btn btn-primary w-100"><i class="bi bi-search"></i> Filtrer</button>
+        <button class="btn btn-primary w-100" type="submit">
+          <i class="bi bi-search" aria-hidden="true"></i> Filtrer
+        </button>
       </div>
     </form>
   </div>
@@ -55,8 +57,10 @@
                   <span class="badge badge-secondary">-</span>
                 {% endif %}
               </div>
-              <a href="{% url 'core:group_detail' course.id %}" class="stat-card-icon text-decoration-none" style="width:36px;height:36px;font-size:14px;background:var(--primary-light);">
-                <i class="bi bi-eye" style="color:var(--primary);"></i>
+              <a href="{% url 'core:group_detail' course.id %}" class="stat-card-icon text-decoration-none"
+                 style="width:44px;height:44px;font-size:14px;background:var(--primary-light);flex-shrink:0;"
+                 aria-label="Voir le groupe {{ course.name }}">
+                <i class="bi bi-eye" style="color:var(--primary);" aria-hidden="true"></i>
               </a>
             </div>
 
@@ -66,7 +70,7 @@
                 {{ course.teacher.name|slice:":1"|upper }}
               </div>
               <div>
-                <div style="font-size:11px;color:var(--text-muted);">Professeur</div>
+                <div style="font-size:12.5px;font-weight:600;color:var(--text-secondary);">Professeur</div><!-- ↑ 11px→12.5px+bold, text-muted→text-secondary — WCAG AA -->
                 <div class="fw-600 text-dark" style="font-size:13px;">{{ course.teacher.name }}</div>
               </div>
             </div>
@@ -79,7 +83,7 @@
                   <div class="d-flex justify-content-between align-items-center py-1" style="border-bottom:1px solid var(--border);font-size:13px;">
                     <span>
                       <strong>{{ sch.get_day_display }}</strong>
-                      <span class="text-muted ms-1">{{ sch.start_time|time:"H:i" }} – {{ sch.end_time|time:"H:i" }}</span>
+                      <span class="ms-1" style="color:var(--text-secondary);">{{ sch.start_time|time:"H:i" }} – {{ sch.end_time|time:"H:i" }}</span><!-- ↑ text-muted→text-secondary — WCAG AA -->
                     </span>
                     <span class="badge badge-secondary">
                       <i class="bi bi-door-open"></i> {{ sch.room.name }}
@@ -88,20 +92,20 @@
                 {% endfor %}
               </div>
             {% else %}
-              <div class="mb-3 text-muted" style="font-size:13px;"><i class="bi bi-clock"></i> Aucun horaire défini</div>
+              <div class="mb-3" style="font-size:13.5px;color:var(--text-secondary);"><i class="bi bi-clock" aria-hidden="true"></i> Aucun horaire défini</div><!-- ↑ 13px text-muted→13.5px text-secondary — WCAG AA -->
             {% endif %}
 
             <!-- Footer stats -->
             <div class="row g-2 mb-3">
               <div class="col-6">
                 <div class="text-center p-2 rounded" style="background:var(--surface-alt);">
-                  <div class="text-muted" style="font-size:11px;">Élèves</div>
+                  <div style="font-size:12.5px;font-weight:600;color:var(--text-secondary);">Élèves</div><!-- ↑ 11px text-muted→12.5px+bold text-secondary — WCAG AA -->
                   <div class="fw-700" style="font-size:18px;">{{ course.enrollment_count }}</div>
                 </div>
               </div>
               <div class="col-6">
                 <div class="text-center p-2 rounded" style="background:var(--surface-alt);">
-                  <div class="text-muted" style="font-size:11px;">Prix/mois</div>
+                  <div style="font-size:12.5px;font-weight:600;color:var(--text-secondary);">Prix/mois</div><!-- ↑ 11px text-muted→12.5px+bold text-secondary — WCAG AA -->
                   <div class="fw-700" style="font-size:15px;">{{ course.monthly_price }} DH</div>
                 </div>
               </div>
@@ -115,8 +119,10 @@
               <a href="{% url 'core:course_group_edit' course.id %}" class="btn btn-sm btn-outline-primary flex-grow-1">
                 <i class="bi bi-pencil"></i> Éditer
               </a>
-              <a href="{% url 'core:course_group_delete_confirm' course.id %}" class="btn btn-sm btn-outline-danger">
-                <i class="bi bi-trash"></i>
+              <a href="{% url 'core:course_group_delete_confirm' course.id %}" class="btn btn-sm btn-outline-danger"
+                 aria-label="Supprimer le groupe {{ course.name }}">
+                <i class="bi bi-trash" aria-hidden="true"></i>
+                <span class="visually-hidden">Supprimer</span>
               </a>
             </div>
 

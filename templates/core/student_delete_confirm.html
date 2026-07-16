@@ -42,7 +42,10 @@
         </div>
         <div class="row g-2">
           <div class="col-6"><div class="info-label">Téléphone</div><div class="info-value">{{ student.phone|default:"N/A" }}</div></div>
-          <div class="col-6"><div class="info-label">Contact parent</div><div class="info-value">{{ student.parent_contact }}</div></div>
+          <div class="col-6"><div class="info-label">Contact parent 1</div><div class="info-value">{{ student.parent_contact }}</div></div>
+          {% if student.parent_contact_2 %}
+          <div class="col-6"><div class="info-label">Contact parent 2</div><div class="info-value">{{ student.parent_contact_2 }}</div></div>
+          {% endif %}
         </div>
       </div>
     </div>

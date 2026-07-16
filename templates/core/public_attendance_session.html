@@ -370,6 +370,9 @@
             <div class="student-name">{{ item.student.name }}</div>
             <div class="student-contact">
               <i class="bi bi-telephone"></i> {{ item.student.parent_contact|default:"—" }}
+              {% if item.student.parent_contact_2 %}
+                <span style="font-size:11px;opacity:.7;display:block;"><i class="bi bi-telephone"></i> {{ item.student.parent_contact_2 }}</span>
+              {% endif %}
             </div>
           </div>
 

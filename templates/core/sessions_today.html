@@ -120,8 +120,8 @@
     letter-spacing: -0.01em;
   }
   .date-nav-btn {
-    width: 36px;
-    height: 36px;
+    width: 44px; /* WCAG 2.5.5 - target size */
+    height: 44px; /* WCAG 2.5.5 - target size */
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--surface-alt);
@@ -157,7 +157,7 @@
     line-height: 1;
     margin-bottom: 4px;
   }
-  .qs-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .qs-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); } /* WCAG contrast boost */
   @media (max-width: 576px) {
     .quick-stats { grid-template-columns: repeat(2, 1fr); }
     .date-nav-label { font-size: 14px; }
@@ -196,9 +196,9 @@
 
 <!-- ── Date nav (only in normal mode) ────────────────────────────── -->
 {% if mode != 'uncompleted' %}
-<div class="date-nav">
-  <a class="date-nav-btn" href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ prev_day|date:'Y-m-d' }}" title="Jour précédent">
-    <i class="bi bi-chevron-left"></i>
+<div class="date-nav" role="navigation" aria-label="Navigation de date">
+  <a class="date-nav-btn" href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ prev_day|date:'Y-m-d' }}" title="Jour précédent" aria-label="Jour précédent">
+    <i class="bi bi-chevron-left" aria-hidden="true"></i>
   </a>
   <div class="date-nav-label">
     {{ view_date|date:"l d F Y" }}
@@ -210,12 +210,12 @@
       <span class="badge badge-secondary ms-2" style="font-size:12px;vertical-align:middle;">Passé</span>
     {% endif %}
   </div>
-  <a class="date-nav-btn" href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ next_day|date:'Y-m-d' }}" title="Jour suivant">
-    <i class="bi bi-chevron-right"></i>
+  <a class="date-nav-btn" href="?{% if querystring %}{{ querystring }}&{% endif %}date={{ next_day|date:'Y-m-d' }}" title="Jour suivant" aria-label="Jour suivant">
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
   </a>
   {% if not is_today %}
-    <a href="?{% if querystring %}{{ querystring }}{% endif %}" class="btn btn-sm btn-outline-primary ms-2">
-      <i class="bi bi-calendar-check"></i> Aujourd'hui
+    <a href="?{% if querystring %}{{ querystring }}{% endif %}" class="btn btn-sm btn-outline-primary ms-2" style="min-height:44px;">
+      <i class="bi bi-calendar-check" aria-hidden="true"></i> Aujourd'hui
     </a>
   {% endif %}
 </div>
@@ -256,9 +256,9 @@
 
 <!-- ── Progress Bar ────────────────────────────────────────────────── -->
 {% if stats.total > 0 %}
-<div class="progress mb-4" style="height: 14px; border-radius: 6px; background-color: var(--border); overflow: hidden;">
+<div class="progress mb-4" style="height: 16px; border-radius: 6px; background-color: var(--border); overflow: hidden;">
   <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" 
-       id="session-progress-bar" style="width: 0%; transition: width 0.5s ease; font-size: 11px; font-weight: 700; line-height: 14px;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+       id="session-progress-bar" style="width: 0%; transition: width 0.5s ease; font-size: 12px; font-weight: 700; line-height: 16px;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
 </div>
 {% endif %}
 
@@ -297,15 +297,15 @@
             <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
               <div>
                 {% if mode == 'uncompleted' %}
-                  <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:2px;">
-                    <i class="bi bi-calendar-event"></i>
+                  <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:2px;">
+                    <i class="bi bi-calendar-event" aria-hidden="true"></i>
                     {{ session.date|date:"d/m/Y" }} — {{ session.date|date:"l" }}
                   </div>
                 {% endif %}
                 <div class="session-time-badge">
-                  <i class="bi bi-clock" style="font-size:16px;color:var(--primary);"></i>
+                  <i class="bi bi-clock" style="font-size:16px;color:var(--primary);" aria-hidden="true"></i>
                   {{ session.start_time|time:"H:i" }} – {{ session.end_time|time:"H:i" }}
-                  <span style="font-size:13px;font-weight:500;color:var(--text-muted);">({{ session.duration_hours|floatformat:1 }}h)</span>
+                  <span style="font-size:13.5px;font-weight:600;color:var(--text-secondary);">({{ session.duration_hours|floatformat:1 }}h)</span>
                 </div>
                 <div class="session-group-name">
                   <a href="{% url 'core:group_detail' session.group.id %}" class="text-decoration-none" style="color:inherit;">
@@ -332,22 +332,22 @@
             <!-- Meta info -->
             <div class="session-meta">
               <span class="session-meta-item">
-                <i class="bi bi-book" style="color:var(--primary);"></i>
+                <i class="bi bi-book" style="color:var(--primary);" aria-hidden="true"></i>
                 {{ session.group.subject }}
                 {% if session.group.level %}
                   — <a href="{% url 'core:level_detail' session.group.level.id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ session.group.level.name }}</a>
                 {% endif %}
               </span>
               <span class="session-meta-item">
-                <i class="bi bi-door-open" style="color:var(--text-muted);"></i>
+                <i class="bi bi-door-open" style="color:var(--text-secondary);" aria-hidden="true"></i>
                 <span class="badge badge-secondary">{{ session.room.name }}</span>
               </span>
               <span class="session-meta-item">
-                <i class="bi bi-person" style="color:var(--text-muted);"></i>
+                <i class="bi bi-person" style="color:var(--text-secondary);" aria-hidden="true"></i>
                 {{ session.group.teacher.name }}
               </span>
               <span class="session-meta-item">
-                <i class="bi bi-people" style="color:var(--text-muted);"></i>
+                <i class="bi bi-people" style="color:var(--text-secondary);" aria-hidden="true"></i>
                 <span class="badge badge-info">{{ session.group.students.count }} élèves</span>
               </span>
             </div>
@@ -355,14 +355,14 @@
           </div>
           <!-- Footer actions -->
           <div class="session-footer">
-            <a href="{% url 'core:session_attendance' session.id %}" class="btn-attendance">
-              <i class="bi bi-{% if session.status == 'DONE' %}clipboard-check{% else %}check2-circle{% endif %}"></i>
+            <a href="{% url 'core:session_attendance' session.id %}" class="btn-attendance" style="min-height: 44px;">
+              <i class="bi bi-{% if session.status == 'DONE' %}clipboard-check{% else %}check2-circle{% endif %}" aria-hidden="true"></i>
               {% if session.status == 'DONE' %}Modifier les présences{% else %}Marquer les présences{% endif %}
             </a>
             <a href="{% url 'core:whatsapp_session_reminder' session.id %}"
-               class="btn btn-sm btn-outline-secondary" title="Rappel WhatsApp"
-               style="color:#25d366;border-color:#25d366;">
-              <i class="bi bi-whatsapp"></i> Rappel
+               class="btn btn-sm btn-outline-secondary" title="Rappel WhatsApp" aria-label="Rappel WhatsApp pour {{ session.group.name }}"
+               style="color:#25d366;border-color:#25d366;min-height: 44px;display: inline-flex;align-items: center;">
+              <i class="bi bi-whatsapp" aria-hidden="true"></i> Rappel
             </a>
           </div>
         </div>

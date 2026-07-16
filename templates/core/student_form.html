@@ -15,7 +15,7 @@
     cursor: pointer;
     font-weight: 600;
     font-size: 14px;
-    color: var(--primary);
+    color: var(--primary-dark); /* Boosted contrast from var(--primary) */
     padding: 6px 0;
     list-style: none;
   }
@@ -42,14 +42,15 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    border: 1.5px solid #e5e7eb;
+    border: 1.5px solid #71717a; /* Strengthened border for low vision (WCAG 1.4.11) */
     border-radius: 10px;
     padding: 10px 12px;
     cursor: pointer;
     transition: border-color .12s ease, background-color .12s ease;
     background: #fff;
+    min-height: 48px; /* Target size */
   }
-  .group-card:hover { border-color: var(--primary); }
+  .group-card:hover { border-color: var(--primary-dark); }
   .group-card.selected {
     border-color: var(--primary);
     background: color-mix(in srgb, var(--primary) 6%, white);
@@ -72,13 +73,14 @@
 
   .schedule-chip {
     font-size: 11.5px;
-    background: #f1f5f9;
-    color: #475569;
+    background: #e2e8f0; /* Boosted contrast */
+    color: #1e293b; /* Boosted contrast from #475569 */
     border-radius: 6px;
     padding: 2px 7px;
     white-space: nowrap;
+    font-weight: 600;
   }
-  .group-card.selected .schedule-chip { background: color-mix(in srgb, var(--primary) 12%, white); color: var(--primary); }
+  .group-card.selected .schedule-chip { background: color-mix(in srgb, var(--primary) 12%, white); color: var(--primary-dark); }
 
   #group-empty-state { display: none; }
 
@@ -113,8 +115,8 @@
       {% if student %}Modifier le profil de l'élève{% else %}Ajouter un nouvel élève au système{% endif %}
     </p>
   </div>
-  <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary">
-    <i class="bi bi-arrow-left"></i> Retour
+  <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary" style="min-height: 44px; display: inline-flex; align-items: center;">
+    <i class="bi bi-arrow-left" aria-hidden="true"></i> Retour
   </a>
 </div>
 
@@ -131,7 +133,7 @@
           <div class="card mb-4">
             <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
               <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-person-circle" style="color:var(--primary);font-size:17px;"></i>
+                <i class="bi bi-person-circle text-primary" style="font-size:17px;" aria-hidden="true"></i>
                 <span style="font-weight:700;font-size:15.5px;">Informations personnelles</span>
               </div>
               <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
@@ -197,7 +199,7 @@
           <!-- ── Parent contact ─────────────────────────────────────── -->
           <div class="card mb-4">
             <div class="card-header d-flex align-items-center gap-2">
-              <i class="bi bi-people-fill" style="color:#3b82f6;font-size:17px;"></i>
+              <i class="bi bi-people-fill text-primary" style="font-size:17px;" aria-hidden="true"></i>
               <span style="font-weight:700;font-size:15.5px;">Contact du parent / tuteur</span>
             </div>
             <div class="card-body">
@@ -218,6 +220,16 @@
                     <div class="invalid-feedback d-block">{% for e in form.parent_contact.errors %}{{ e }}{% endfor %}</div>
                   {% endif %}
                 </div>
+                <div class="col-md-6">
+                  <label for="{{ form.parent_contact_2.id_for_label }}" class="form-label">
+                    {{ form.parent_contact_2.label }}
+                    <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(optionnel)</span>
+                  </label>
+                  {{ form.parent_contact_2 }}
+                  {% if form.parent_contact_2.errors %}
+                    <div class="invalid-feedback d-block">{% for e in form.parent_contact_2.errors %}{{ e }}{% endfor %}</div>
+                  {% endif %}
+                </div>
               </div>
             </div>
           </div>
@@ -233,7 +245,7 @@
           <div class="card mb-4" id="groups-section">
             <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
               <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-book-fill" style="color:var(--primary);font-size:17px;"></i>
+                <i class="bi bi-book-fill text-primary" style="font-size:17px;" aria-hidden="true"></i>
                 <span style="font-weight:700;font-size:15.5px;">Inscrire aux groupes de cours</span>
               </div>
               <span class="badge badge-primary" id="groups-selected-count">0 sélectionné(s)</span>
@@ -241,8 +253,8 @@
             <div class="card-body">
 
               <div class="input-group mb-3">
-                <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
-                <input type="text" id="group-search" class="form-control" placeholder="Rechercher un groupe, un niveau, un horaire…">
+                <span class="input-group-text bg-transparent"><i class="bi bi-search" aria-hidden="true"></i></span>
+                <input type="text" id="group-search" class="form-control" placeholder="Rechercher un groupe, un niveau, un horaire…" aria-label="Rechercher un groupe">
               </div>
 
               {% if form.groups.errors %}
@@ -272,10 +284,10 @@
                               {% endfor %}
                             </div>
                           {% else %}
-                            <div class="group-card-schedules text-muted">Aucun horaire défini</div>
+                            <div class="group-card-schedules" style="color:var(--text-secondary);">Aucun horaire défini</div>
                           {% endif %}
                         </div>
-                        <i class="bi bi-check-circle-fill group-card-check"></i>
+                        <i class="bi bi-check-circle-fill group-card-check" aria-hidden="true"></i>
                       </label>
                     {% endfor %}
                   </div>
@@ -310,16 +322,16 @@
             Champs obligatoires : <span style="color:var(--danger);">*</span>
           </div> {% endcomment %}
           <div class="d-flex gap-2">
-            <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary">
-              <i class="bi bi-x-lg"></i> Annuler
+            <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary" style="min-height: 44px; display: inline-flex; align-items: center;">
+              <i class="bi bi-x-lg" aria-hidden="true"></i> Annuler
             </a>
             {% if student %}
-              <a href="{% url 'core:student_delete_confirm' student.id %}" class="btn btn-outline-danger">
-                <i class="bi bi-trash"></i> Supprimer
+              <a href="{% url 'core:student_delete_confirm' student.id %}" class="btn btn-outline-danger" style="min-height: 44px; display: inline-flex; align-items: center;">
+                <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
               </a>
             {% endif %}
-            <button type="submit" class="btn btn-primary px-4" id="form-submit-btn">
-              <i class="bi bi-check-lg"></i> {{ button_text }}
+            <button type="submit" class="btn btn-primary px-4" id="form-submit-btn" style="min-height: 44px; display: inline-flex; align-items: center;">
+              <i class="bi bi-check-lg" aria-hidden="true"></i> {{ button_text }}
             </button>
           </div>
         </div>

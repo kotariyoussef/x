@@ -41,6 +41,31 @@
 
           <div class="mb-4">{{ form.notes.label_tag }}{{ form.notes }}</div>
 
+          {% if action == 'Modifier' %}
+          <div class="mb-3" id="updateModeContainer">
+            <label class="form-label fw-600" for="id_update_mode">
+              <i class="bi bi-arrow-repeat me-1" style="color:var(--primary);"></i>
+              Étendue de la modification récurrente
+            </label>
+            <select name="update_mode" class="form-select" id="id_update_mode">
+              <option value="only_this" selected>Uniquement cette séance</option>
+              <option value="this_week">Toutes les séances de cette semaine (sauf exceptions manuelles)</option>
+              <option value="future">Cette séance et toutes les séances futures (sauf exceptions manuelles)</option>
+              <option value="academic_year">Toutes les séances de l'année académique (sauf exceptions manuelles)</option>
+            </select>
+            <div class="form-text">Les séances déjà modifiées manuellement ne seront pas écrasées.</div>
+          </div>
+          {% endif %}
+
+          <div class="mb-4">
+            <label class="form-label fw-600" for="id_change_reason">
+              <i class="bi bi-chat-left-text me-1" style="color:var(--primary);"></i>
+              Motif de la modification / Note d'historique
+            </label>
+            <input type="text" name="change_reason" id="id_change_reason" class="form-control" placeholder="Ex: Remplacement maladie, changement de salle temporaire...">
+          </div>
+
+
           <!-- Teacher availability warning badge (non-blocking soft warning) -->
           {% if form_warnings %}
           <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="alert"

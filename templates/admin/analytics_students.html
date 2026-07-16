@@ -147,7 +147,7 @@
               </div>
             </td>
             <td style="font-size:.78rem;">{% for g in c.groups %}• {{ g }}<br>{% endfor %}</td>
-            <td>{% if c.parent_contact %}<strong>{{ c.parent_contact }}</strong>{% else %}<span style="color:#94a3b8; font-size:.78rem;">Aucun</span>{% endif %}</td>
+            <td>{% if c.parent_contact %}<strong>{{ c.parent_contact }}</strong>{% if c.parent_contact_2 %}<br><span style="color:#94a3b8; font-size:.75rem;">{{ c.parent_contact_2 }}</span>{% endif %}{% elif c.parent_contact_2 %}<strong>{{ c.parent_contact_2 }}</strong>{% else %}<span style="color:#94a3b8; font-size:.78rem;">Aucun</span>{% endif %}</td>
           </tr>
           {% empty %}
           <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">✓ Aucun signal de départ détecté.</td></tr>

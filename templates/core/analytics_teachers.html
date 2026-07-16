@@ -237,8 +237,126 @@
     </div>
   </div>
 
+  <!-- TEACHER WORKLOAD DASHBOARD -->
+  <div class="te-card">
+    <div class="te-card-hdr d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="te-card-title">
+        <span class="material-symbols-outlined" style="font-size:18px; vertical-align:middle; color:#10b981; margin-right:4px;">speed</span>
+        Tableau de bord de charge d'un enseignant
+      </span>
+      
+      <!-- Selection dropdown form -->
+      <form method="get" action="." class="d-flex align-items-center gap-2">
+        <input type="hidden" name="start_date" value="{{ start_date }}">
+        <input type="hidden" name="end_date" value="{{ end_date }}">
+        
+        <label for="teacher_select" class="form-label mb-0 small fw-bold" style="font-size:12px; color:#64748b;">Choisir :</label>
+        <select name="teacher_id" id="teacher_select" class="te-filter-input py-1" style="font-size:12px;" onchange="this.form.submit()">
+          {% for t in teachers_list %}
+            <option value="{{ t.id }}" {% if selected_teacher and selected_teacher.id == t.id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+
+    {% if selected_teacher and teacher_stats %}
+      <!-- Statistics summary cards -->
+      <div class="row g-3 mb-4 mt-2">
+        <div class="col-6 col-md-3">
+          <div class="border p-3 rounded text-center" style="background:#f8fafc; border-color:#e2e8f0;">
+            <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px;">Heures planifiées / sem</div>
+            <div class="fs-4 fw-bold" style="color:#0f172a;">{{ teacher_stats.weekly_hours }}h</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="border p-3 rounded text-center" style="background:#f8fafc; border-color:#e2e8f0;">
+            <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px;">Séances réelles (période)</div>
+            <div class="fs-4 fw-bold" style="color:#10b981;">{{ teacher_stats.total_sessions }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="border p-3 rounded text-center" style="background:#f8fafc; border-color:#e2e8f0;">
+            <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px;">Taux d'utilisation</div>
+            <div class="fs-4 fw-bold" style="color:#f59e0b;">{{ teacher_stats.utilization_pct }}%</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="border p-3 rounded text-center" style="background:#f8fafc; border-color:#e2e8f0;">
+            <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px;">Heures libres / sem</div>
+            <div class="fs-4 fw-bold" style="color:#06b6d4;">{{ teacher_stats.free_hours }}h</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-4">
+          <div class="border p-3 rounded text-center" style="background:#f8fafc; border-color:#e2e8f0;">
+            <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px;">Groupes actifs</div>
+            <div class="fw-bold" style="font-size:16px; color:#0f172a;">{{ teacher_stats.group_count }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-4">
+          <div class="border p-3 rounded text-center" style="background:#f8fafc; border-color:#e2e8f0;">
+            <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px;">Jour le plus chargé</div>
+            <div class="fw-bold" style="font-size:16px; color:#0f172a;">{{ teacher_stats.peak_working_day }}</div>
+          </div>
+        </div>
+        <div class="col-12 col-md-4">
+          <div class="border p-3 rounded text-center" style="background:#f8fafc; border-color:#e2e8f0;">
+            <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px;">Moyenne séances / jour d'activité</div>
+            <div class="fw-bold" style="font-size:16px; color:#0f172a;">{{ teacher_stats.avg_sessions_per_day }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Heatmap grid -->
+      <div class="mt-4">
+        <h6 class="fw-bold mb-3" style="font-size:13px; color:#475569;">
+          <span class="material-symbols-outlined" style="font-size:16px; vertical-align:middle; color:#f59e0b; margin-right:4px;">grid_on</span>
+          Grille de charge hebdomadaire (Heures de cours configurées)
+        </h6>
+        <div class="table-responsive">
+          <table class="table table-bordered text-center align-middle" style="font-size:12px; border-color:#e2e8f0;">
+            <thead class="table-light">
+              <tr>
+                <th style="min-width:100px; text-align:left;">Jour</th>
+                <th>08h-09h</th>
+                <th>09h-10h</th>
+                <th>10h-11h</th>
+                <th>11h-12h</th>
+                <th>12h-13h</th>
+                <th>13h-14h</th>
+                <th>14h-15h</th>
+                <th>15h-16h</th>
+                <th>16h-17h</th>
+                <th>17h-18h</th>
+                <th>18h-19h</th>
+                <th>19h-20h</th>
+                <th>20h-21h</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for day_code, day_name in day_names.items %}
+                <tr>
+                  <td class="fw-bold text-start" style="background:#f8fafc;">{{ day_name }}</td>
+                  {% with day_grid=teacher_stats.heatmap|dict_key:day_code %}
+                    {% for slot in day_grid %}
+                      <td class="{% if slot > 0 %}bg-success text-white fw-bold{% else %}text-muted{% endif %}" style="{% if slot > 0 %}background-color:#10b981 !important;{% else %}background-color:#fff;{% endif %} height:40px; min-width:60px;">
+                        {% if slot > 0 %}Occupé{% else %}-{% endif %}
+                      </td>
+                    {% endfor %}
+                  {% endwith %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <div class="text-center py-4 text-muted">Veuillez sélectionner un enseignant pour afficher sa charge.</div>
+    {% endif %}
+  </div>
+
 </div>
 {% endblock %}
+
 
 {% block footer %}
 {{ block.super }}

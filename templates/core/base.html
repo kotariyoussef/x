@@ -39,10 +39,10 @@
       --border: #e5e7eb;
       --border-focus: #6366f1;
 
-      /* Text */
+      /* Text — WCAG AA compliant contrast ratios on white surface */
       --text-primary: #111827;
-      --text-secondary: #6b7280;
-      --text-muted: #9ca3af;
+      --text-secondary: #4b5563;  /* 7.0:1 on white — passes AA */
+      --text-muted: #6b7280;      /* 4.6:1 on white — passes AA */
 
       /* Status */
       --success: #10b981;
@@ -98,12 +98,12 @@
     }
 
     /* Visible keyboard-focus ring for interactive elements that don't
-       already define their own focus style */
+       already define their own focus style — WCAG 2.4.7 */
     a:focus-visible,
     button:focus-visible,
     .nav-item-link:focus-visible,
     .mobile-menu-btn:focus-visible {
-      outline: 2px solid #60a5fa;
+      outline: 3px solid #2563eb;  /* bolder, higher-contrast focus ring */
       outline-offset: 2px;
     }
 
@@ -179,8 +179,9 @@
       align-items: center;
       gap: 7px;
       padding: 7px 13px;
+      min-height: 44px;            /* WCAG 2.5.5 — 44px touch target */
       border-radius: var(--radius-sm);
-      color: rgba(255, 255, 255, 0.72);
+      color: rgba(255, 255, 255, 0.9);  /* ↑ from 0.72 — passes AA on dark bg */
       text-decoration: none;
       font-size: 15px;
       font-weight: 500;
@@ -355,7 +356,7 @@
     .navbar-clock {
       font-size: 14.5px;
       font-weight: 500;
-      color: rgba(255, 255, 255, 0.6);
+      color: rgba(255, 255, 255, 0.85);  /* ↑ from 0.6 — passes AA on dark bg */
       display: flex;
       align-items: center;
       gap: 5px;
@@ -369,9 +370,9 @@
     }
 
     .navbar-search-input {
-      height: 36px;
+      height: 44px;                         /* WCAG 2.5.5 — 44px touch target */
       width: 240px;
-      border: 1px solid rgba(255, 255, 255, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.45);  /* ↑ from 0.18 — more visible */
       border-radius: var(--radius-sm);
       background: rgba(255, 255, 255, 0.1);
       padding-left: 32px;
@@ -382,7 +383,7 @@
     }
 
     .navbar-search-input::placeholder {
-      color: rgba(255, 255, 255, 0.38);
+      color: rgba(255, 255, 255, 0.65);  /* ↑ from 0.38 — passes AA */
       font-size: 13.5px;
     }
 
@@ -399,7 +400,7 @@
       left: 10px;
       top: 50%;
       transform: translateY(-50%);
-      color: rgba(255, 255, 255, 0.4);
+      color: rgba(255, 255, 255, 0.7);  /* ↑ from 0.4 — more visible */
       font-size: 14px;
       pointer-events: none;
     }
@@ -458,10 +459,11 @@
       align-items: center;
       gap: 6px;
       padding: 6px 11px;
+      min-height: 44px;                          /* WCAG 2.5.5 */
       border-radius: var(--radius-sm);
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.12);
-      color: rgba(255, 255, 255, 0.7);
+      color: rgba(255, 255, 255, 0.9);           /* ↑ from 0.7 — passes AA */
       text-decoration: none;
       font-size: 14.5px;
       font-weight: 500;
@@ -479,8 +481,9 @@
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: var(--radius-sm);
-      color: rgba(255, 255, 255, 0.8);
+      color: rgba(255, 255, 255, 0.9);  /* ↑ from 0.8 */
       padding: 6px 10px;
+      min-height: 44px;                /* WCAG 2.5.5 */
       font-size: 20px;
       cursor: pointer;
       transition: background 0.15s;
@@ -525,8 +528,9 @@
       align-items: center;
       gap: 10px;
       padding: 10px 12px;
+      min-height: 44px;                /* WCAG 2.5.5 */
       border-radius: var(--radius-sm);
-      color: rgba(255, 255, 255, 0.75);
+      color: rgba(255, 255, 255, 0.9);  /* ↑ from 0.75 — passes AA */
       text-decoration: none;
       font-size: 16px;
       font-weight: 500;
@@ -554,7 +558,7 @@
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.35);
+      color: rgba(255, 255, 255, 0.7);  /* ↑ from 0.35 — passes AA */
       padding: 8px 12px 2px;
     }
 
@@ -769,7 +773,7 @@
 
     .badge-secondary {
       background: #f3f4f6;
-      color: #6b7280;
+      color: #374151;  /* ↑ from #6b7280 — 7.5:1 on #f3f4f6 — passes AA */
     }
 
     /* ─── Utility ─────────────────────────────────────────────────── */
@@ -782,6 +786,7 @@
       font-weight: 500;
       border-radius: var(--radius-sm);
       padding: 7px 14px;
+      min-height: 44px;          /* WCAG 2.5.5 — 44px touch target */
       transition: all 0.15s;
       display: inline-flex;
       align-items: center;
@@ -862,7 +867,8 @@
 
     .btn-sm {
       font-size: 14px;
-      padding: 5px 10px;
+      padding: 8px 12px;  /* balanced aesthetics + accessibility */
+      min-height: 40px;   /* WCAG 2.5.5 — close to target without inflating layout */
       border-radius: 6px;
     }
 
@@ -882,9 +888,10 @@
     .form-control,
     .form-select {
       font-size: 15.5px;
-      border: 1px solid var(--border);
+      border: 2px solid #71717a;  /* explicit high-visibility border — WCAG 1.4.11 */
       border-radius: var(--radius-sm);
       padding: 8px 12px;
+      min-height: 44px;           /* WCAG 2.5.5 — 44px touch target */
       background: var(--surface);
       color: var(--text-primary);
       transition: border-color 0.15s, box-shadow 0.15s;
@@ -915,6 +922,9 @@
       border-radius: var(--radius-sm) !important;
       color: var(--text-secondary);
       padding: 5px 10px;
+      min-height: 44px;    /* WCAG 2.5.5 */
+      display: inline-flex;
+      align-items: center;
       transition: all 0.15s;
     }
 
@@ -1412,12 +1422,12 @@
       display: none;
       align-items: center;
       justify-content: center;
-      width: 34px;
-      height: 34px;
+      width: 44px;   /* ↑ from 34px — WCAG 2.5.5 */
+      height: 44px;  /* ↑ from 34px — WCAG 2.5.5 */
       border-radius: var(--radius-sm);
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.12);
-      color: rgba(255, 255, 255, 0.75);
+      color: rgba(255, 255, 255, 0.9);  /* ↑ from 0.75 — passes AA */
       cursor: pointer;
       font-size: 17px;
       transition: background 0.15s;

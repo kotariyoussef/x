@@ -13,7 +13,12 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.import_export.forms import ExportForm, ImportForm
 from unfold.sites import UnfoldAdminSite
 
-from .models import Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session, CourseGroupSchedule, Level, LevelCategory, WhatsAppSendLog, Holiday, TeacherLeave, TeacherAvailability, MakeupSession, Announcement, TeacherPayment
+from .models import (
+    Room, Teacher, CourseGroup, Student, Enrollment, Payment, Attendance, Session,
+    CourseGroupSchedule, Level, LevelCategory, WhatsAppSendLog, Holiday,
+    TeacherLeave, TeacherAvailability, MakeupSession, Announcement, TeacherPayment,
+    SessionChangeHistory, ScheduleLock
+)
 from django.core.exceptions import ValidationError
 
 from django.conf import settings
@@ -69,6 +74,11 @@ class TonarozAdminSite(UnfoldAdminSite):
                 'analytics/teachers/',
                 self.admin_view(self._analytics_teachers),
                 name='analytics_teachers',
+            ),
+            path(
+                'message-templates/',
+                self.admin_view(self._message_templates),
+                name='message_templates',
             ),
         ]
         return analytics_urls + super().get_urls()
@@ -180,6 +190,73 @@ class TonarozAdminSite(UnfoldAdminSite):
         }
         return render(request, 'admin/analytics_teachers.html', context)
 
+    def _message_templates(self, request):
+        import os
+        import re
+
+        messages_dir = os.path.join(settings.BASE_DIR, 'messages')
+
+        # Collect all .txt files
+        all_files = sorted(
+            f for f in os.listdir(messages_dir) if f.endswith('.txt')
+        )
+
+        def make_label(name):
+            """Turn filename into a readable label."""
+            label = name.replace('.txt', '').replace('_', ' ')
+            return label.title()
+
+        templates = [
+            {'name': f, 'label': make_label(f)}
+            for f in all_files
+        ]
+
+        current_file = request.GET.get('file') or request.POST.get('filename')
+        # Validate: only allow files that actually exist in the messages dir
+        if current_file and current_file not in all_files:
+            current_file = None
+
+        save_success = False
+        save_error = None
+        saved_file = None
+        content = ''
+        detected_vars = []
+        current_size = 0
+
+        if request.method == 'POST' and current_file:
+            content = request.POST.get('content', '')
+            file_path = os.path.join(messages_dir, current_file)
+            try:
+                with open(file_path, 'w', encoding='utf-8') as fh:
+                    fh.write(content)
+                save_success = True
+                saved_file = current_file
+            except OSError as e:
+                save_error = str(e)
+
+        if current_file:
+            file_path = os.path.join(messages_dir, current_file)
+            try:
+                with open(file_path, 'r', encoding='utf-8') as fh:
+                    content = fh.read()
+                current_size = os.path.getsize(file_path)
+                detected_vars = sorted(set(re.findall(r'\{(\w+)\}', content)))
+            except OSError as e:
+                save_error = str(e)
+
+        context = {
+            **self.each_context(request),
+            'templates': templates,
+            'current_file': current_file,
+            'content': content,
+            'detected_vars': detected_vars,
+            'current_size': current_size,
+            'save_success': save_success,
+            'save_error': save_error,
+            'saved_file': saved_file,
+        }
+        return render(request, 'admin/message_templates.html', context)
+
 
 # Swap admin.site BEFORE any @admin.register() call
 _tonaroz_site = TonarozAdminSite(name='admin')
@@ -220,7 +297,7 @@ class StudentResource(resources.ModelResource):
     
     class Meta:
         model = Student
-        fields = ('id', 'name', 'phone', 'parent_contact', 'parent_name', 
+        fields = ('id', 'name', 'phone', 'parent_contact', 'parent_contact_2', 'parent_name',
                   'address', 'is_active', 'total_fees', 'payment_status', 'main_school')
     
     def dehydrate_total_fees(self, student):
@@ -489,7 +566,7 @@ class StudentAdmin(ModelAdmin, ImportExportModelAdmin):
     list_display = ('name', 'parent_contact', 'groups_display', 'monthly_fees_display', 
                     'payment_status_badge', 'active_badge')
     list_filter = ('is_active', PaymentStatusFilter, 'enrollment__course_group', 'level')
-    search_fields = ('name', 'phone', 'parent_contact', 'parent_name', 'main_school')
+    search_fields = ('name', 'phone', 'parent_contact', 'parent_contact_2', 'parent_name', 'main_school')
     inlines = [EnrollmentInline, PaymentInline]
     
     fieldsets = (
@@ -497,7 +574,7 @@ class StudentAdmin(ModelAdmin, ImportExportModelAdmin):
             'fields': ('name', 'phone', 'date_of_birth', 'level', 'main_school')
         }),
         ('Contact parent', {
-            'fields': ('parent_name', 'parent_contact', 'address')
+            'fields': ('parent_name', 'parent_contact', 'parent_contact_2', 'address')
         }),
         ('Autres', {
             'fields': ('is_active', 'notes')
@@ -714,6 +791,44 @@ class AnnouncementAdmin(ModelAdmin):
     list_filter = ('category', 'is_active', 'created_at', 'event_date')
     search_fields = ('title', 'content')
     filter_horizontal = ('target_levels', 'target_groups')
+
+
+@admin.register(ScheduleLock)
+class ScheduleLockAdmin(ModelAdmin):
+    list_display = ('status_badge', 'start_date', 'end_date', 'academic_year', 'locked_by', 'locked_at')
+    list_filter = ('is_locked', 'academic_year', 'start_date', 'end_date')
+    search_fields = ('academic_year', 'notes', 'locked_by__username')
+    readonly_fields = ('locked_at',)
+    ordering = ('-locked_at',)
+
+    def status_badge(self, obj):
+        if obj.is_locked:
+            return format_html(
+                '<span style="background: #dc3545; color: white; padding: 3px 8px; border-radius: 3px;">Verrouillé</span>'
+            )
+        return format_html(
+            '<span style="background: #28a745; color: white; padding: 3px 8px; border-radius: 3px;">Déverrouillé</span>'
+        )
+    status_badge.short_description = 'Statut'
+
+
+@admin.register(SessionChangeHistory)
+class SessionChangeHistoryAdmin(ModelAdmin):
+    list_display = ('timestamp', 'session_display', 'action', 'user_display', 'change_reason')
+    list_filter = ('action', 'timestamp')
+    search_fields = ('change_reason', 'action', 'session__group__name', 'session__date')
+    readonly_fields = ('timestamp', 'session', 'user', 'action', 'previous_values', 'new_values', 'change_reason', 'ip_address')
+    ordering = ('-timestamp',)
+
+    def session_display(self, obj):
+        if obj.session:
+            return f"{obj.session.date} - {obj.session.group.name if obj.session.group else 'Sans groupe'}"
+        return 'Séance supprimée'
+    session_display.short_description = 'Séance'
+
+    def user_display(self, obj):
+        return obj.user.username if obj.user else '—'
+    user_display.short_description = 'Utilisateur'
 
 
 @admin.register(TeacherPayment)

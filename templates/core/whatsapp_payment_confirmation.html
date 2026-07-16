@@ -63,6 +63,9 @@
           <div>
             <div class="fw-600">{{ student.parent_name|default:"Parent" }}</div>
             <small class="text-muted"><i class="bi bi-phone me-1"></i>{{ student.parent_contact }}</small>
+            {% if student.parent_contact and student.parent_contact_2 %}
+            <small class="text-muted d-block"><i class="bi bi-phone me-1"></i>{{ student.parent_contact_2 }} <span style="font-size:10px;opacity:.7;">(2)</span></small>
+            {% endif %}
           </div>
         </div>
         <div class="p-3 rounded" style="background:var(--surface-alt);white-space:pre-wrap;font-size:13px;border:1px solid var(--border);">{{ message }}</div>
@@ -92,6 +95,11 @@
         </a>
       {% endif %}
       
+      {% if whatsapp_link_2 %}
+        <a href="{{ whatsapp_link_2 }}" target="_blank" class="btn btn-outline-success text-center">
+          <i class="bi bi-whatsapp"></i> Envoyer au parent 2 ({{ student.parent_contact_2 }})
+        </a>
+      {% endif %}
       <a href="{% url 'core:receipt_download' payment.id %}" class="btn btn-outline-primary mt-2">
         <i class="bi bi-file-earmark-pdf"></i> Télécharger le reçu PDF
       </a>
@@ -117,10 +125,14 @@ $(document).ready(function() {
       url: "{% url 'core:whatsapp_send_ajax' %}",
       method: "POST",
       data: {
-        "phone": "{{ student.parent_contact }}",
-        "message": `{{ message|escapejs }}`,
-        "message_type": "payment_confirmation",
-        "csrfmiddlewaretoken": "{{ csrf_token }}"
+        phone: "{{ student.parent_contact|default:student.parent_contact_2 }}",
+        message: `{{ message|escapejs }}`,
+        message_type: "payment_confirmation",
+
+        student_schedule: "{{ student.id }}",
+        week: "2026-07-13",
+
+        csrfmiddlewaretoken: "{{ csrf_token }}"
       },
       success: function(response) {
         $status.html('<span class="text-success fw-bold"><i class="bi bi-check-circle-fill"></i> Message envoyé avec succès ! Redirection...</span>');

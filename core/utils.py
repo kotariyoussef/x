@@ -1123,7 +1123,7 @@ def get_room_availability(room, target_day: str) -> List[Dict]:
     return availability
 
 
-def generate_sessions_from_coursegroups(start_date: date, end_date: date, force: bool = False, course: Optional[CourseGroup] = None) -> Dict:
+def generate_sessions_from_coursegroups(start_date: date, end_date: date, force: bool = False, course: Optional[CourseGroup] = None, ignore_academic_calendar: bool = False) -> Dict:
     """Create/update/delete Session objects based on CourseGroup schedules and per-date exceptions.
 
     Args:
@@ -1131,10 +1131,11 @@ def generate_sessions_from_coursegroups(start_date: date, end_date: date, force:
         end_date: inclusive end date
         force: if True, update existing sessions when times/room differ
         course: optional specific CourseGroup to generate/sync sessions for
+        ignore_academic_calendar: if True, bypass academic calendar checks
 
     Returns a summary dict: {'created', 'updated', 'deleted', 'skipped', 'errors'}
     """
-    from .models import CourseGroup, Session, CourseGroupSchedule, Holiday
+    from .models import CourseGroup, Session, CourseGroupSchedule, Holiday, AcademicCalendarPeriod, RecurringException
     from datetime import timedelta
     from django.core.exceptions import ValidationError
 
@@ -1164,6 +1165,16 @@ def generate_sessions_from_coursegroups(start_date: date, end_date: date, force:
             group_ids = set(h.affected_groups.values_list('id', flat=True))
             if group_ids:
                 group_holiday_dates.setdefault(h.date, set()).update(group_ids)
+
+    acad_periods = []
+    rec_exceptions = []
+    if not ignore_academic_calendar:
+        acad_periods = list(AcademicCalendarPeriod.objects.filter(
+            start_date__lte=end_date,
+            end_date__gte=start_date,
+            is_active=True
+        ).prefetch_related('affected_groups'))
+        rec_exceptions = list(RecurringException.objects.filter(is_available=False))
 
     # Clean up sessions for inactive groups
     if course:
@@ -1236,7 +1247,7 @@ def generate_sessions_from_coursegroups(start_date: date, end_date: date, force:
 
             while current <= end_date:
                 # ----------------------------------------------------------
-                # Holiday suppression: skip if this date is blocked
+                # Holiday & Academic Period suppression: skip if date is blocked
                 # ----------------------------------------------------------
                 if current in global_holiday_dates:
                     current += timedelta(days=7)
@@ -1244,6 +1255,35 @@ def generate_sessions_from_coursegroups(start_date: date, end_date: date, force:
                 if active_course.id in group_holiday_dates.get(current, set()):
                     current += timedelta(days=7)
                     continue
+
+                if not ignore_academic_calendar:
+                    is_calendar_blocked = False
+                    for period in acad_periods:
+                        if period.start_date <= current <= period.end_date:
+                            if period.affects_all or active_course.id in period.affected_groups.values_list('id', flat=True):
+                                is_calendar_blocked = True
+                                break
+                    if is_calendar_blocked:
+                        current += timedelta(days=7)
+                        continue
+
+                    is_exception_blocked = False
+                    teacher_id = active_course.teacher_id
+                    room_id = sch.room_id
+                    
+                    for exc in rec_exceptions:
+                        if exc.target_type == 'TEACHER' and exc.teacher_id == teacher_id:
+                            if exc.matches_date_and_time(current, sch.start_time, sch.end_time):
+                                is_exception_blocked = True
+                                break
+                        if exc.target_type == 'ROOM' and exc.room_id == room_id:
+                            if exc.matches_date_and_time(current, sch.start_time, sch.end_time):
+                                is_exception_blocked = True
+                                break
+                                
+                    if is_exception_blocked:
+                        current += timedelta(days=7)
+                        continue
 
                 # determine effective values
                 eff_room = sch.room

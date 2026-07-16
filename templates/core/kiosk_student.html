@@ -273,6 +273,12 @@
           <i class="bi bi-telephone-fill meta-icon"></i>
           <span>{{ student.parent_contact }}</span>
         </div>
+        {% if student.parent_contact_2 %}
+        <div class="meta-row">
+          <i class="bi bi-telephone meta-icon"></i>
+          <span>{{ student.parent_contact_2 }} <span style="font-size:11px;opacity:.6;">(2)</span></span>
+        </div>
+        {% endif %}
         {% if student.main_school %}
           <div class="meta-row">
             <i class="bi bi-building meta-icon"></i>

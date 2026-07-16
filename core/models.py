@@ -84,6 +84,13 @@ class Room(models.Model):
         validators=[MinValueValidator(1)],
         verbose_name="Capacité"
     )
+    building = models.CharField(max_length=100, blank=True, default="", verbose_name="Bâtiment")
+    floor = models.IntegerField(null=True, blank=True, verbose_name="Étage")
+    accessibility = models.BooleanField(default=False, verbose_name="Accessible PMR")
+    has_computer_lab = models.BooleanField(default=False, verbose_name="Laboratoire informatique")
+    has_science_lab = models.BooleanField(default=False, verbose_name="Laboratoire scientifique")
+    has_projector = models.BooleanField(default=False, verbose_name="Projecteur")
+    has_air_conditioning = models.BooleanField(default=False, verbose_name="Climatisation")
     is_active = models.BooleanField(default=True, verbose_name="Active")
     
     class Meta:
@@ -350,6 +357,12 @@ class CourseGroup(models.Model):
         verbose_name="Lien du groupe WhatsApp"
     )
     
+    requires_accessibility = models.BooleanField(default=False, verbose_name="Requiert accessibilité")
+    requires_computer_lab = models.BooleanField(default=False, verbose_name="Requiert labo info")
+    requires_science_lab = models.BooleanField(default=False, verbose_name="Requiert labo science")
+    requires_projector = models.BooleanField(default=False, verbose_name="Requiert projecteur")
+    requires_air_conditioning = models.BooleanField(default=False, verbose_name="Requiert climatisation")
+    
     is_active = models.BooleanField(default=True, verbose_name="Actif")
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -491,6 +504,7 @@ class Student(models.Model):
     name = models.CharField(max_length=100, verbose_name="Nom complet")
     phone = models.CharField(max_length=20, blank=True, verbose_name="Téléphone élève")
     parent_contact = models.CharField(max_length=20, verbose_name="Téléphone parent")
+    parent_contact_2 = models.CharField(max_length=20, blank=True, verbose_name="Téléphone parent 2")
     parent_name = models.CharField(max_length=100, blank=True, verbose_name="Nom du parent")
     
     address = models.TextField(blank=True, verbose_name="Adresse")
@@ -873,6 +887,12 @@ class Session(models.Model):
         verbose_name="Enseignant remplaçant"
     )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=SessionStatus.PLANNED)
+    schedule_status = models.CharField(
+        max_length=15,
+        choices=[('DRAFT', 'Brouillon'), ('PUBLISHED', 'Publié'), ('ARCHIVED', 'Archivé')],
+        default='PUBLISHED',
+        verbose_name="État de planification"
+    )
     notes = models.TextField(blank=True)
     is_manually_edited = models.BooleanField(default=False, verbose_name="Modifié manuellement")
 
@@ -1271,4 +1291,181 @@ class Announcement(models.Model):
 
     def __str__(self):
         return f"[{self.get_category_display()}] {self.title}"
+
+
+from django.contrib.auth.models import User
+
+class ScheduleLock(models.Model):
+    is_locked = models.BooleanField(default=True, verbose_name="Verrouillé")
+    start_date = models.DateField(null=True, blank=True, verbose_name="Date de début")
+    end_date = models.DateField(null=True, blank=True, verbose_name="Date de fin")
+    academic_year = models.CharField(max_length=50, null=True, blank=True, verbose_name="Année académique")
+    locked_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Verrouillé par")
+    locked_at = models.DateTimeField(auto_now_add=True, verbose_name="Verrouillé le")
+    notes = models.TextField(blank=True, verbose_name="Notes")
+
+    class Meta:
+        verbose_name = "Verrouillage du planning"
+        verbose_name_plural = "Verrouillages du planning"
+
+    def __str__(self):
+        status = "Verrouillé" if self.is_locked else "Déverrouillé"
+        period = f" du {self.start_date} au {self.end_date}" if self.start_date else ""
+        return f"{status}{period}"
+
+
+class SessionChangeHistory(models.Model):
+    session = models.ForeignKey(
+        'Session',
+        on_delete=models.SET_NULL,
+        related_name='change_history',
+        null=True,
+        blank=True,
+        verbose_name="Séance"
+    )
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Utilisateur")
+    timestamp = models.DateTimeField(auto_now_add=True, verbose_name="Date/Heure")
+    previous_values = models.JSONField(default=dict, verbose_name="Valeurs précédentes")
+    new_values = models.JSONField(default=dict, verbose_name="Nouvelles valeurs")
+    change_reason = models.TextField(blank=True, null=True, verbose_name="Motif du changement")
+    ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name="Adresse IP")
+    action = models.CharField(max_length=50, verbose_name="Action")
+
+    class Meta:
+        verbose_name = "Historique de modification de séance"
+        verbose_name_plural = "Historiques de modifications de séances"
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.action} - {self.session} - {self.timestamp.strftime('%d/%m/%Y %H:%M')}"
+
+
+class UserProfile(models.Model):
+    ROLE_CHOICES = [
+        ('SCHEDULER', 'Scheduler'),
+        ('TEACHER', 'Teacher'),
+        ('ACADEMIC_MANAGER', 'Academic Manager'),
+        ('BRANCH_MANAGER', 'Branch Manager'),
+        ('AUDITOR', 'Auditor'),
+        ('STUDENT', 'Student'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='STUDENT', verbose_name="Rôle")
+    teacher = models.OneToOneField('Teacher', on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profile', verbose_name="Enseignant associé")
+    student = models.OneToOneField('Student', on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profile', verbose_name="Élève associé")
+
+    def __str__(self):
+        return f"{self.user.username} - {self.role}"
+
+
+class AcademicCalendarPeriod(models.Model):
+    PERIOD_TYPE_CHOICES = [
+        ('HOLIDAY', 'Holiday'),
+        ('VACATION', 'Vacation'),
+        ('EXAM_WEEK', 'Exam Week'),
+        ('CLOSURE', 'Institution Closure'),
+    ]
+    name = models.CharField(max_length=200, verbose_name="Nom de la période")
+    period_type = models.CharField(max_length=20, choices=PERIOD_TYPE_CHOICES, default='VACATION', verbose_name="Type de période")
+    start_date = models.DateField(verbose_name="Date de début")
+    end_date = models.DateField(verbose_name="Date de fin")
+    affects_all = models.BooleanField(
+        default=True,
+        verbose_name="Affecte tous les groupes",
+        help_text="Si coché, affecte tous les groupes durant cette période."
+    )
+    affected_groups = models.ManyToManyField(
+        'CourseGroup',
+        blank=True,
+        related_name='academic_periods',
+        verbose_name="Groupes concernés"
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Active")
+    notes = models.TextField(blank=True, verbose_name="Notes")
+
+    class Meta:
+        verbose_name = "Période du Calendrier Académique"
+        verbose_name_plural = "Périodes du Calendrier Académique"
+        ordering = ['start_date']
+
+    def __str__(self):
+        return f"{self.name} ({self.get_period_type_display()}: {self.start_date} -> {self.end_date})"
+
+
+class RecurringException(models.Model):
+    EXCEPTION_TARGET_CHOICES = [
+        ('TEACHER', 'Teacher'),
+        ('ROOM', 'Room'),
+    ]
+    target_type = models.CharField(max_length=10, choices=EXCEPTION_TARGET_CHOICES, verbose_name="Cible")
+    teacher = models.ForeignKey('Teacher', on_delete=models.CASCADE, null=True, blank=True, related_name='recurring_exceptions', verbose_name="Enseignant")
+    room = models.ForeignKey('Room', on_delete=models.CASCADE, null=True, blank=True, related_name='recurring_exceptions', verbose_name="Salle")
+    
+    recurrence_type = models.CharField(max_length=20, choices=[
+        ('WEEKLY', 'Weekly'),
+        ('MONTHLY_DAY', 'Monthly Day (e.g. First Monday)'),
+    ], verbose_name="Type de récurrence")
+    
+    day_of_week = models.CharField(max_length=3, choices=CourseGroup.DAYS_CHOICES, null=True, blank=True, verbose_name="Jour de la semaine")
+    week_number = models.IntegerField(null=True, blank=True, verbose_name="Numéro de semaine dans le mois", help_text="1 pour 1ère, 2 pour 2ème, -1 pour dernière, etc.")
+    
+    start_time = models.TimeField(verbose_name="Heure de début")
+    end_time = models.TimeField(verbose_name="Heure de fin")
+    is_available = models.BooleanField(default=False, verbose_name="Disponible", help_text="Si décoché, signifie indisponibilité.")
+    notes = models.CharField(max_length=250, blank=True, verbose_name="Notes")
+
+    class Meta:
+        verbose_name = "Exception récurrente"
+        verbose_name_plural = "Exceptions récurrentes"
+
+    def __str__(self):
+        target = self.teacher.name if self.target_type == 'TEACHER' and self.teacher else (self.room.name if self.room else "")
+        status = "Disponible" if self.is_available else "Indisponible"
+        return f"{self.get_target_type_display()} {target} - {status} ({self.recurrence_type})"
+
+    def matches_date_and_time(self, check_date, check_start, check_end) -> bool:
+        from datetime import timedelta
+        # Time overlap check
+        if not (check_start < self.end_time and check_end > self.start_time):
+            return False
+            
+        # Check date
+        weekday_map = {0: 'MON', 1: 'TUE', 2: 'WED', 3: 'THU', 4: 'FRI', 5: 'SAT', 6: 'SUN'}
+        if self.day_of_week and weekday_map[check_date.weekday()] != self.day_of_week:
+            return False
+            
+        if self.recurrence_type == 'WEEKLY':
+            return True
+            
+        if self.recurrence_type == 'MONTHLY_DAY':
+            first_day_of_month = check_date.replace(day=1)
+            target_weekday = check_date.weekday()
+            first_occurrence_day = 1 + (target_weekday - first_day_of_month.weekday()) % 7
+            occurrence = (check_date.day - first_occurrence_day) // 7 + 1
+            if self.week_number == occurrence:
+                return True
+            if self.week_number == -1:
+                next_week_date = check_date + timedelta(days=7)
+                if next_week_date.month != check_date.month:
+                    return True
+        return False
+
+
+class RoomAvailability(models.Model):
+    room = models.ForeignKey('Room', on_delete=models.CASCADE, related_name='availabilities', verbose_name="Salle")
+    day = models.CharField(max_length=3, choices=CourseGroup.DAYS_CHOICES, verbose_name="Jour")
+    start_time = models.TimeField(verbose_name="Heure de début")
+    end_time = models.TimeField(verbose_name="Heure de fin")
+    is_available = models.BooleanField(default=False, verbose_name="Disponible")
+    notes = models.CharField(max_length=200, blank=True, verbose_name="Notes")
+
+    class Meta:
+        verbose_name = "Disponibilité salle"
+        verbose_name_plural = "Disponibilités salles"
+
+    def __str__(self):
+        status = "Disponible" if self.is_available else "Indisponible"
+        return f"Salle {self.room.name} - {self.get_day_display()} {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')} ({status})"
+
+
 

@@ -217,6 +217,9 @@
                 <td>
                   <div>{{ student.parent_name|default:"-" }}</div>
                   <small class="text-muted"><i class="bi bi-telephone"></i> {{ student.parent_contact }}</small>
+                  {% if student.parent_contact_2 %}
+                    <small class="text-muted d-block"><i class="bi bi-telephone"></i> {{ student.parent_contact_2 }}</small>
+                  {% endif %}
                 </td>
                 <td class="text-center">
                   <span class="badge badge-primary">{{ student.enrollment_set.count }}</span>

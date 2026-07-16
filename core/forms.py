@@ -17,6 +17,10 @@ class CourseGroupMultipleChoiceField(forms.ModelMultipleChoiceField):
 
 class StudentForm(forms.ModelForm):
     """Form for creating and editing students"""
+    create_payment = forms.BooleanField(
+        required=False,
+        label="Créer un paiement après l'inscription"
+    )
     
     groups = CourseGroupMultipleChoiceField(
         queryset=CourseGroup.objects.filter(is_active=True).prefetch_related('schedules', 'level'),
@@ -30,7 +34,7 @@ class StudentForm(forms.ModelForm):
     
     class Meta:
         model = Student
-        fields = ['name', 'phone', 'parent_name', 'parent_contact', 'date_of_birth', 'address', 'level', 'main_school', 'is_active', 'notes']
+        fields = ['name', 'phone', 'parent_name', 'parent_contact', 'parent_contact_2', 'date_of_birth', 'address', 'level', 'main_school', 'is_active', 'notes']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control',
@@ -50,6 +54,11 @@ class StudentForm(forms.ModelForm):
                 'placeholder': 'Téléphone du parent',
                 'type': 'tel',
                 'required': True
+            }),
+            'parent_contact_2': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Téléphone parent 2 (optionnel)',
+                'type': 'tel',
             }),
             'date_of_birth': forms.DateInput(attrs={
                 'class': 'form-control',
@@ -95,6 +104,10 @@ class StudentForm(forms.ModelForm):
         phone = self.cleaned_data.get('parent_contact', '').strip()
         if not phone:
             raise forms.ValidationError('Le téléphone du parent est requis')
+        return phone
+
+    def clean_parent_contact_2(self):
+        phone = self.cleaned_data.get('parent_contact_2', '').strip()
         return phone
 
     def clean(self):

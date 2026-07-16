@@ -271,6 +271,9 @@
                 <td>
                   <div>{{ student.parent_name|default:"—" }}</div>
                   <small class="text-muted"><i class="bi bi-telephone"></i> {{ student.parent_contact }}</small>
+                  {% if student.parent_contact_2 %}
+                    <small class="text-muted d-block"><i class="bi bi-telephone"></i> {{ student.parent_contact_2 }}</small>
+                  {% endif %}
                 </td>
                 <td class="text-end"><strong>{{ student.total_monthly_fees|floatformat:0 }} DH</strong></td>
                 <td class="text-center">

@@ -236,6 +236,11 @@
             <td class="text-center">
               {% if c.parent_contact %}
                 <span class="fw-bold"><i class="bi bi-telephone-fill me-1" style="font-size:11px;"></i>{{ c.parent_contact }}</span>
+                {% if c.parent_contact_2 %}
+                  <br><span style="font-size:11px;color:var(--text-secondary);"><i class="bi bi-telephone me-1"></i>{{ c.parent_contact_2 }}</span>
+                {% endif %}
+              {% elif c.parent_contact_2 %}
+                <span class="fw-bold"><i class="bi bi-telephone-fill me-1" style="font-size:11px;"></i>{{ c.parent_contact_2 }}</span>
               {% else %}
                 <span class="text-muted" style="font-size:11px;">Pas de numéro</span>
               {% endif %}

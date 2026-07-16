@@ -10,12 +10,20 @@
 {% block extra_css %}
 <style>
   /* ─── Row status colors ───────────────────────────────────── */
-  .row-ok       { background: #fff !important; }
-  .row-partial  { background: #fffbeb !important; }
-  .row-unpaid   { background: #fff5f5 !important; }
-  .row-ok:hover       { background: var(--primary-light) !important; }
-  .row-partial:hover  { background: #fef9c3 !important; }
-  .row-unpaid:hover   { background: #fee2e2 !important; }
+  .row-partial,
+  .row-unpaid {
+      background: #fff5f5 !important;
+  }
+
+  .row-partial:hover,
+  .row-unpaid:hover {
+      background: #fee2e2 !important;
+  }
+
+  .row-partial td:first-child,
+  .row-unpaid td:first-child {
+      border-left: 4px solid #ef4444;
+  }
 
   /* Make each row clickable */
   .table-hover tbody tr { cursor: pointer; }
@@ -45,12 +53,12 @@
   .search-bar-input {
     padding-left: 40px !important;
     font-size: 15.5px !important;
-    height: 42px;
+    height: 44px; /* ↑ from 42px — WCAG 2.5.5 */
   }
   .search-bar-clear {
     position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-    background: none; border: none; color: var(--text-muted); cursor: pointer;
-    font-size: 16px; display: none;
+    background: none; border: none; color: var(--text-secondary); cursor: pointer; /* ↑ text-muted→text-secondary — WCAG AA */
+    font-size: 16px; display: none; min-width: 32px; min-height: 32px;
   }
   .search-bar-clear:hover { color: var(--text-primary); }
 
@@ -87,11 +95,11 @@
     </p>
   </div>
   <div class="d-flex gap-2 flex-shrink-0">
-    <a href="{% url 'core:print_students_list' %}" class="btn btn-outline-secondary" title="Imprimer">
-      <i class="bi bi-printer"></i>
+    <a href="{% url 'core:print_students_list' %}" class="btn btn-outline-secondary" title="Imprimer" aria-label="Imprimer la liste des élèves">
+      <i class="bi bi-printer" aria-hidden="true"></i>
     </a>
     <a href="{% url 'core:student_create' %}" class="btn btn-primary">
-      <i class="bi bi-plus-lg"></i> Ajouter un élève
+      <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter un élève
     </a>
   </div>
 </div>
@@ -103,12 +111,12 @@
     <!-- Search box -->
     <div class="col-12 col-md-4">
       <div class="search-bar-wrap">
-        <i class="bi bi-search search-bar-icon"></i>
+        <i class="bi bi-search search-bar-icon" aria-hidden="true"></i>
         <input type="text" class="form-control search-bar-input" id="search" name="q"
                placeholder="Nom, téléphone, parent…" value="{{ request.GET.q }}"
-               autocomplete="off">
-        <button type="button" class="search-bar-clear" id="searchClear" title="Effacer">
-          <i class="bi bi-x"></i>
+               autocomplete="off" aria-label="Rechercher un élève">
+        <button type="button" class="search-bar-clear" id="searchClear" title="Effacer la recherche" aria-label="Effacer la recherche">
+          <i class="bi bi-x" aria-hidden="true"></i>
         </button>
       </div>
     </div>
@@ -116,10 +124,9 @@
     <!-- Payment status -->
     <div class="col-6 col-md-2">
       <select class="form-select" id="payment_status" name="payment_status">
-        <option value="">— Statut —</option>
-        <option value="ok"      {% if request.GET.payment_status == 'ok'      %}selected{% endif %}>✓ À jour</option>
-        <option value="partial" {% if request.GET.payment_status == 'partial' %}selected{% endif %}>⚠ Partiel</option>
-        <option value="unpaid"  {% if request.GET.payment_status == 'unpaid'  %}selected{% endif %}>✗ Impayé</option>
+      <option value="">— Statut —</option>
+      <option value="paid" {% if request.GET.payment_status == 'paid' %}selected{% endif %}>✓ Payé</option>
+      <option value="unpaid" {% if request.GET.payment_status == 'unpaid' %}selected{% endif %}>✗ Impayé / Incomplet</option>
       </select>
     </div>
 
@@ -155,10 +162,13 @@
       </select>
     </div>
     <div class="col-4 col-md-auto d-flex gap-2">
-      <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i></button>
+      <button type="submit" class="btn btn-primary" aria-label="Appliquer les filtres">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        <span class="visually-hidden">Filtrer</span>
+      </button>
       {% if filters_active %}
-        <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary" title="Effacer les filtres">
-          <i class="bi bi-x-circle"></i>
+        <a href="{% url 'core:students_list' %}" class="btn btn-outline-secondary" title="Effacer les filtres" aria-label="Effacer tous les filtres">
+          <i class="bi bi-x-circle" aria-hidden="true"></i>
         </a>
       {% endif %}
     </div>
@@ -167,7 +177,7 @@
   <!-- Active filter pills -->
   {% if filters_active %}
     <div class="d-flex gap-2 flex-wrap mt-3 pt-3" style="border-top:1px solid var(--border);">
-      <small class="text-secondary align-self-center">Actifs :</small>
+      <span style="font-size:13px;color:var(--text-secondary);" class="align-self-center">Actifs :</span><!-- ↑ small→span explicit — WCAG AA -->
       {% if request.GET.q %}
         <span class="filter-pill">
           "{{ request.GET.q }}"
@@ -176,7 +186,11 @@
       {% endif %}
       {% if request.GET.payment_status %}
         <span class="filter-pill">
-          {% if request.GET.payment_status == 'ok' %}À jour{% elif request.GET.payment_status == 'partial' %}Partiel{% else %}Impayé{% endif %}
+          {% if request.GET.payment_status == 'paid' %}
+            Payé
+          {% else %}
+            Impayé / Incomplet
+          {% endif %}
           <a href="?{% for key, value in request.GET.items %}{% if key != 'payment_status' %}{{ key }}={{ value }}&{% endif %}{% endfor %}">×</a>
         </span>
       {% endif %}
@@ -209,16 +223,17 @@
       <tbody id="student-tbody">
         {% for student in students %}
           {% with status=student.computed_payment_status %}
-          <tr class="student-row {% if status == 'OK' %}row-ok{% elif status == 'PARTIAL' %}row-partial{% else %}row-unpaid{% endif %}"
+          <tr class="student-row {% if status == 'OK' %}row-ok{% else %}row-unpaid{% endif %}"
               data-href="{% url 'core:student_page' student.id %}"
               data-name="{{ student.name|lower }}"
               data-contact="{{ student.parent_contact|lower }}"
+              data-contact2="{{ student.parent_contact_2|lower }}"
               data-parent="{{ student.parent_name|lower }}">
             <td>
               {% if student.matricule %}
-                <span style="font-size:12px;font-weight:700;color:var(--primary);background:var(--primary-light);padding:2px 8px;border-radius:5px;letter-spacing:0.04em;">{{ student.matricule }}</span>
+                <span style="font-size:13px;font-weight:700;color:#1d4ed8;background:var(--primary-light);padding:2px 8px;border-radius:5px;letter-spacing:0.04em;">{{ student.matricule }}</span><!-- ↑ 12px/#primary(3.2:1)→13px/#1d4ed8(4.8:1) — WCAG AA -->
               {% else %}
-                <span class="text-muted">—</span>
+                <span style="color:var(--text-secondary);">—</span><!-- ↑ text-muted→text-secondary — WCAG AA -->
               {% endif %}
             </td>
             <td>
@@ -226,13 +241,17 @@
                 <div class="student-avatar">{{ student.name|slice:":1"|upper }}</div>
                 <div>
                   <div class="fw-bold" style="font-size:14.5px;">{{ student.name }}</div>
-                  <small class="text-muted">{{ student.parent_name|default:student.parent_contact }}</small>
+                  <span style="font-size:13px;color:var(--text-secondary);">{{ student.parent_name|default:student.parent_contact }}</span><!-- ↑ small+text-muted — WCAG AA -->
                 </div>
               </div>
             </td>
             <td>
-              <i class="bi bi-telephone text-muted"></i>
+              <i class="bi bi-telephone" aria-hidden="true" style="color:var(--text-secondary);"></i><!-- ↑ aria-hidden + text-secondary — WCAG AA -->
               <span class="ms-1">{{ student.parent_contact }}</span>
+              {% if student.parent_contact_2 %}
+                <br><i class="bi bi-telephone" aria-hidden="true" style="color:var(--text-secondary);opacity:.6;"></i>
+                <span class="ms-1" style="font-size:12px;color:var(--text-secondary);">{{ student.parent_contact_2 }}</span>
+              {% endif %}
             </td>
             <td>
               {% if student.level %}
@@ -240,7 +259,7 @@
                   <span class="badge badge-secondary">{{ student.level.name }}</span>
                 </a>
               {% else %}
-                <span class="text-muted">—</span>
+                <span style="color:var(--text-secondary);">—</span><!-- ↑ text-muted→text-secondary — WCAG AA -->
               {% endif %}
             </td>
             <td>
@@ -260,14 +279,17 @@
             </td>
             <td class="row-actions" onclick="event.stopPropagation()">
               <div class="d-flex gap-1">
-                <a href="{% url 'core:student_page' student.id %}" class="btn btn-sm btn-outline-primary" title="Voir le profil">
-                  <i class="bi bi-eye"></i>
+                <a href="{% url 'core:student_page' student.id %}" class="btn btn-sm btn-outline-primary"
+                   title="Voir le profil" aria-label="Voir le profil de {{ student.name }}">
+                  <i class="bi bi-eye" aria-hidden="true"></i>
                 </a>
-                <a href="{% url 'core:payment_create' %}?student_id={{ student.id }}" class="btn btn-sm btn-success" title="Encaisser">
-                  <i class="bi bi-cash-coin"></i>
+                <a href="{% url 'core:payment_create' %}?student_id={{ student.id }}" class="btn btn-sm btn-success"
+                   title="Encaisser" aria-label="Encaisser un paiement pour {{ student.name }}">
+                  <i class="bi bi-cash-coin" aria-hidden="true"></i>
                 </a>
-                <a href="{% url 'core:student_edit' student.id %}" class="btn btn-sm btn-outline-secondary" title="Éditer">
-                  <i class="bi bi-pencil"></i>
+                <a href="{% url 'core:student_edit' student.id %}" class="btn btn-sm btn-outline-secondary"
+                   title="Éditer" aria-label="Éditer le profil de {{ student.name }}">
+                  <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>
               </div>
             </td>
@@ -275,13 +297,13 @@
           {% endwith %}
         {% empty %}
           <tr id="no-results-row" style="display:none;">
-            <td colspan="8" class="text-center py-5 text-muted">
-              <i class="bi bi-search" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:8px;"></i>
+            <td colspan="8" class="text-center py-5" style="color:var(--text-secondary);">
+              <i class="bi bi-search" style="font-size:2rem;opacity:0.5;display:block;margin-bottom:8px;" aria-hidden="true"></i>
               Aucun élève trouvé avec ces termes
             </td>
           </tr>
           <tr>
-            <td colspan="8" class="text-center py-5 text-muted">
+            <td colspan="8" class="text-center py-5" style="color:var(--text-secondary);">
               {% if filters_active %}
                 Aucun élève ne correspond aux filtres.
                 <a href="{% url 'core:students_list' %}">Effacer tout</a>
@@ -294,9 +316,9 @@
         <!-- Live-filter no-results row (hidden by default) -->
         {% if students %}
         <tr id="no-results-row" style="display:none;">
-          <td colspan="8" class="text-center py-5 text-muted">
-            <i class="bi bi-search" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:8px;"></i>
-            Aucun élève trouvé pour "<strong id="no-results-query"></strong>"
+          <td colspan="8" class="text-center py-5" style="color:var(--text-secondary);">
+            <i class="bi bi-search" style="font-size:2rem;opacity:0.5;display:block;margin-bottom:8px;" aria-hidden="true"></i>
+            Aucun élève trouvé pour &ldquo;<strong id="no-results-query"></strong>&rdquo;
           </td>
         </tr>
         {% endif %}
@@ -307,34 +329,37 @@
 
 <!-- ── Pagination ─────────────────────────────────────────────────── -->
 {% if students.has_other_pages %}
-  <nav class="mt-3">
+  <nav class="mt-3" aria-label="Pagination des élèves"><!-- WCAG 1.3.1 + 2.4.6 -->
     <ul class="pagination justify-content-center">
       {% if students.has_previous %}
         <li class="page-item">
-          <a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ students.previous_page_number }}">
-            <i class="bi bi-chevron-left"></i>
+          <a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ students.previous_page_number }}"
+             aria-label="Page précédente">
+            <i class="bi bi-chevron-left" aria-hidden="true"></i>
           </a>
         </li>
       {% else %}
-        <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-left"></i></span></li>
+        <li class="page-item disabled"><span class="page-link" aria-disabled="true"><i class="bi bi-chevron-left" aria-hidden="true"></i></span></li>
       {% endif %}
 
       {% for p in students.paginator.page_range %}
         {% if p >= students.number|add:'-3' and p <= students.number|add:'3' %}
           <li class="page-item {% if p == students.number %}active{% endif %}">
-            <a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ p }}">{{ p }}</a>
+            <a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ p }}"
+               {% if p == students.number %}aria-current="page"{% endif %}>{{ p }}</a>
           </li>
         {% endif %}
       {% endfor %}
 
       {% if students.has_next %}
         <li class="page-item">
-          <a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ students.next_page_number }}">
-            <i class="bi bi-chevron-right"></i>
+          <a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ students.next_page_number }}"
+             aria-label="Page suivante">
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
           </a>
         </li>
       {% else %}
-        <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-right"></i></span></li>
+        <li class="page-item disabled"><span class="page-link" aria-disabled="true"><i class="bi bi-chevron-right" aria-hidden="true"></i></span></li>
       {% endif %}
     </ul>
   </nav>
@@ -358,10 +383,11 @@ document.addEventListener('DOMContentLoaded', function () {
     var rows = document.querySelectorAll('.student-row');
     var visible = 0;
     rows.forEach(function(row) {
-      var name    = row.dataset.name    || '';
-      var contact = row.dataset.contact || '';
-      var parent  = row.dataset.parent  || '';
-      var matches = !q || name.includes(q) || contact.includes(q) || parent.includes(q);
+      var name     = row.dataset.name     || '';
+      var contact  = row.dataset.contact  || '';
+      var contact2 = row.dataset.contact2 || '';
+      var parent   = row.dataset.parent   || '';
+      var matches = !q || name.includes(q) || contact.includes(q) || contact2.includes(q) || parent.includes(q);
       row.style.display = matches ? '' : 'none';
       if (matches) visible++;
     });

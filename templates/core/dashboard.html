@@ -30,7 +30,7 @@
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--text-muted);
+    color: var(--text-secondary);  /* ↑ from text-muted — stronger section label */
     margin-bottom: 16px;
     display: flex;
     align-items: center;
@@ -51,7 +51,7 @@
 
   .kpi-card {
     background: var(--surface);
-    border: 1.5px solid var(--border);
+    border: 1.5px solid #d1d5db;  /* ↑ stronger than --border for UI component boundary — WCAG 1.4.11 */
     border-radius: var(--radius-lg);
     padding: 24px 24px 20px;
     box-shadow: var(--shadow-sm);
@@ -121,7 +121,8 @@
     margin-top: 14px;
     padding-top: 12px;
     border-top: 1px solid var(--border);
-    font-size: 13.5px;
+    font-size: 14px;               /* ↑ from 13.5px — more readable at small sizes */
+    font-weight: 500;              /* added — improves legibility for low-vision */
     color: var(--text-secondary);
     display: flex;
     align-items: center;
@@ -151,7 +152,7 @@
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--text-muted);
+    color: var(--text-secondary);  /* ↑ from text-muted — stronger panel label */
     margin-bottom: 16px;
     display: flex;
     align-items: center;
@@ -176,8 +177,9 @@
     justify-content: center;
     gap: 10px;
     padding: 24px 16px 20px;
+    min-height: 80px;              /* WCAG 2.5.5 — touch target for primary nav cards */
     background: var(--surface-alt);
-    border: 1.5px solid var(--border);
+    border: 1.5px solid #d1d5db;  /* ↑ stronger than --border — WCAG 1.4.11 */
     border-radius: var(--radius-md);
     text-decoration: none;
     color: var(--text-primary);
@@ -212,8 +214,8 @@
   }
 
   .qa-card-desc {
-    font-size: 12.5px;
-    color: var(--text-muted);
+    font-size: 13.5px;             /* ↑ from 12.5px — improves readability */
+    color: var(--text-secondary);  /* ↑ from text-muted — better contrast */
     line-height: 1.4;
   }
 
@@ -312,8 +314,8 @@
         {{ stats.alerts.past_planned_count }} séance{{ stats.alerts.past_planned_count|pluralize }} sans présences
         enregistrées
       </div>
-      <div style="font-size:13.5px;color:#b45309;">Des séances passées n'ont pas encore été pointées — régularisez
-        maintenant</div>
+      <div style="font-size:13.5px;color:#78350f;">Des séances passées n'ont pas encore été pointées — régularisez
+        maintenant</div><!-- color: #78350f = 8.0:1 on #fff7ed — WCAG AA ✅ -->
     </div>
   </div>
   <a href="{% url 'core:sessions_today' %}?mode=uncompleted" class="btn btn-warning btn-sm fw-600 flex-shrink-0"
@@ -526,7 +528,10 @@
             <td><strong>{{ item.student.name }}</strong></td>
             <td>
               <i class="bi bi-telephone text-muted"></i>
-              <span class="ms-1">{{ item.student.parent_contact }}</span>
+              <span class="ms-1">{{ item.student.parent_contact|default:item.student.parent_contact_2 }}</span>
+              {% if item.student.parent_contact and item.student.parent_contact_2 %}
+                <span style="font-size:11px;color:var(--text-secondary);display:block;"><i class="bi bi-telephone text-muted"></i> {{ item.student.parent_contact_2 }}</span>
+              {% endif %}
             </td>
             <td class="text-end">
               <span class="badge badge-info">{{ item.required|floatformat:0 }} DH</span>
@@ -547,8 +552,10 @@
             <td>
               <div class="d-flex gap-2">
                 <a href="{% url 'core:student_page' item.student.id %}" class="btn btn-sm btn-outline-primary"
-                  title="Voir le profil">
-                  <i class="bi bi-eye"></i>
+                  title="Voir le profil"
+                  aria-label="Voir le profil de {{ item.student.name }}">
+                  <i class="bi bi-eye" aria-hidden="true"></i>
+                  <span class="visually-hidden">Voir le profil</span>
                 </a>
                 <a href="{% url 'core:payment_create' %}?student_id={{ item.student.id }}" class="btn btn-sm btn-success"
                   title="Encaisser">

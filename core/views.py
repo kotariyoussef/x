@@ -113,7 +113,7 @@ def payment_create(request):
         pdf_buffer = generate_receipt_pdf(payment)
         
         # If WhatsApp confirmation requested, redirect to WhatsApp confirmation page
-        if send_whatsapp and student.parent_contact:
+        if send_whatsapp and (student.parent_contact or student.parent_contact_2):
             # Save receipt temporarily (or provide download link)
             response = HttpResponse(pdf_buffer.read(), content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="receipt_{payment.receipt_number}.pdf"'
@@ -186,7 +186,16 @@ def student_unpaid_search(request):
     q = request.GET.get('q', '').strip()
     
     # Get current month
-    current_month = timezone.now().date().replace(day=1)
+
+    month_str = request.GET.get("month")
+
+    if month_str:
+        try:
+            current_month = datetime.strptime(month_str, "%Y-%m-%d").date()
+        except ValueError:
+            current_month = timezone.now().date().replace(day=1)
+    else:
+        current_month = timezone.now().date().replace(day=1)
     
     # Get all students or filter by name/matricule
     if q:
@@ -207,12 +216,12 @@ def student_unpaid_search(request):
             status='PAID'
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
         
-        # if paid < required:  # Student has unpaid amount
-        unpaid_students.append({
-            'id': s.id,
-            'text': f"[{s.matricule or 'N/A'}] {s.name} ({s.parent_name or s.parent_contact}) - Due: {required - paid} DH",
-            'due_amount': str(required - paid)
-        })
+        if paid < required:  # Student has unpaid amount
+            unpaid_students.append({
+                'id': s.id,
+                'text': f"[{s.matricule or 'N/A'}] {s.name} ({s.parent_name or s.parent_contact}) - Due: {required - paid} DH",
+                'due_amount': str(required - paid)
+            })
     
     return JsonResponse({'results': unpaid_students})
 
@@ -283,6 +292,7 @@ def student_detail(request):
         'name': student.name,
         'matricule': student.matricule,
         'parent_contact': student.parent_contact,
+        'parent_contact_2': student.parent_contact_2,
         'required': str(int(required)),
         'groups': groups
     }
@@ -523,6 +533,11 @@ def sessions_today(request):
             'group__students'
         ).order_by('start_time')
     
+    # Hide draft schedules for teachers
+    is_teacher = hasattr(request.user, 'profile') and request.user.profile.role == 'TEACHER'
+    if is_teacher:
+        sessions_qs = sessions_qs.filter(schedule_status='PUBLISHED')
+
     # Apply filters
     session_filter = SessionFilter(request.GET, queryset=sessions_qs)
     sessions = list(session_filter.qs)
@@ -585,15 +600,38 @@ def session_create(request):
     if request.method == 'POST':
         form = SessionForm(request.POST)
         if form.is_valid():
-            session = form.save(commit=False)
+            s = form.save(commit=False)
             try:
-                session.is_manually_edited = True
-                session.full_clean()
-                session.save()
+                from core.services.scheduling.locking import LockingService
+                from core.services.scheduling.audit import AuditService
+                
+                # Check Lock
+                LockingService.check_lock(s.date)
+                
+                s.is_manually_edited = True
+                s.full_clean()
+                s.save()
+                
+                # Audit log creation
+                AuditService.log_change(
+                    session=s,
+                    user=request.user,
+                    action='create',
+                    previous_values={},
+                    new_values={
+                        'date': str(s.date),
+                        'start_time': s.start_time.strftime('%H:%M'),
+                        'end_time': s.end_time.strftime('%H:%M'),
+                        'room': s.room.name if s.room else '',
+                        'status': s.status
+                    },
+                    change_reason=request.POST.get('change_reason', 'Création manuelle'),
+                    ip_address=request.META.get('REMOTE_ADDR')
+                )
             except Exception as e:
                 form.add_error(None, str(e))
             else:
-                return render(request, 'core/session_form_saved.html', {'session': session})
+                return render(request, 'core/session_form_saved.html', {'session': s})
     else:
         form = SessionForm()
 
@@ -606,20 +644,41 @@ def session_create(request):
 
 @require_http_methods(['GET', 'POST'])
 def session_edit(request, session_id):
-    """Edit an existing session"""
+    """Edit an existing session with recurring schedule update modes."""
     session = get_object_or_404(Session, pk=session_id)
     if request.method == 'POST':
         form = SessionForm(request.POST, instance=session)
         if form.is_valid():
-            s = form.save(commit=False)
+            scope = request.POST.get('update_mode', 'only_this')
+            change_reason = request.POST.get('change_reason', '')
+            
+            updates = {
+                'start_time': form.cleaned_data['start_time'],
+                'end_time': form.cleaned_data['end_time'],
+                'room_id': form.cleaned_data['room'].id if form.cleaned_data.get('room') else None,
+                'status': form.cleaned_data['status'],
+                'notes': form.cleaned_data['notes'],
+                'substitute_teacher_id': form.cleaned_data['substitute_teacher'].id if form.cleaned_data.get('substitute_teacher') else None,
+            }
+            
             try:
-                s.is_manually_edited = True
-                s.full_clean()
-                s.save()
+                from core.services.scheduling import SchedulingFacade
+                updated_list = SchedulingFacade.propagate_session_changes(
+                    session=session,
+                    scope=scope,
+                    updates=updates,
+                    user=request.user,
+                    ip_address=request.META.get('REMOTE_ADDR'),
+                    change_reason=change_reason
+                )
+                count = len(updated_list)
+                return render(request, 'core/session_form_saved.html', {
+                    'session': session,
+                    'count': count,
+                    'scope': scope
+                })
             except Exception as e:
                 form.add_error(None, str(e))
-            else:
-                return render(request, 'core/session_form_saved.html', {'session': s})
     else:
         form = SessionForm(instance=session)
 
@@ -633,9 +692,38 @@ def session_edit(request, session_id):
 
 @require_http_methods(['POST'])
 def session_delete(request, session_id):
+    """Delete a session with locking checks and audit logs."""
     session = get_object_or_404(Session, pk=session_id)
-    session.delete()
-    return render(request, 'core/session_deleted.html', {'session_id': session_id})
+    try:
+        from core.services.scheduling.locking import LockingService
+        from core.services.scheduling.audit import AuditService
+        
+        LockingService.check_lock(session.date)
+        
+        # Log before deletion
+        AuditService.log_change(
+            session=session,
+            user=request.user,
+            action='delete',
+            previous_values={
+                'date': str(session.date),
+                'start_time': session.start_time.strftime('%H:%M'),
+                'end_time': session.end_time.strftime('%H:%M'),
+                'group': session.group.name if session.group else '',
+                'room': session.room.name if session.room else ''
+            },
+            new_values={},
+            change_reason=request.POST.get('change_reason', 'Suppression manuelle'),
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        
+        session.delete()
+        return render(request, 'core/session_deleted.html', {'session_id': session_id})
+    except Exception as e:
+        from django.contrib import messages
+        messages.error(request, str(e))
+        return redirect('core:sessions_schedule')
+
 
 
 @require_http_methods(['GET', 'POST'])
@@ -897,6 +985,8 @@ def sessions_schedule(request):
     """Enhanced weekly schedule view with better structure and filtering"""
     from .utils import auto_generate_future_sessions
     auto_generate_future_sessions()
+
+    from core.services.scheduling import SchedulingFacade
     
     # Get the week starting date (Monday)
     today = timezone.now().date()
@@ -920,7 +1010,9 @@ def sessions_schedule(request):
     # Get filter parameters
     room_filter = request.GET.get('room_id')
     teacher_filter = request.GET.get('teacher_id')
+    group_filter = request.GET.get('group_id')
     status_filter = request.GET.get('status')
+    search_query = request.GET.get('q', '').strip()
     exceptions_only = request.GET.get('exceptions_only') == 'on'
     
     # Build list of dates for the week
@@ -937,13 +1029,27 @@ def sessions_schedule(request):
         'group__students'
     )
     
+    # Hide draft schedules for teachers
+    is_teacher = hasattr(request.user, 'profile') and request.user.profile.role == 'TEACHER'
+    if is_teacher:
+        base_sessions = base_sessions.filter(schedule_status='PUBLISHED')
+    
     # Apply filters
     if room_filter:
         base_sessions = base_sessions.filter(room_id=room_filter)
     if teacher_filter:
         base_sessions = base_sessions.filter(group__teacher_id=teacher_filter)
+    if group_filter:
+        base_sessions = base_sessions.filter(group_id=group_filter)
     if status_filter:
         base_sessions = base_sessions.filter(status=status_filter)
+    if search_query:
+        base_sessions = base_sessions.filter(
+            Q(group__name__icontains=search_query) |
+            Q(group__subject__icontains=search_query) |
+            Q(group__teacher__name__icontains=search_query) |
+            Q(room__name__icontains=search_query)
+        )
     
     # Get all rooms and teachers for the filters
     rooms = Room.objects.filter(is_active=True).order_by('name')
@@ -978,7 +1084,7 @@ def sessions_schedule(request):
     stats = _calculate_week_stats(annotated_sessions, dates)
     
     # Check if filters are active
-    filters_active = any([room_filter, teacher_filter, status_filter, exceptions_only])
+    filters_active = any([room_filter, teacher_filter, group_filter, status_filter, search_query, exceptions_only])
     
     context = {
         'week_start': week_start,
@@ -997,12 +1103,91 @@ def sessions_schedule(request):
         'filters_active': filters_active,
         'room_filter': room_filter,
         'teacher_filter': teacher_filter,
+        'group_filter': group_filter,
         'status_filter': status_filter,
+        'search_query': search_query,
         'exceptions_only': exceptions_only,
         'courses': CourseGroup.objects.filter(is_active=True).order_by('name'),
+        'is_week_locked': any(SchedulingFacade.is_locked(d) for d in dates),
     }
-    
+
     return render(request, 'core/sessions_schedule.html', context)
+
+
+@require_GET
+def sessions_search_ajax(request):
+    """
+    AJAX endpoint — returns JSON list of sessions matching the given filters.
+    Supports: q, room_id, teacher_id, group_id, status, week (YYYY-MM-DD),
+    date_from / date_to for arbitrary date ranges.
+    """
+    from django.db.models import Q
+    today = timezone.now().date()
+
+    # ── Date range ────────────────────────────────────────────────────────────
+    week_param = request.GET.get('week')
+    date_from_param = request.GET.get('date_from')
+    date_to_param   = request.GET.get('date_to')
+
+    if date_from_param and date_to_param:
+        try:
+            date_from = datetime.strptime(date_from_param, '%Y-%m-%d').date()
+            date_to   = datetime.strptime(date_to_param,   '%Y-%m-%d').date()
+        except ValueError:
+            date_from = today - timedelta(days=today.weekday())
+            date_to   = date_from + timedelta(days=6)
+    else:
+        if week_param:
+            try:
+                parsed = datetime.strptime(week_param, '%Y-%m-%d').date()
+                date_from = parsed - timedelta(days=parsed.weekday())
+            except ValueError:
+                date_from = today - timedelta(days=today.weekday())
+        else:
+            date_from = today - timedelta(days=today.weekday())
+        date_to = date_from + timedelta(days=6)
+
+    qs = Session.objects.filter(
+        date__range=[date_from, date_to]
+    ).select_related('group', 'group__teacher', 'room')
+
+    # ── Text search ───────────────────────────────────────────────────────────
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(group__name__icontains=q) |
+            Q(group__subject__icontains=q) |
+            Q(group__teacher__name__icontains=q) |
+            Q(room__name__icontains=q)
+        )
+
+    # ── Dimension filters ─────────────────────────────────────────────────────
+    room_id     = request.GET.get('room_id')
+    teacher_id  = request.GET.get('teacher_id')
+    group_id    = request.GET.get('group_id')
+    status      = request.GET.get('status')
+
+    if room_id:    qs = qs.filter(room_id=room_id)
+    if teacher_id: qs = qs.filter(group__teacher_id=teacher_id)
+    if group_id:   qs = qs.filter(group_id=group_id)
+    if status:     qs = qs.filter(status=status)
+
+    sessions_data = []
+    for s in qs.order_by('date', 'start_time')[:200]:
+        sessions_data.append({
+            'id':          s.pk,
+            'date':        s.date.strftime('%Y-%m-%d'),
+            'start_time':  s.start_time.strftime('%H:%M'),
+            'end_time':    s.end_time.strftime('%H:%M'),
+            'group':       s.group.name,
+            'subject':     s.group.subject,
+            'teacher':     s.group.teacher.name if s.group.teacher else '',
+            'room':        s.room.name if s.room else '',
+            'status':      s.status,
+            'is_exceptional': s.is_exceptional,
+        })
+
+    return JsonResponse({'results': sessions_data, 'count': len(sessions_data)})
 
 
 @require_GET
@@ -1418,11 +1603,13 @@ def session_detail_ajax(request, session_id):
             'end_time': session.get_default_schedule().end_time.strftime('%H:%M') if session.get_default_schedule() else None,
             'room_name': session.get_default_schedule().room.name if session.get_default_schedule() else None,
         } if session.get_default_schedule() else None,
+        'is_recurring': session.schedule_id is not None,
     }
     
     return JsonResponse(data)
 
 
+@require_POST
 @require_POST
 def session_create_ajax(request):
     """
@@ -1430,6 +1617,8 @@ def session_create_ajax(request):
     """
     from datetime import datetime as dt
     from django.core.exceptions import ValidationError
+    from core.services.scheduling.locking import LockingService
+    from core.services.scheduling.audit import AuditService
     
     group_id = request.POST.get('group_id')
     date_str = request.POST.get('date')
@@ -1447,6 +1636,9 @@ def session_create_ajax(request):
         room = get_object_or_404(Room, id=room_id)
         
         date_obj = dt.strptime(date_str, '%Y-%m-%d').date()
+        
+        # Check lock
+        LockingService.check_lock(date_obj)
         
         try:
             start_time = dt.strptime(start_time_str, '%H:%M:%S').time()
@@ -1478,6 +1670,23 @@ def session_create_ajax(request):
         session.full_clean()
         session.save()
         
+        # Audit log creation
+        AuditService.log_change(
+            session=session,
+            user=request.user,
+            action='create',
+            previous_values={},
+            new_values={
+                'date': str(session.date),
+                'start_time': session.start_time.strftime('%H:%M'),
+                'end_time': session.end_time.strftime('%H:%M'),
+                'room': session.room.name,
+                'status': session.status
+            },
+            change_reason="Création manuelle via planning",
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        
     except ValidationError as ve:
         error_msg = "; ".join(ve.messages) if hasattr(ve, 'messages') else str(ve)
         return JsonResponse({'success': False, 'error': error_msg}, status=400)
@@ -1491,6 +1700,7 @@ def session_create_ajax(request):
     })
 
 
+
 @require_POST
 def session_update_ajax(request, session_id):
     """
@@ -1498,6 +1708,8 @@ def session_update_ajax(request, session_id):
     """
     from datetime import datetime as dt
     from django.core.exceptions import ValidationError
+    from core.services.scheduling.locking import LockingService
+    from core.services.scheduling.audit import AuditService
     
     session = get_object_or_404(Session, id=session_id)
     
@@ -1507,13 +1719,34 @@ def session_update_ajax(request, session_id):
     start_time_str = request.POST.get('start_time')
     end_time_str = request.POST.get('end_time')
     notes = request.POST.get('notes')
+    change_reason = request.POST.get('change_reason', 'Mise à jour rapide via planning')
     
+    new_date = session.date
     if date_str:
         try:
-            session.date = dt.strptime(date_str, '%Y-%m-%d').date()
+            new_date = dt.strptime(date_str, '%Y-%m-%d').date()
         except ValueError:
             return JsonResponse({'success': False, 'error': 'Format de date invalide.'}, status=400)
             
+    # Check locks
+    try:
+        LockingService.check_lock(session.date)
+        if new_date != session.date:
+            LockingService.check_lock(new_date)
+    except ValidationError as ve:
+        return JsonResponse({'success': False, 'error': str(ve)}, status=400)
+
+    # Capture previous values for audit logging
+    prev_vals = {
+        'date': str(session.date),
+        'start_time': session.start_time.strftime('%H:%M'),
+        'end_time': session.end_time.strftime('%H:%M'),
+        'room': session.room.name if session.room else '',
+        'substitute_teacher': session.substitute_teacher.name if session.substitute_teacher else ''
+    }
+
+    if date_str:
+        session.date = new_date
     if room_id:
         session.room_id = int(room_id)
         
@@ -1550,11 +1783,103 @@ def session_update_ajax(request, session_id):
                 
     if notes is not None:
         session.notes = notes
+
+    scope = request.POST.get('scope', 'only_this')
+    if scope != 'only_this':
+        updates = {}
+        if date_str:
+            updates['date'] = new_date
+        if room_id:
+            updates['room_id'] = int(room_id)
+        if start_time_str:
+            updates['start_time'] = session.start_time
+        if end_time_str:
+            updates['end_time'] = session.end_time
+        if teacher_id is not None:
+            if teacher_id == "":
+                updates['substitute_teacher'] = None
+            else:
+                try:
+                    teacher_id_int = int(teacher_id)
+                    if session.group.teacher_id == teacher_id_int:
+                        updates['substitute_teacher'] = None
+                    else:
+                        updates['substitute_teacher_id'] = teacher_id_int
+                except ValueError:
+                    pass
+        if notes is not None:
+            updates['notes'] = notes
+            
+        try:
+            from core.services.scheduling import SchedulingFacade
+            propagated = SchedulingFacade.propagate_session_changes(
+                session=session,
+                scope=scope,
+                updates=updates,
+                user=request.user,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                change_reason=change_reason
+            )
+            
+            # Send notifications
+            from core.services.scheduling.notifications import NotificationService
+            for s in propagated:
+                NotificationService.send_session_moved(s)
+                
+            return JsonResponse({
+                'success': True,
+                'message': f"Modifications propagées avec succès sur {len(propagated)} séance(s).",
+                'propagated_count': len(propagated)
+            })
+        except ValidationError as ve:
+            error_msg = "; ".join(ve.messages) if hasattr(ve, 'messages') else str(ve)
+            return JsonResponse({'success': False, 'error': error_msg}, status=400)
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=500)
         
     try:
         session.is_manually_edited = True
         session.full_clean()
         session.save()
+        
+        # Compare and log changes
+        new_vals = {
+            'date': str(session.date),
+            'start_time': session.start_time.strftime('%H:%M'),
+            'end_time': session.end_time.strftime('%H:%M'),
+            'room': session.room.name if session.room else '',
+            'substitute_teacher': session.substitute_teacher.name if session.substitute_teacher else ''
+        }
+        
+        changed_prev = {}
+        changed_new = {}
+        for k, v in new_vals.items():
+            if prev_vals[k] != v:
+                changed_prev[k] = prev_vals[k]
+                changed_new[k] = v
+
+        if changed_prev or changed_new:
+            AuditService.log_change(
+                session=session,
+                user=request.user,
+                action='manual_override',
+                previous_values=changed_prev,
+                new_values=changed_new,
+                change_reason=change_reason,
+                ip_address=request.META.get('REMOTE_ADDR')
+            )
+            
+            # Send notifications
+            from core.services.scheduling.notifications import NotificationService
+            if 'date' in changed_new or 'start_time' in changed_new or 'end_time' in changed_new:
+                NotificationService.send_session_moved(session)
+            elif 'room' in changed_new:
+                NotificationService.send_room_changed(session)
+            elif 'substitute_teacher' in changed_new:
+                NotificationService.send_teacher_substituted(session)
+            
+        return JsonResponse({'success': True, 'message': 'Séance mise à jour avec succès.'})
+            
     except ValidationError as ve:
         error_msg = "; ".join(ve.messages) if hasattr(ve, 'messages') else str(ve)
         return JsonResponse({'success': False, 'error': error_msg}, status=400)
@@ -1566,6 +1891,7 @@ def session_update_ajax(request, session_id):
         'session_id': session.id,
         'date': session.date.strftime('%Y-%m-%d'),
         'start_time': session.start_time.strftime('%H:%M'),
+
         'end_time': session.end_time.strftime('%H:%M'),
         'room_id': session.room_id,
         'room_name': session.room.name,
@@ -1576,29 +1902,56 @@ def session_update_ajax(request, session_id):
 
 @require_http_methods(['GET', 'POST'])
 def session_generate_bulk(request):
-    """On-demand generate/update sessions for a date range."""
+    """On-demand generate/update sessions for a date range with preview diff support."""
     from datetime import timedelta
+    from core.services.scheduling import SchedulingFacade
     
     summary = None
+    preview_diff = None
     errors = []
+    weeks = 4
+    force = False
     
     if request.method == 'POST':
-        weeks = int(request.POST.get('weeks', 4))
+        try:
+            weeks = int(request.POST.get('weeks', 4))
+        except (ValueError, TypeError):
+            weeks = 4
         force = request.POST.get('force') == 'on'
+        confirm_save = request.POST.get('confirm_save') == 'on'
         
         today = timezone.now().date()
         start_date = today
         end_date = today + timedelta(weeks=weeks)
         
         try:
-            summary = generate_sessions_from_coursegroups(start_date, end_date, force=force)
+            if confirm_save:
+                # Atomically execute generation
+                summary = SchedulingFacade.execute_regeneration(
+                    start_date=start_date,
+                    end_date=end_date,
+                    force=force,
+                    user=request.user,
+                    ip_address=request.META.get('REMOTE_ADDR')
+                )
+            else:
+                # Generate read-only preview diff
+                preview_diff = SchedulingFacade.preview_regeneration(
+                    start_date=start_date,
+                    end_date=end_date,
+                    force=force
+                )
         except Exception as e:
             errors.append(str(e))
-    
+            
     return render(request, 'core/session_generate.html', {
         'summary': summary,
+        'preview_diff': preview_diff,
         'errors': errors,
+        'weeks': weeks,
+        'force': force,
     })
+
 
 
 # =====================
@@ -1606,16 +1959,26 @@ def session_generate_bulk(request):
 # =====================
 
 def student_create(request):
-    """Create a new student"""
     if request.method == 'POST':
         form = StudentForm(request.POST)
         if form.is_valid():
             student = form.save()
-            messages.success(request, f'Élève {student.name} créé avec succès!')
+
+            messages.success(
+                request,
+                f'Élève {student.name} créé avec succès!'
+            )
+
+            if form.cleaned_data["create_payment"]:
+                return redirect(
+                    f"{reverse('core:payment_create')}?student_id={student.id}"
+                )
+
             return redirect('core:student_page', student_id=student.id)
+
     else:
         form = StudentForm()
-    
+
     return render(request, 'core/student_form.html', {
         'form': form,
         'title': 'Ajouter un nouvel élève',
@@ -1763,42 +2126,38 @@ def whatsapp_payment_reminders(request):
         
         due_amount = required - paid
         
-        if due_amount > 0 and student.parent_contact:
-            # Prepare contact data
-            contact = {
-                'phone': student.parent_contact,
-                'name': student.parent_name or 'Parent',
-                'student_name': student.name,
-                'amount': str(due_amount),
-                'currency': 'DH',
-                'month': current_month.strftime('%B %Y'),
-            }
-            
+        if due_amount > 0 and (student.parent_contact or student.parent_contact_2):
             # Generate personalized message using French month name
             from .utils import month_name_fr
             month_fr = f"{month_name_fr(current_month.month)} {current_month.year}"
             template = WhatsAppMessageTemplates.CUSTOMER_SERVICE['payment_reminder']
+            parent_name = student.parent_name or 'Parent'
             message = WhatsAppUtils.create_template_message(
                 template,
                 {
-                    'name': contact['name'],
-                    'amount': f"{contact['amount']} {contact['currency']}",
+                    'name': parent_name,
+                    'amount': f"{due_amount} DH",
                     'invoice_id': month_fr,
                 }
             )
-            
-            # Generate WhatsApp link
-            whatsapp_link = WhatsAppUtils.generate_chat_link(
-                contact['phone'],
-                message
-            )
-            
-            contact['whatsapp_link'] = whatsapp_link
-            contact['message'] = message
-            contact['student'] = student
-            contact['due_amount'] = due_amount
-            
-            unpaid_contacts.append(contact)
+
+            # Build one entry per available phone number
+            phones = [p for p in [student.parent_contact, student.parent_contact_2] if p]
+            for idx, phone in enumerate(phones):
+                contact = {
+                    'phone': phone,
+                    'phone_label': f'Parent {idx + 1}' if len(phones) > 1 else 'Parent',
+                    'name': parent_name,
+                    'student_name': student.name,
+                    'amount': str(due_amount),
+                    'currency': 'DH',
+                    'month': current_month.strftime('%B %Y'),
+                    'whatsapp_link': WhatsAppUtils.generate_chat_link(phone, message),
+                    'message': message,
+                    'student': student,
+                    'due_amount': due_amount,
+                }
+                unpaid_contacts.append(contact)
     
     status_data = WhatsAppServiceAPI.get_status()
     
@@ -1851,7 +2210,7 @@ def whatsapp_absence_notifications(request):
         student = absence.student
         course = absence.course_group
 
-        if not student.parent_contact:
+        if not (student.parent_contact or student.parent_contact_2):
             continue
 
         # Find the schedule slot that matches the absence date's weekday
@@ -1864,7 +2223,6 @@ def whatsapp_absence_notifications(request):
             time_str = f"{matching_schedule.start_time.strftime('%H:%M')} - {matching_schedule.end_time.strftime('%H:%M')}"
             room_str = matching_schedule.room.name if matching_schedule.room else ''
         else:
-            # Fallback: show all schedules for this course
             slots = course.schedules.all()
             if slots:
                 s = slots[0]
@@ -1874,8 +2232,8 @@ def whatsapp_absence_notifications(request):
                 time_str = ''
                 room_str = ''
 
-        contact = {
-            'phone': student.parent_contact,
+        # One base contact dict (phone filled per-number below)
+        contact_base = {
             'name': student.parent_name or 'Parent',
             'student_name': student.name,
             'course_name': course.name,
@@ -1885,6 +2243,7 @@ def whatsapp_absence_notifications(request):
             'teacher': course.teacher.name if course.teacher else '',
             'schedule': matching_schedule,
         }
+        contact = contact_base  # kept for message generation below
 
         # Generate personalised absence message
         default_absence_template = (
@@ -1906,15 +2265,21 @@ def whatsapp_absence_notifications(request):
             'date': contact['date'],
         }))
 
-        # Generate WhatsApp link
+        # Generate message once — same for both phone numbers
         whatsapp_link = WhatsAppUtils.generate_chat_link(contact['phone'], message)
-
         contact['whatsapp_link'] = whatsapp_link
         contact['message'] = message
         contact['student'] = student
         contact['absence'] = absence
-
         absence_contacts.append(contact)
+
+        # If a second parent number exists, add a separate entry
+        if student.parent_contact_2 and student.parent_contact_2 != student.parent_contact:
+            contact2 = dict(contact)
+            contact2['phone'] = student.parent_contact_2
+            contact2['phone_label'] = 'Parent 2'
+            contact2['whatsapp_link'] = WhatsAppUtils.generate_chat_link(student.parent_contact_2, message)
+            absence_contacts.append(contact2)
 
     status_data = WhatsAppServiceAPI.get_status()
 
@@ -1941,6 +2306,12 @@ def whatsapp_bulk_announcements(request):
         if student.parent_contact:
             contacts.append({
                 'phone': student.parent_contact,
+                'name': student.parent_name or 'Parent',
+                'student_name': student.name,
+            })
+        if student.parent_contact_2:
+            contacts.append({
+                'phone': student.parent_contact_2,
                 'name': student.parent_name or 'Parent',
                 'student_name': student.name,
             })
@@ -2014,7 +2385,7 @@ def whatsapp_payment_confirmation(request, payment_id):
     payment = get_object_or_404(Payment, pk=payment_id)
     student = payment.student
     
-    if not student.parent_contact:
+    if not student.parent_contact and not student.parent_contact_2:
         messages.error(request, "Aucun numéro de téléphone disponible pour ce parent")
         return redirect('core:student_page', student_id=student.id)
     
@@ -2039,11 +2410,19 @@ def whatsapp_payment_confirmation(request, payment_id):
         'month': format_date_fr(payment.month_covered),
     }))
     
-    # Generate WhatsApp link
+    # Generate WhatsApp link (primary contact)
     whatsapp_link = WhatsAppUtils.generate_chat_link(
-        student.parent_contact,
+        student.parent_contact or student.parent_contact_2,
         message
     )
+    
+    # Secondary contact link if available
+    whatsapp_link_2 = None
+    if student.parent_contact and student.parent_contact_2:
+        whatsapp_link_2 = WhatsAppUtils.generate_chat_link(
+            student.parent_contact_2,
+            message
+        )
     
     status_data = WhatsAppServiceAPI.get_status()
     
@@ -2051,6 +2430,7 @@ def whatsapp_payment_confirmation(request, payment_id):
         'payment': payment,
         'student': student,
         'whatsapp_link': whatsapp_link,
+        'whatsapp_link_2': whatsapp_link_2,
         'message': message,
         'status_data': status_data,
     }
@@ -2073,37 +2453,38 @@ def whatsapp_session_reminder(request, session_id):
     reminder_contacts = []
     
     for student in students:
-        if student.parent_contact:
+        phones = [p for p in [student.parent_contact, student.parent_contact_2] if p]
+        if not phones:
+            continue
+
+        parent_name = student.parent_name or 'Parent'
+        room_name = (session.schedule.room.name if session.schedule and session.schedule.room else 'N/A')
+
+        # Use template — same message for both numbers
+        template = WhatsAppMessageTemplates.EDUCATION['class_reminder']
+        message = WhatsAppUtils.create_template_message(
+            template,
+            {
+                'student_name': student.name,
+                'subject': session.group.name,
+                'date': f"{session.date.strftime('%d/%m/%Y')} à {session.start_time.strftime('%H:%M')}"
+            }
+        )
+
+        for idx, phone in enumerate(phones):
             contact = {
-                'phone': student.parent_contact,
-                'name': student.parent_name or 'Parent',
+                'phone': phone,
+                'phone_label': f'Parent {idx + 1}' if len(phones) > 1 else 'Parent',
+                'name': parent_name,
                 'student_name': student.name,
                 'course_name': session.group.name,
                 'date': session.date.strftime('%d/%m/%Y'),
                 'time': session.start_time.strftime('%H:%M'),
-                'room': (session.schedule.room.name if session.schedule and session.schedule.room else 'N/A'),
+                'room': room_name,
+                'whatsapp_link': WhatsAppUtils.generate_chat_link(phone, message),
+                'message': message,
+                'student': student,
             }
-            
-            # Use template
-            template = WhatsAppMessageTemplates.EDUCATION['class_reminder']
-            message = WhatsAppUtils.create_template_message(
-                template,
-                {
-                    'student_name': contact['student_name'],
-                    'subject': contact['course_name'],
-                    'date': f"{contact['date']} à {contact['time']}"
-                }
-            )
-            
-            whatsapp_link = WhatsAppUtils.generate_chat_link(
-                contact['phone'],
-                message
-            )
-            
-            contact['whatsapp_link'] = whatsapp_link
-            contact['message'] = message
-            contact['student'] = student
-            
             reminder_contacts.append(contact)
     
     status_data = WhatsAppServiceAPI.get_status()
@@ -2174,6 +2555,8 @@ def whatsapp_send_ajax(request):
     message_type = request.POST.get('message_type', 'other')
     raw_attachments = request.POST.get('attachments')
     attachments = []
+    student_schedule = request.POST.get("student_schedule")
+    week = request.POST.get("week")
 
     if not raw_attachments and request.content_type == 'application/json':
         try:
@@ -2238,6 +2621,42 @@ def whatsapp_send_ajax(request):
             'data': base64.b64encode(file_data).decode('utf-8'),
         })
 
+
+    if student_schedule:
+        from datetime import datetime, timedelta
+        from .utils import generate_student_schedule_pdf
+
+        student = get_object_or_404(Student, pk=student_schedule)
+
+        parsed = datetime.strptime(week, "%Y-%m-%d").date()
+        week_start = parsed - timedelta(days=parsed.weekday())
+        week_end = week_start + timedelta(days=6)
+
+        enrollments = student.enrollment_set.filter(
+            is_active=True
+        ).values_list("course_group_id", flat=True)
+
+        sessions = list(
+            Session.objects.filter(
+                date__range=[week_start, week_end],
+                group_id__in=enrollments,
+            )
+            .select_related("group", "group__teacher", "room")
+            .order_by("date", "start_time")
+        )
+
+        pdf_buf = generate_student_schedule_pdf(
+            sessions,
+            student_name=student.name,
+            title=f"Planification — {student.name} — semaine {week_start:%d/%m/%Y}",
+        )
+
+        prepared_attachments.append({
+            "name": f"schedule_{student.name}_{week_start:%Y%m%d}.pdf",
+            "mime_type": "application/pdf",
+            "data": base64.b64encode(pdf_buf.getvalue()).decode("utf-8"),
+        })
+
     res = WhatsAppServiceAPI.send_message(
         phone,
         message,
@@ -2250,6 +2669,8 @@ def whatsapp_send_ajax(request):
     student = (
         Student.objects.filter(parent_contact__icontains=phone).first()
         or Student.objects.filter(parent_contact__icontains=cleaned).first()
+        or Student.objects.filter(parent_contact_2__icontains=phone).first()
+        or Student.objects.filter(parent_contact_2__icontains=cleaned).first()
     )
 
     message_preview = message[:300]
@@ -2502,11 +2923,16 @@ def schedule_conflicts(request):
     """
     Dashboard displaying all schedule, session, capacity, and student overlap conflicts.
     """
-    from .utils import detect_all_conflicts
+    from core.services.scheduling import SchedulingFacade
     from django.utils import timezone as tz
-    conflicts_data = detect_all_conflicts()
+    
+    past_days = 14
+    future_days = 30
+    
+    conflicts_data = SchedulingFacade.get_conflicts(past_days=past_days, future_days=future_days)
     conflicts_data['last_checked'] = tz.now()
     return render(request, 'core/schedule_conflicts.html', conflicts_data)
+
 
 
 def check_conflict_ajax(request):
@@ -3260,6 +3686,9 @@ def sessions_monthly(request):
     sessions_qs = Session.objects.filter(date__range=[start_date, end_date]).select_related(
         'group', 'group__teacher', 'room', 'substitute_teacher'
     )
+    is_teacher = hasattr(request.user, 'profile') and request.user.profile.role == 'TEACHER'
+    if is_teacher:
+        sessions_qs = sessions_qs.filter(schedule_status='PUBLISHED')
 
     group_id = request.GET.get('group_id')
     teacher_id = request.GET.get('teacher_id')
@@ -3505,7 +3934,7 @@ def attendance_analytics(request):
     # We aggregate at the student level (across all groups in range)
     raw = (
         qs
-        .values('student_id', 'student__name', 'student__parent_contact', 'student__parent_name')
+        .values('student_id', 'student__name', 'student__parent_contact', 'student__parent_contact_2', 'student__parent_name')
         .annotate(
             total_sessions=Count('id'),
             absences=Count('id', filter=Q(is_present=False)),
@@ -3531,7 +3960,7 @@ def attendance_analytics(request):
             total_at_risk += 1
 
         # Build WhatsApp parent follow-up link
-        parent_phone = item['student__parent_contact'] or ''
+        parent_phone = item['student__parent_contact'] or item['student__parent_contact_2'] or ''
         parent_name  = item['student__parent_name'] or 'Parent'
         student_name = item['student__name']
 
@@ -3673,23 +4102,11 @@ def analytics_students(request):
 def analytics_rooms(request):
     """Classroom occupancy, capacity utilization rates, and scheduling density."""
     from core.analytics import RoomAnalytics
-    context = {
-        'occupancy': RoomAnalytics.occupancy_summary(),
-        'peak_hours': RoomAnalytics.peak_hour_matrix(),
-        'class_sizes': RoomAnalytics.class_size_distribution(),
-        'class_usage': RoomAnalytics.class_usage_list(),
-    }
-    return render(request, 'core/analytics_rooms.html', context)
-
-
-@staff_member_required
-def analytics_teachers(request):
-    """Teacher payroll list, load factors, and substitution rate summaries."""
-    from core.analytics import TeacherAnalytics
+    from core.models import Room
     from datetime import date
-    from dateutil.relativedelta import relativedelta
+    from django.utils import timezone
     
-    today = date.today()
+    today = timezone.now().date()
     month_start = today.replace(day=1)
     
     start_str = request.GET.get('start_date', month_start.isoformat())
@@ -3704,15 +4121,102 @@ def analytics_teachers(request):
         end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
     except ValueError:
         end_date = today
-        
+
+    rooms_list = list(Room.objects.filter(is_active=True).order_by('name'))
+    selected_room_id = request.GET.get('room_id')
+    
+    selected_room = None
+    if selected_room_id:
+        try:
+            selected_room = Room.objects.filter(id=int(selected_room_id)).first()
+        except ValueError:
+            pass
+    if not selected_room and rooms_list:
+        selected_room = rooms_list[0]
+
+    room_stats = {}
+    if selected_room:
+        room_stats = RoomAnalytics.utilization_dashboard_stats(selected_room, start_date, end_date)
+
+    day_names = {
+        'MON': 'Lundi', 'TUE': 'Mardi', 'WED': 'Mercredi', 'THU': 'Jeudi',
+        'FRI': 'Vendredi', 'SAT': 'Samedi', 'SUN': 'Dimanche'
+    }
+
+    context = {
+        'occupancy': RoomAnalytics.occupancy_summary(),
+        'peak_hours': RoomAnalytics.peak_hour_matrix(),
+        'class_sizes': RoomAnalytics.class_size_distribution(),
+        'class_usage': RoomAnalytics.class_usage_list(),
+        'start_date': start_str,
+        'end_date': end_str,
+        'rooms_list': rooms_list,
+        'selected_room': selected_room,
+        'room_stats': room_stats,
+        'day_names': day_names
+    }
+    return render(request, 'core/analytics_rooms.html', context)
+
+
+@staff_member_required
+def analytics_teachers(request):
+    """Teacher payroll list, workload factors, and dashboards."""
+    from core.analytics import TeacherAnalytics
+    from core.models import Teacher
+    from datetime import date
+    from django.utils import timezone
+    
+    today = timezone.now().date()
+    month_start = today.replace(day=1)
+    
+    start_str = request.GET.get('start_date', month_start.isoformat())
+    end_str = request.GET.get('end_date', today.isoformat())
+    
+    from datetime import datetime
+    try:
+        start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+    except ValueError:
+        start_date = month_start
+    try:
+        end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
+    except ValueError:
+        end_date = today
+
+    teachers_list = list(Teacher.objects.filter(is_active=True).order_by('name'))
+    selected_teacher_id = request.GET.get('teacher_id')
+    
+    selected_teacher = None
+    if selected_teacher_id:
+        try:
+            selected_teacher = Teacher.objects.filter(id=int(selected_teacher_id)).first()
+        except ValueError:
+            pass
+    if not selected_teacher and teachers_list:
+        selected_teacher = teachers_list[0]
+
+    teacher_stats = {}
+    if selected_teacher:
+        teacher_stats = TeacherAnalytics.workload_dashboard_stats(selected_teacher, start_date, end_date)
+
+    day_names = {
+        'MON': 'Lundi', 'TUE': 'Mardi', 'WED': 'Mercredi', 'THU': 'Jeudi',
+        'FRI': 'Vendredi', 'SAT': 'Samedi', 'SUN': 'Dimanche'
+    }
+
     context = {
         'payroll': TeacherAnalytics.payroll_summary(start_date, end_date),
         'load': TeacherAnalytics.weekly_load(),
         'subs': TeacherAnalytics.substitution_rate(),
         'start_date': start_str,
         'end_date': end_str,
+        'teachers_list': teachers_list,
+        'selected_teacher': selected_teacher,
+        'teacher_stats': teacher_stats,
+        'day_names': day_names
     }
+
     return render(request, 'core/analytics_teachers.html', context)
+
 
 
 # ── PDF and CSV export views ──────────────────────────────────────────────────
@@ -4093,7 +4597,10 @@ def kiosk_search(request):
     # 1. Try search by matricule (exact, case-insensitive)
     year_prefix = timezone.now().strftime('%y')
     prefix = f"M{year_prefix}-"
-    query = prefix + query
+    # Only prepend the prefix when the user typed the short numeric part
+    # (not the full matricule). Avoids double-prefix like "M26-M26-00001".
+    if not query.upper().startswith('M'):
+        query = prefix + query
     student = Student.objects.filter(matricule__iexact=query, is_active=True).first()
     if student:
         request.session['kiosk_student_id'] = student.id
@@ -4110,14 +4617,18 @@ def kiosk_search(request):
         active_students = Student.objects.filter(is_active=True)
         matching_students = []
         for s in active_students:
-            s_phone = clean_phone(s.parent_contact)
+            s_phone1 = clean_phone(s.parent_contact)
+            s_phone2 = clean_phone(s.parent_contact_2)
             
-            # Compare last 9 digits (handles country codes / missing zeros)
-            if len(query_digits) >= 9 and len(s_phone) >= 9:
-                if query_digits[-9:] == s_phone[-9:]:
+            for s_phone in filter(None, [s_phone1, s_phone2]):
+                # Compare last 9 digits (handles country codes / missing zeros)
+                if len(query_digits) >= 9 and len(s_phone) >= 9:
+                    if query_digits[-9:] == s_phone[-9:]:
+                        matching_students.append(s)
+                        break
+                elif query_digits in s_phone or s_phone in query_digits:
                     matching_students.append(s)
-            elif query_digits in s_phone or s_phone in query_digits:
-                matching_students.append(s)
+                    break
                 
         if len(matching_students) == 1:
             request.session['kiosk_student_id'] = matching_students[0].id
@@ -4247,6 +4758,589 @@ def kiosk_clear(request):
     if 'kiosk_search_matches' in request.session:
         del request.session['kiosk_search_matches']
     return redirect('core:kiosk_home')
+
+
+@staff_member_required
+def session_reschedule_suggestions_ajax(request, session_id):
+    """
+    AJAX view returning ranked rescheduling suggestions for a session.
+    """
+    session = get_object_or_404(Session, id=session_id)
+    from core.services.scheduling import SchedulingFacade
+    suggestions = SchedulingFacade.get_reschedule_suggestions(session)
+    
+    data = []
+    for sug in suggestions:
+        data.append({
+            'date': sug.date.strftime('%Y-%m-%d'),
+            'date_fr': sug.date.strftime('%d/%m/%Y'),
+            'start_time': sug.start_time.strftime('%H:%M'),
+            'end_time': sug.end_time.strftime('%H:%M'),
+            'room_id': sug.room_id,
+            'room_name': sug.room_name,
+            'teacher_id': sug.teacher_id,
+            'teacher_name': sug.teacher_name,
+            'conflict_score': sug.conflict_score,
+            'reason': sug.reason
+        })
+    return JsonResponse({'success': True, 'suggestions': data})
+
+
+@require_POST
+@staff_member_required
+def session_reschedule_apply_ajax(request, session_id):
+    """
+    AJAX view to apply a selected rescheduling suggestion.
+    """
+    session = get_object_or_404(Session, id=session_id)
+    from core.services.scheduling import SchedulingFacade, RescheduleSuggestion
+    from datetime import datetime as dt
+    
+    date_str = request.POST.get('date')
+    start_time_str = request.POST.get('start_time')
+    end_time_str = request.POST.get('end_time')
+    room_id = int(request.POST.get('room_id'))
+    teacher_id = int(request.POST.get('teacher_id'))
+    conflict_score = int(request.POST.get('conflict_score', 0))
+    reason = request.POST.get('reason', '')
+    change_reason = request.POST.get('change_reason', 'Rattrapage programmé')
+    
+    sug = RescheduleSuggestion(
+        date=dt.strptime(date_str, '%Y-%m-%d').date(),
+        start_time=dt.strptime(start_time_str, '%H:%M').time(),
+        end_time=dt.strptime(end_time_str, '%H:%M').time(),
+        room_id=room_id,
+        room_name='',
+        teacher_id=teacher_id,
+        teacher_name='',
+        conflict_score=conflict_score,
+        reason=reason
+    )
+    
+    try:
+        makeup_sess = SchedulingFacade.apply_reschedule_suggestion(
+            session=session,
+            suggestion=sug,
+            user=request.user,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            change_reason=change_reason
+        )
+        return JsonResponse({
+            'success': True,
+            'message': f"Rattrapage créé avec succès pour le {makeup_sess.date.strftime('%d/%m/%Y')} dans la salle {makeup_sess.room.name}."
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+
+@require_POST
+@staff_member_required
+def session_reset_attendance_ajax(request, session_id):
+    """
+    AJAX view to reset all attendance records for a session.
+    """
+    session = get_object_or_404(Session, id=session_id)
+    from core.services.scheduling import SchedulingFacade
+    try:
+        count = SchedulingFacade.reset_session_attendance(
+            session=session,
+            user=request.user,
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        return JsonResponse({
+            'success': True,
+            'message': f"Présences réinitialisées ({count} enregistrements supprimés)."
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+
+@require_POST
+@staff_member_required
+def schedule_lock_toggle_ajax(request):
+    """
+    AJAX view for staff/admins to lock/unlock the schedule.
+    """
+    if not request.user.is_superuser:
+        return JsonResponse({'success': False, 'error': 'Seuls les administrateurs peuvent modifier le verrouillage.'}, status=403)
+    
+    from core.services.scheduling import SchedulingFacade
+    from datetime import datetime as dt
+    
+    is_locked = request.POST.get('is_locked') == 'on'
+    start_date_str = request.POST.get('start_date')
+    end_date_str = request.POST.get('end_date')
+    academic_year = request.POST.get('academic_year')
+    notes = request.POST.get('notes', '')
+    
+    start_date = None
+    end_date = None
+    if is_locked:
+        if start_date_str:
+            try:
+                start_date = dt.strptime(start_date_str, '%Y-%m-%d').date()
+              # Format validation or bypass
+            except ValueError:
+                pass
+        if end_date_str:
+            try:
+                end_date = dt.strptime(end_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+    
+    try:
+        lock = SchedulingFacade.toggle_schedule_lock(
+            is_locked=is_locked,
+            start_date=start_date,
+            end_date=end_date,
+            academic_year=academic_year,
+            user=request.user,
+            notes=notes
+        )
+        status_str = "verrouillé" if lock.is_locked else "déverrouillé"
+        return JsonResponse({
+            'success': True,
+            'is_locked': lock.is_locked,
+            'message': f"Le planning a été {status_str} avec succès."
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+
+@staff_member_required
+def session_history_view(request, session_id):
+    """
+    View displaying the audit history timeline for a session.
+    """
+    session = get_object_or_404(Session, id=session_id)
+    history = session.change_history.all().select_related('user')
+    return render(request, 'core/session_history.html', {
+        'session': session,
+        'history': history
+    })
+
+
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404, render
+from django.http import JsonResponse, HttpResponse
+from django.db.models import Count, Avg, F, Q
+from django.utils import timezone
+from django.core import signing
+from datetime import datetime as dt_class, date, timedelta
+import json
+
+from core.models import Session, Teacher, Student, Room, CourseGroup, SessionChangeHistory, Enrollment
+from core.services.scheduling import SchedulingFacade
+
+@login_required
+def conflict_suggestions_ajax(request):
+    """
+    Exposes resolution suggestions for a session or conflict.
+    """
+    session_id = request.GET.get('session_id')
+    if not session_id:
+        return JsonResponse({'error': 'session_id is required'}, status=400)
+    
+    session = get_object_or_404(Session, id=session_id)
+    
+    # Run conflict detection to identify active conflicts involving this session
+    from core.services.scheduling.domain import Conflict, ConflictType, ConflictSeverity
+    conflicts_dict = SchedulingFacade.get_conflicts()
+    all_conflicts = conflicts_dict.get('session_conflicts', []) + conflicts_dict.get('student_conflicts', [])
+    
+    matching_conflicts = [c for c in all_conflicts if c.session1_id == session.id or c.session2_id == session.id]
+    
+    if not matching_conflicts:
+        # If no active database conflicts, create a default query structure
+        matching_conflicts = [Conflict(
+            type=ConflictType.TEACHER_DOUBLE_BOOKING,
+            severity=ConflictSeverity.WARNING,
+            description="Suggestions de planification",
+            session1_id=session.id,
+            date=session.date,
+            start_time=session.start_time,
+            end_time=session.end_time
+        )]
+        
+    suggestions = []
+    for c in matching_conflicts:
+        suggestions.extend(SchedulingFacade.get_conflict_suggestions(c))
+        
+    return JsonResponse({'success': True, 'suggestions': suggestions})
+
+
+@login_required
+@require_POST
+def publish_schedule_ajax(request):
+    """
+    Publishes draft schedules within a date range.
+    """
+    if not request.user.is_superuser and getattr(request.user, 'profile', None) and request.user.profile.role not in ['SCHEDULER', 'ACADEMIC_MANAGER', 'BRANCH_MANAGER']:
+        return JsonResponse({'success': False, 'error': 'Permission denied.'}, status=403)
+        
+    start_date_str = request.POST.get('start_date')
+    end_date_str = request.POST.get('end_date')
+    
+    if not start_date_str or not end_date_str:
+        return JsonResponse({'success': False, 'error': 'Dates are required.'}, status=400)
+        
+    try:
+        from datetime import datetime as dt
+        start_date = dt.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = dt.strptime(end_date_str, '%Y-%m-%d').date()
+        
+        result = SchedulingFacade.publish_schedule(
+            start_date=start_date,
+            end_date=end_date,
+            user=request.user,
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        return JsonResponse({'success': True, 'published_count': result['published_count']})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+
+@login_required
+def bulk_operations_ajax(request):
+    """
+    Handles bulk operations (cancel, move, room change, etc.) with previews.
+    """
+    if not request.user.is_superuser and getattr(request.user, 'profile', None) and request.user.profile.role not in ['SCHEDULER', 'ACADEMIC_MANAGER', 'BRANCH_MANAGER']:
+        return JsonResponse({'success': False, 'error': 'Permission denied.'}, status=403)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        filters_str = request.POST.get('filters', '{}')
+        params_str = request.POST.get('params', '{}')
+        
+        try:
+            filters = json.loads(filters_str)
+            params = json.loads(params_str)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON format in filters or params.'}, status=400)
+            
+        # Parse filter dates
+        for dkey in ['date_start', 'date_end']:
+            if filters.get(dkey):
+                from datetime import datetime as dt
+                filters[dkey] = dt.strptime(filters[dkey], '%Y-%m-%d').date()
+                
+        try:
+            res = SchedulingFacade.execute_bulk_operation(
+                action=action,
+                filters=filters,
+                params=params,
+                user=request.user,
+                ip_address=request.META.get('REMOTE_ADDR')
+            )
+            return JsonResponse({'success': True, 'result': res})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            
+    else:
+        # GET -> Preview affected sessions
+        date_start_str = request.GET.get('date_start')
+        date_end_str = request.GET.get('date_end')
+        teacher_id = request.GET.get('teacher_id')
+        room_id = request.GET.get('room_id')
+        group_id = request.GET.get('group_id')
+        weekday = request.GET.getlist('weekday')
+        
+        qs = Session.objects.all()
+        if date_start_str and date_end_str:
+            from datetime import datetime as dt
+            try:
+                date_start = dt.strptime(date_start_str, '%Y-%m-%d').date()
+                date_end = dt.strptime(date_end_str, '%Y-%m-%d').date()
+                qs = qs.filter(date__range=[date_start, date_end])
+            except ValueError:
+                return JsonResponse({'success': False, 'error': 'Invalid dates.'}, status=400)
+                
+        if teacher_id:
+            qs = qs.filter(Q(group__teacher_id=teacher_id) | Q(substitute_teacher_id=teacher_id))
+        if room_id:
+            qs = qs.filter(room_id=room_id)
+        if group_id:
+            qs = qs.filter(group_id=group_id)
+            
+        sessions = list(qs.select_related('group', 'room', 'substitute_teacher', 'group__teacher'))
+        if weekday:
+            day_map = {0: 'MON', 1: 'TUE', 2: 'WED', 3: 'THU', 4: 'FRI', 5: 'SAT', 6: 'SUN'}
+            sessions = [s for s in sessions if day_map[s.date.weekday()] in weekday]
+            
+        affected = [{
+            'id': s.id,
+            'group_name': s.group.name if s.group else 'Rattrapage',
+            'date': s.date.strftime('%Y-%m-%d'),
+            'time': f"{s.start_time.strftime('%H:%M')} - {s.end_time.strftime('%H:%M')}",
+            'room': s.room.name if s.room else 'N/A',
+            'teacher': s.substitute_teacher.name if s.substitute_teacher else (s.group.teacher.name if s.group and s.group.teacher else 'N/A')
+        } for s in sessions]
+        
+        return JsonResponse({'success': True, 'sessions': affected})
+
+
+def export_calendar_feed(request, token):
+    """
+    Public but cryptographically signed iCal export feed.
+    """
+    try:
+        data = signing.loads(token)
+    except signing.BadSignature:
+        return HttpResponse("Jeton de sécurité invalide ou expiré.", status=403)
+        
+    entity_type = data.get('type')
+    entity_id = data.get('id')
+    
+    try:
+        ics_str = SchedulingFacade.get_calendar_ics(entity_type, entity_id)
+    except Exception as e:
+        return HttpResponse(f"Erreur d'exportation : {e}", status=400)
+        
+    response = HttpResponse(ics_str, content_type="text/calendar; charset=utf-8")
+    response['Content-Disposition'] = f'attachment; filename="{entity_type}_{entity_id}_calendar.ics"'
+    return response
+
+
+@login_required
+def teacher_workload_dashboard(request):
+    """
+    Teacher Workload & Analytics dashboard.
+    """
+    if not request.user.is_superuser and getattr(request.user, 'profile', None) and request.user.profile.role not in ['SCHEDULER', 'ACADEMIC_MANAGER', 'BRANCH_MANAGER']:
+        return HttpResponse("Accès interdit", status=403)
+
+    teachers = Teacher.objects.filter(is_active=True)
+    selected_teacher_id = request.GET.get('teacher_id')
+    
+    today = date.today()
+    start_date_str = request.GET.get('start_date', str(today - timedelta(days=30)))
+    end_date_str = request.GET.get('end_date', str(today + timedelta(days=30)))
+    
+    from datetime import datetime as dt
+    try:
+        start_date = dt.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = dt.strptime(end_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        start_date = today - timedelta(days=30)
+        end_date = today + timedelta(days=30)
+        
+    teacher_metrics = None
+    selected_teacher = None
+    
+    if selected_teacher_id:
+        selected_teacher = get_object_or_404(Teacher, id=selected_teacher_id)
+        teacher_metrics = SchedulingFacade.get_teacher_workload(selected_teacher, start_date, end_date)
+        
+    # Build list of secure export tokens for all teachers
+    teacher_tokens = {}
+    for t in teachers:
+        teacher_tokens[t.id] = signing.dumps({'type': 'teacher', 'id': t.id})
+        
+    return render(request, 'core/teacher_workload.html', {
+        'teachers': teachers,
+        'selected_teacher': selected_teacher,
+        'metrics': teacher_metrics,
+        'start_date': start_date,
+        'end_date': end_date,
+        'teacher_tokens': teacher_tokens
+    })
+
+
+@login_required
+def schedule_analytics_dashboard(request):
+    """
+    Advanced Academic Scheduling analytics and utilization statistics.
+    """
+    if not request.user.is_superuser and getattr(request.user, 'profile', None) and request.user.profile.role not in ['ACADEMIC_MANAGER', 'BRANCH_MANAGER', 'AUDITOR']:
+        return HttpResponse("Accès interdit", status=403)
+
+    today = date.today()
+    start_date = today - timedelta(days=30)
+    end_date = today + timedelta(days=30)
+    
+    # Calculate global utilization metrics
+    total_sessions = Session.objects.filter(date__range=[start_date, end_date]).count()
+    cancelled_sessions = Session.objects.filter(date__range=[start_date, end_date], status='CANCELLED').count()
+    done_sessions = Session.objects.filter(date__range=[start_date, end_date], status='DONE').count()
+    planned_sessions = Session.objects.filter(date__range=[start_date, end_date], status='PLANNED').count()
+    
+    # Room Utilization: count hours per room
+    room_data = []
+    rooms = Room.objects.all()
+    for rm in rooms:
+        sess_list = Session.objects.filter(room=rm, date__range=[start_date, end_date]).exclude(status='CANCELLED')
+        total_minutes = 0
+        for s in sess_list:
+            t1 = dt_class.combine(s.date, s.start_time)
+            t2 = dt_class.combine(s.date, s.end_time)
+            total_minutes += (t2 - t1).total_seconds() / 60.0
+        
+        hours = round(total_minutes / 60.0, 1)
+        avg_students = Enrollment.objects.filter(course_group__sessions__room=rm).annotate(cnt=Count('id')).aggregate(Avg('cnt'))['cnt__avg'] or 0
+        cap_util = round((avg_students / rm.capacity * 100) if rm.capacity > 0 else 0, 1)
+        
+        room_data.append({
+            'room': rm.name,
+            'hours': hours,
+            'capacity_utilization': cap_util
+        })
+        
+    room_data.sort(key=lambda x: x['hours'], reverse=True)
+    
+    # Audit log analytics
+    change_reasons_qs = SessionChangeHistory.objects.values('change_reason').annotate(count=Count('id')).order_by('-count')[:5]
+    
+    # Conflict statistics
+    conflicts_dict = SchedulingFacade.get_conflicts()
+    total_conflicts_count = len(conflicts_dict.get('session_conflicts', [])) + len(conflicts_dict.get('student_conflicts', []))
+    
+    # Sign tokens for rooms and groups to export in template
+    room_tokens = {r.id: signing.dumps({'type': 'room', 'id': r.id}) for r in Room.objects.all()}
+    group_tokens = {g.id: signing.dumps({'type': 'group', 'id': g.id}) for g in CourseGroup.objects.all()}
+
+    return render(request, 'core/schedule_analytics.html', {
+        'total_sessions': total_sessions,
+        'cancellation_rate': round((cancelled_sessions / total_sessions * 100) if total_sessions > 0 else 0, 1),
+        'done_sessions': done_sessions,
+        'planned_sessions': planned_sessions,
+        'room_data': room_data,
+        'change_reasons': list(change_reasons_qs),
+        'total_conflicts': total_conflicts_count,
+        'start_date': start_date,
+        'end_date': end_date,
+        'room_tokens': room_tokens,
+        'group_tokens': group_tokens
+    })
+
+
+@login_required
+def student_schedule_portal(request):
+    """
+    Public student and parent schedule lookup portal.
+    """
+    profile = getattr(request.user, 'profile', None)
+    student = None
+    if profile and profile.role == 'TEACHER':
+        return HttpResponse("Cette page est réservée aux élèves et parents.", status=403)
+        
+    if profile and profile.student:
+        student = profile.student
+    else:
+        student = Student.objects.filter(is_active=True).first()
+        
+    if not student:
+        return HttpResponse("Aucun élève associé à ce compte.", status=404)
+        
+    enrollments = Enrollment.objects.filter(student=student, is_active=True)
+    group_ids = enrollments.values_list('course_group_id', flat=True)
+    
+    today = date.today()
+    upcoming_sessions = Session.objects.filter(
+        group_id__in=group_ids,
+        date__gte=today,
+        schedule_status='PUBLISHED'
+    ).select_related('group', 'room', 'substitute_teacher', 'group__teacher').order_by('date', 'start_time')
+    
+    from core.models import MakeupSession
+    makeups = MakeupSession.objects.filter(students=student).select_related('makeup_session', 'makeup_session__group', 'makeup_session__room')
+    makeup_sessions = [m.makeup_session for m in makeups if m.makeup_session.schedule_status == 'PUBLISHED']
+    
+    student_token = signing.dumps({'type': 'student', 'id': student.id})
+    
+    return render(request, 'core/student_schedule.html', {
+        'student': student,
+        'enrollments': enrollments,
+        'upcoming_sessions': upcoming_sessions,
+        'makeup_sessions': makeup_sessions,
+        'student_token': student_token
+    })
+
+
+@login_required
+@require_POST
+def restore_history_ajax(request, session_id):
+    """
+    AJAX endpoint to restore previous session state from audit log.
+    """
+    if not request.user.is_superuser and getattr(request.user, 'profile', None) and request.user.profile.role not in ['ACADEMIC_MANAGER', 'BRANCH_MANAGER']:
+        return JsonResponse({'success': False, 'error': 'Permission denied.'}, status=403)
+        
+    session = get_object_or_404(Session, id=session_id)
+    history_id = request.POST.get('history_id')
+    if not history_id:
+        return JsonResponse({'success': False, 'error': 'history_id parameter is required.'}, status=400)
+        
+    history_entry = get_object_or_404(SessionChangeHistory, id=history_id, session=session)
+    prev_vals = history_entry.previous_values
+    if not prev_vals:
+        return JsonResponse({'success': False, 'error': 'No previous values recorded in this history entry.'}, status=400)
+        
+    try:
+        from core.services.scheduling.locking import LockingService
+        LockingService.check_lock(session.date)
+        
+        current_vals = {
+            'date': str(session.date),
+            'start_time': session.start_time.strftime('%H:%M') if session.start_time else '',
+            'end_time': session.end_time.strftime('%H:%M') if session.end_time else '',
+            'room': session.room.name if session.room else '',
+            'substitute_teacher': session.substitute_teacher.name if session.substitute_teacher else ''
+        }
+        
+        if 'date' in prev_vals:
+            from datetime import datetime as dt
+            session.date = dt.strptime(prev_vals['date'], '%Y-%m-%d').date()
+            LockingService.check_lock(session.date)
+            
+        if 'start_time' in prev_vals:
+            from datetime import datetime as dt
+            session.start_time = dt.strptime(prev_vals['start_time'], '%H:%M').time()
+            
+        if 'end_time' in prev_vals:
+            from datetime import datetime as dt
+            session.end_time = dt.strptime(prev_vals['end_time'], '%H:%M').time()
+            
+        if 'room' in prev_vals:
+            room_name = prev_vals['room']
+            session.room = Room.objects.filter(name=room_name).first()
+            
+        if 'substitute_teacher' in prev_vals:
+            sub_name = prev_vals['substitute_teacher']
+            if sub_name == '':
+                session.substitute_teacher = None
+            else:
+                session.substitute_teacher = Teacher.objects.filter(name=sub_name).first()
+                
+        session.is_manually_edited = True
+        session.full_clean()
+        session.save()
+        
+        from core.services.scheduling.audit import AuditService
+        AuditService.log_change(
+            session=session,
+            user=request.user,
+            action='restore',
+            previous_values=current_vals,
+            new_values=prev_vals,
+            change_reason=f"Restauré à partir de la version de l'historique #{history_id}",
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        
+        from core.services.scheduling.notifications import NotificationService
+        NotificationService.send_session_moved(session)
+        
+        return JsonResponse({
+            'success': True,
+            'message': "La séance a été restaurée avec succès."
+        })
+        
+    except ValidationError as ve:
+        return JsonResponse({'success': False, 'error': str(ve)}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
 
 
 

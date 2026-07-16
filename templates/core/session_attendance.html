@@ -45,7 +45,7 @@
     justify-content: center;
     flex-shrink: 0;
     font-size: 18px;
-    color: var(--text-muted);
+    color: var(--text-secondary); /* WCAG AA contrast boost */
     background: var(--surface);
     transition: all 0.15s;
   }
@@ -64,17 +64,17 @@
   }
   .att-contact {
     font-size: 13px;
-    color: var(--text-muted);
+    color: var(--text-secondary); /* WCAG AA contrast boost */
     margin-top: 2px;
   }
   .att-unpaid-badge {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 700;
     background: #fee2e2;
-    color: #dc2626;
+    color: #b91c1c; /* Boosted contrast from #dc2626 */
     border: 1px solid #fca5a5;
     border-radius: 6px;
     padding: 3px 9px;
@@ -133,7 +133,7 @@
     align-items: center;
   }
   .sinfo-item { display: flex; flex-direction: column; gap: 2px; }
-  .sinfo-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+  .sinfo-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); } /* Boosted contrast/size */
   .sinfo-val { font-size: 15px; font-weight: 600; color: var(--text-primary); }
 
   @media (max-width: 576px) {
@@ -181,7 +181,7 @@
   </div>
   <div class="sinfo-item">
     <span class="sinfo-label">Salle</span>
-    <span class="sinfo-val"><i class="bi bi-door-open text-muted"></i> {{ session.room.name }}</span>
+    <span class="sinfo-val"><i class="bi bi-door-open text-secondary" aria-hidden="true"></i> {{ session.room.name }}</span>
   </div>
 </div>
 
@@ -194,11 +194,11 @@
       <span class="badge badge-secondary ms-1">{{ students_list|length }}</span>
     </span>
     <div class="d-flex gap-2">
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAll">
-        <i class="bi bi-check-all"></i> Tous présents
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAll" style="min-height: 40px;">
+        <i class="bi bi-check-all" aria-hidden="true"></i> Tous présents
       </button>
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="clearAll">
-        <i class="bi bi-x"></i> Effacer
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="clearAll" style="min-height: 40px;">
+        <i class="bi bi-x" aria-hidden="true"></i> Effacer
       </button>
     </div>
   </div>
@@ -223,7 +223,7 @@
 
           <!-- Visual toggle indicator -->
           <div class="att-toggle">
-            <i class="bi {% if item.checked %}bi-check-lg{% else %}bi-circle{% endif %}"></i>
+            <i class="bi {% if item.checked %}bi-check-lg{% else %}bi-circle{% endif %}" aria-hidden="true"></i>
           </div>
 
           <!-- Avatar -->
@@ -233,14 +233,17 @@
           <div style="flex:1;min-width:0;">
             <div class="att-name">{{ item.student.name }}</div>
             <div class="att-contact">
-              <i class="bi bi-telephone"></i> {{ item.student.parent_contact|default:"—" }}
+              <i class="bi bi-telephone" aria-hidden="true"></i> {{ item.student.parent_contact|default:"—" }}
+              {% if item.student.parent_contact_2 %}
+                <span style="font-size:11px;color:var(--text-secondary);display:block;"><i class="bi bi-telephone" aria-hidden="true"></i> {{ item.student.parent_contact_2 }}</span>
+              {% endif %}
             </div>
           </div>
 
           <!-- Unpaid warning -->
           {% if item.is_unpaid %}
             <div class="att-unpaid-badge">
-              <i class="bi bi-exclamation-triangle-fill"></i>
+              <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
               Impayé : {{ item.remaining|floatformat:0 }} DH
             </div>
           {% endif %}
@@ -255,10 +258,10 @@
 
     <!-- Sticky footer with save button -->
     <div class="att-sticky-footer">
-      <button type="submit" class="btn btn-success" style="font-size:15px;padding:10px 28px;" id="save-btn">
-        <i class="bi bi-check-circle-fill"></i> Enregistrer les présences
+      <button type="submit" class="btn btn-success" style="font-size:15px;padding:10px 28px;min-height:44px;" id="save-btn">
+        <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Enregistrer les présences
       </button>
-      <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-secondary">
+      <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-secondary" style="min-height:44px;display:inline-flex;align-items:center;">
         Annuler
       </a>
       <div class="att-counter">

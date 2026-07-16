@@ -332,6 +332,7 @@ class AttendanceAnalytics:
                 'student_id',
                 'student__name',
                 'student__parent_contact',
+                'student__parent_contact_2',
                 'student__parent_name',
             )
             .annotate(
@@ -387,7 +388,7 @@ class AttendanceAnalytics:
             else:
                 risk_level = 'OK'
 
-            parent_phone = item['student__parent_contact'] or ''
+            parent_phone = item['student__parent_contact'] or item['student__parent_contact_2'] or ''
             parent_name = item['student__parent_name'] or 'Parent'
             student_name = item['student__name']
 
@@ -675,6 +676,80 @@ class TeacherAnalytics:
         results.sort(key=lambda r: r['substitution_rate'], reverse=True)
         return results
 
+    @staticmethod
+    def workload_dashboard_stats(teacher, start_date: date, end_date: date) -> dict:
+        """
+        Detailed workload stats for a single teacher over a date range.
+        """
+        from core.models import CourseGroupSchedule, Session, TeacherAvailability, CourseGroup
+        from datetime import datetime, timedelta
+        from django.db.models import Q
+        from collections import defaultdict
+        
+        # 1. Weekly schedules hours & groups
+        schedules = CourseGroupSchedule.objects.filter(
+            course_group__teacher=teacher,
+            course_group__is_active=True
+        ).select_related('course_group', 'room')
+        
+        weekly_hours = sum((datetime.combine(date.today(), sch.end_time) - datetime.combine(date.today(), sch.start_time)).total_seconds() / 3600.0 for sch in schedules)
+        session_count = schedules.count()
+        group_count = CourseGroup.objects.filter(teacher=teacher, is_active=True).distinct().count()
+
+        # 2. Availability hours
+        availabilities = TeacherAvailability.objects.filter(teacher=teacher, is_available=True)
+        avail_hours = sum((datetime.combine(date.today(), av.end_time) - datetime.combine(date.today(), av.start_time)).total_seconds() / 3600.0 for av in availabilities)
+        
+        utilization_pct = (weekly_hours / avail_hours * 100) if avail_hours > 0 else 0.0
+        free_hours = max(0.0, float(avail_hours) - float(weekly_hours))
+
+        # 3. Date range sessions & actual teaching hours
+        sessions = Session.objects.filter(
+            Q(group__teacher=teacher) | Q(substitute_teacher=teacher),
+            date__range=[start_date, end_date]
+        ).exclude(status='CANCELLED').select_related('group', 'room')
+        
+        total_sessions = sessions.count()
+        total_hours = sum((datetime.combine(date.today(), s.end_time) - datetime.combine(date.today(), s.start_time)).total_seconds() / 3600.0 for s in sessions)
+
+        # 4. Peak working day
+        day_map_fr = {
+            'MON': 'Lundi', 'TUE': 'Mardi', 'WED': 'Mercredi', 'THU': 'Jeudi',
+            'FRI': 'Vendredi', 'SAT': 'Samedi', 'SUN': 'Dimanche'
+        }
+        day_hours = defaultdict(float)
+        for sch in schedules:
+            hours = (datetime.combine(date.today(), sch.end_time) - datetime.combine(date.today(), sch.start_time)).total_seconds() / 3600.0
+            day_hours[sch.day] += hours
+        
+        peak_day_code = max(day_hours, key=day_hours.get) if day_hours else None
+        peak_working_day = day_map_fr.get(peak_day_code, "Aucun")
+
+        # 5. Average sessions per day
+        unique_dates_count = len(set(s.date for s in sessions))
+        avg_sessions_per_day = round(total_sessions / unique_dates_count, 1) if unique_dates_count > 0 else 0.0
+
+        # 6. Weekly calendar heatmap (MON-SUN, 08:00 to 21:00 hourly)
+        heatmap = {day: [0]*14 for day in ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']}
+        for sch in schedules:
+            start_h = sch.start_time.hour
+            end_h = sch.end_time.hour
+            for h in range(start_h, end_h):
+                if 8 <= h <= 21:
+                    heatmap[sch.day][h - 8] = 1
+
+        return {
+            'weekly_hours': round(weekly_hours, 1),
+            'monthly_hours': round(total_hours, 1),
+            'total_sessions': total_sessions,
+            'group_count': group_count,
+            'utilization_pct': round(utilization_pct, 1),
+            'free_hours': round(free_hours, 1),
+            'peak_working_day': peak_working_day,
+            'avg_sessions_per_day': avg_sessions_per_day,
+            'heatmap': heatmap,
+        }
+
 
 # ===========================================================================
 # 4. ROOM ANALYTICS
@@ -826,6 +901,111 @@ class RoomAnalytics:
 
         return {day: dict(hours) for day, hours in matrix.items()}
 
+    @staticmethod
+    def utilization_dashboard_stats(room, start_date: date, end_date: date) -> dict:
+        """
+        Detailed occupancy stats for a single room over a date range.
+        """
+        from core.models import CourseGroupSchedule, Session
+        from datetime import datetime, time
+        from collections import defaultdict
+        
+        # 1. Weekly schedule load
+        schedules = CourseGroupSchedule.objects.filter(
+            room=room,
+            course_group__is_active=True
+        ).select_related('course_group')
+        
+        weekly_hours = sum((datetime.combine(date.today(), sch.end_time) - datetime.combine(date.today(), sch.start_time)).total_seconds() / 3600.0 for sch in schedules)
+        
+        # Room total weekly available hours = 84 (Mon-Sat 08:00-22:00 = 14h x 6 days)
+        total_avail_weekly = 84.0
+        occupancy_pct = (weekly_hours / total_avail_weekly * 100) if total_avail_weekly > 0 else 0.0
+        free_hours = max(0.0, total_avail_weekly - float(weekly_hours))
+
+        # 2. Date range sessions
+        sessions = Session.objects.filter(
+            room=room,
+            date__range=[start_date, end_date]
+        ).exclude(status='CANCELLED')
+        
+        total_sessions = sessions.count()
+        total_hours = sum((datetime.combine(date.today(), s.end_time) - datetime.combine(date.today(), s.start_time)).total_seconds() / 3600.0 for s in sessions)
+
+        # 3. Peak usage hour/day
+        day_map_fr = {
+            'MON': 'Lundi', 'TUE': 'Mardi', 'WED': 'Mercredi', 'THU': 'Jeudi',
+            'FRI': 'Vendredi', 'SAT': 'Samedi', 'SUN': 'Dimanche'
+        }
+        day_hours = defaultdict(float)
+        for sch in schedules:
+            hours = (datetime.combine(date.today(), sch.end_time) - datetime.combine(date.today(), sch.start_time)).total_seconds() / 3600.0
+            day_hours[sch.day] += hours
+        
+        peak_day_code = max(day_hours, key=day_hours.get) if day_hours else None
+        peak_usage_day = day_map_fr.get(peak_day_code, "Aucun")
+
+        # 4. Average daily utilization
+        unique_dates_count = len(set(s.date for s in sessions))
+        avg_daily_utilization = round(total_hours / unique_dates_count, 1) if unique_dates_count > 0 else 0.0
+
+        # 5. Idle periods calculation (gaps)
+        idle_hours = 0.0
+        for day in ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']:
+            day_schedules = sorted(
+                [sch for sch in schedules if sch.day == day],
+                key=lambda s: s.start_time
+            )
+            if not day_schedules:
+                idle_hours += 14.0
+                continue
+            
+            first_start = datetime.combine(date.today(), day_schedules[0].start_time)
+            day_start = datetime.combine(date.today(), time(8, 0))
+            if first_start > day_start:
+                idle_hours += (first_start - day_start).total_seconds() / 3600.0
+            
+            for idx in range(len(day_schedules) - 1):
+                curr_end = datetime.combine(date.today(), day_schedules[idx].end_time)
+                next_start = datetime.combine(date.today(), day_schedules[idx+1].start_time)
+                if next_start > curr_end:
+                    idle_hours += (next_start - curr_end).total_seconds() / 3600.0
+            
+            last_end = datetime.combine(date.today(), day_schedules[-1].end_time)
+            day_end = datetime.combine(date.today(), time(22, 0))
+            if day_end > last_end:
+                idle_hours += (day_end - last_end).total_seconds() / 3600.0
+
+        # 6. Heatmap grid (MON-SUN, 08:00 to 21:00 hourly)
+        heatmap = {day: [0]*14 for day in ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']}
+        for sch in schedules:
+            start_h = sch.start_time.hour
+            end_h = sch.end_time.hour
+            for h in range(start_h, end_h):
+                if 8 <= h <= 21:
+                    heatmap[sch.day][h - 8] = 1
+
+        # Classify loading status
+        if occupancy_pct > 75.0:
+            status = 'OVERLOADED'
+        elif occupancy_pct < 25.0:
+            status = 'UNDERUTILIZED'
+        else:
+            status = 'NORMAL'
+
+        return {
+            'occupancy_pct': round(occupancy_pct, 1),
+            'weekly_hours': round(weekly_hours, 1),
+            'monthly_hours': round(total_hours, 1),
+            'free_hours': round(free_hours, 1),
+            'peak_usage_day': peak_usage_day,
+            'idle_hours_weekly': round(idle_hours, 1),
+            'total_sessions': total_sessions,
+            'avg_daily_utilization': avg_daily_utilization,
+            'status': status,
+            'heatmap': heatmap,
+        }
+
 
 # ===========================================================================
 # 5. STUDENT ANALYTICS
@@ -927,6 +1107,7 @@ class StudentAnalytics:
                     'student_id': student.id,
                     'student_name': student.name,
                     'parent_contact': student.parent_contact,
+                    'parent_contact_2': student.parent_contact_2,
                     'signals': signals,
                     'signal_count': len(signals),
                     'groups': [e.course_group.name for e in student.enrollment_set.filter(is_active=True)],
