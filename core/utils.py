@@ -2625,7 +2625,7 @@ import urllib.error
 import json
 
 class WhatsAppServiceAPI:
-    BASE_URL = "http://localhost:3000"
+    BASE_URL = f"http://localhost:{settings.WHATSAPP_SERVICE_PORT}"
 
     @classmethod
     def get_status(cls):

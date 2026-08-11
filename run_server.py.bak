@@ -1,0 +1,837 @@
+import os
+import sys
+import json
+import subprocess
+import threading
+import webbrowser
+import time
+import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox
+import socket
+import secrets
+
+def is_port_available(port, host="0.0.0.0"):
+    """Return True if the TCP port is available."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            sock.bind((host, port))
+            return True
+    except OSError:
+        return False
+
+
+def find_free_port(start_port, host="0.0.0.0"):
+    """
+    Find the first available TCP port starting from start_port.
+    Example: 8000 -> 8001 -> 8002 ...
+    """
+    port = start_port
+
+    while port <= 65535:
+        if is_port_available(port, host):
+            return port
+        port += 1
+
+    raise RuntimeError(
+        f"No available TCP port found starting from {start_port}."
+    )
+
+
+def get_local_ip():
+    """Get the local IP address without requiring internet connectivity."""
+    try:
+        # Try to get the IP address of a non-loopback interface
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Doesn't need to be reachable
+        s.connect(("10.255.255.255", 1))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = "127.0.0.1"
+    finally:
+        s.close()
+    return ip
+
+
+# ---------- Path / environment helpers ----------
+def _get_base_dir():
+    """Directory this script (or the frozen executable) lives in."""
+    if getattr(sys, "frozen", False) or "nuitka" in sys.modules:
+        return os.path.dirname(os.path.abspath(sys.argv[0]))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _relaunch_in_venv_if_needed():
+    """
+    If this is running as a plain script (not frozen/compiled) and a virtual
+    environment ('venv' or '.venv') exists next to this file, re-exec the
+    script using that venv's Python interpreter instead of whatever
+    interpreter was originally used to launch it.
+    """
+    if getattr(sys, "frozen", False) or "nuitka" in sys.modules:
+        return  # Frozen builds already bundle their own environment.
+
+    base_dir = _get_base_dir()
+
+    venv_dir = None
+    for candidate in ("venv", ".venv"):
+        candidate_path = os.path.join(base_dir, candidate)
+        if os.path.isdir(candidate_path):
+            venv_dir = candidate_path
+            break
+
+    if venv_dir is None:
+        return  # No venv next to this file — just run with the current interpreter.
+
+    if sys.platform == "win32":
+        venv_python = os.path.join(venv_dir, "Scripts", "python.exe")
+    else:
+        venv_python = os.path.join(venv_dir, "bin", "python")
+
+    if not os.path.isfile(venv_python):
+        return
+
+    # Already running from the venv interpreter? Nothing to do.
+    try:
+        if os.path.samefile(sys.executable, venv_python):
+            return
+    except OSError:
+        if os.path.normcase(os.path.abspath(sys.executable)) == os.path.normcase(
+            os.path.abspath(venv_python)
+        ):
+            return
+
+    # Re-launch this exact script (with the same args) using the venv's python.
+    result = subprocess.run([venv_python] + sys.argv)
+    sys.exit(result.returncode)
+
+
+_relaunch_in_venv_if_needed()
+
+
+# License check: validation runs before the GUI starts
+try:
+    from core.license import validate_or_exit
+    validate_or_exit()
+except SystemExit as e:
+    root = tk.Tk()
+    root.withdraw()
+    msg = str(e) if str(e) else "This copy of the application is not licensed for this device."
+    messagebox.showerror("License Verification", msg)
+    sys.exit(1)
+except Exception as e:
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showerror("License Verification Error", f"Failed to perform license check:\n{e}")
+    sys.exit(1)
+
+
+# ---------- Visual constants ----------
+BG = "#0f1115"
+PANEL = "#171a21"
+PANEL_ALT = "#1d2129"
+ACCENT = "#4f8cff"
+ACCENT_HOVER = "#3f78e0"
+GREEN = "#2ecc71"
+RED = "#ff5c5c"
+AMBER = "#f5a623"
+TEXT_MAIN = "#e8eaed"
+TEXT_DIM = "#8a8f98"
+FONT = "Segoe UI"
+
+
+class ServerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("School ERP Server Controller")
+        self.root.geometry("480x420")
+        self.root.minsize(480, 420)
+        self.root.configure(bg=BG)
+
+        self.server_thread = None
+        self.server_instance = None
+        self.node_process = None
+        self.browser_opened = False
+        self.is_running = False
+        self.local_ip = get_local_ip()
+        self._stopping = False  # Flag to indicate shutdown in progress
+
+        # Default ports
+        self.django_port = None
+        self.whatsapp_port = None
+
+        self.server_ready = threading.Event()
+        self.whatsapp_api_key = secrets.token_urlsafe(32)
+
+        self._build_style()
+        self._build_ui()
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    # ---------- UI construction ----------
+    def _build_style(self):
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure("Card.TFrame", background=PANEL)
+        style.configure("Root.TFrame", background=BG)
+
+        style.configure(
+            "Start.TButton",
+            background=GREEN, foreground="#0b1f12",
+            font=(FONT, 11, "bold"), padding=10, borderwidth=0,
+        )
+        style.map("Start.TButton",
+                  background=[("disabled", "#2a3a30"), ("active", "#27ae60")],
+                  foreground=[("disabled", "#5a6b60")])
+
+        style.configure(
+            "Stop.TButton",
+            background=RED, foreground="#2a0a0a",
+            font=(FONT, 11, "bold"), padding=10, borderwidth=0,
+        )
+        style.map("Stop.TButton",
+                  background=[("disabled", "#3a2626"), ("active", "#e64545")],
+                  foreground=[("disabled", "#6b5a5a")])
+
+    def _build_ui(self):
+        root_frame = tk.Frame(self.root, bg=BG)
+        root_frame.pack(fill="both", expand=True, padx=18, pady=18)
+
+        # --- Header ---
+        header = tk.Frame(root_frame, bg=BG)
+        header.pack(fill="x", pady=(0, 14))
+
+        tk.Label(
+            header, text="School ERP", font=(FONT, 16, "bold"),
+            bg=BG, fg=TEXT_MAIN,
+        ).pack(anchor="w")
+        tk.Label(
+            header, text="Local Server Controller", font=(FONT, 10),
+            bg=BG, fg=TEXT_DIM,
+        ).pack(anchor="w")
+
+        # --- Status card ---
+        status_card = tk.Frame(root_frame, bg=PANEL, padx=16, pady=14)
+        status_card.pack(fill="x", pady=(0, 14))
+
+        status_row = tk.Frame(status_card, bg=PANEL)
+        status_row.pack(fill="x")
+
+        self.status_dot = tk.Canvas(status_row, width=14, height=14, bg=PANEL, highlightthickness=0)
+        self.status_dot.pack(side="left", padx=(0, 10))
+        self._draw_dot(RED)
+
+        status_text_frame = tk.Frame(status_row, bg=PANEL)
+        status_text_frame.pack(side="left", fill="x", expand=True)
+
+        self.status_label = tk.Label(
+            status_text_frame, text="Stopped", font=(FONT, 13, "bold"),
+            bg=PANEL, fg=TEXT_MAIN,
+        )
+        self.status_label.pack(anchor="w")
+
+        self.status_sub = tk.Label(
+            status_text_frame, text="Server is not running", font=(FONT, 9),
+            bg=PANEL, fg=TEXT_DIM,
+        )
+        self.status_sub.pack(anchor="w")
+
+        self.url_label = tk.Label(
+            status_card, text="", font=(FONT, 9, "underline"),
+            bg=PANEL, fg=ACCENT, cursor="hand2",
+        )
+        self.url_label.pack(anchor="w", pady=(8, 0))
+        self.url_label.bind(
+            "<Button-1>",
+            lambda e: webbrowser.open(
+                f"http://127.0.0.1:{self.django_port}" if self.django_port else "http://127.0.0.1:8000"
+            )
+        )
+        # --- Buttons ---
+        btn_row = tk.Frame(root_frame, bg=BG)
+        btn_row.pack(fill="x", pady=(0, 14))
+
+        self.start_btn = ttk.Button(
+            btn_row, text="�▶  Start Server", style="Start.TButton",
+            command=self.start_services,
+        )
+        self.start_btn.pack(side="left", expand=True, fill="x", padx=(0, 6))
+
+        self.stop_btn = ttk.Button(
+            btn_row, text="■  Stop Server", style="Stop.TButton",
+            command=self.stop_services, state=tk.DISABLED,
+        )
+        self.stop_btn.pack(side="left", expand=True, fill="x", padx=(6, 0))
+
+        # --- Log panel ---
+        log_label = tk.Label(
+            root_frame, text="ACTIVITY LOG", font=(FONT, 8, "bold"),
+            bg=BG, fg=TEXT_DIM,
+        )
+        log_label.pack(anchor="w")
+
+        log_frame = tk.Frame(root_frame, bg=PANEL_ALT)
+        log_frame.pack(fill="both", expand=True, pady=(4, 0))
+
+        self.log_text = tk.Text(
+            log_frame, bg=PANEL_ALT, fg=TEXT_MAIN, insertbackground=TEXT_MAIN,
+            font=("Consolas", 9), relief="flat", padx=10, pady=8,
+            state="disabled", wrap="word",
+        )
+        scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.log_text.pack(side="left", fill="both", expand=True)
+
+        self._log("Ready. Click \"Start Server\" to begin.")
+
+    def _draw_dot(self, color):
+        self.status_dot.delete("all")
+        self.status_dot.create_oval(2, 2, 12, 12, fill=color, outline="")
+
+    def _log(self, message):
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", f"[{timestamp}] {message}\n")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+
+    def _stop_process_tree(self, process, name):
+        if not process:
+            return
+
+        if process.poll() is not None:
+            self._log(f"{name} was already stopped.")
+            return
+
+        try:
+            self._log(f"Stopping {name}...")
+
+            if sys.platform == "win32":
+                subprocess.run(
+                    [
+                        "taskkill",
+                        "/PID",
+                        str(process.pid),
+                        "/T",
+                        "/F",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+
+                process.wait(timeout=10)
+
+            else:
+                import signal
+
+                try:
+                    pgid = os.getpgid(process.pid)
+                except OSError:
+                    # Process group might not exist anymore
+                    self._log(f"{name} process group not found, terminating process only.")
+                    pgid = None
+
+                if pgid is not None:
+                    os.killpg(
+                        pgid,
+                        signal.SIGTERM,
+                    )
+
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        self._log(
+                            f"{name} did not stop gracefully. "
+                            "Force terminating process group..."
+                        )
+
+                        os.killpg(
+                            pgid,
+                            signal.SIGKILL,
+                        )
+
+                        process.wait(timeout=5)
+                else:
+                    # Fallback: terminate the process only
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        self._log(
+                            f"{name} did not stop gracefully. "
+                            "Force terminating process..."
+                        )
+                        process.kill()
+                        process.wait(timeout=5)
+
+            self._log(f"{name} stopped.")
+
+        except ProcessLookupError:
+            self._log(f"{name} was already stopped.")
+
+        except Exception as e:
+            self._log(f"Error stopping {name}: {e}")
+
+    # ---------- State helpers ----------
+    def _set_status(self, state):
+        """state: 'starting' | 'running' | 'stopping' | 'stopped' | 'error'"""
+        if state == "starting":
+            self._draw_dot(AMBER)
+            self.status_label.config(text="Starting…")
+            self.status_sub.config(text="Launching background services")
+            self.url_label.config(text="")
+        elif state == "running":
+            self._draw_dot(GREEN)
+            self.status_label.config(text="Running")
+            self.status_sub.config(text="Server is live")
+            self.url_label.config(
+                text=(
+                    f"LOCAL: http://127.0.0.1:{self.django_port}\n"
+                    f"LAN: http://{self.local_ip}:{self.django_port}"
+                ))
+        elif state == "stopping":
+            self._draw_dot(AMBER)
+            self.status_label.config(text="Stopping…")
+            self.status_sub.config(text="Shutting down services")
+            self.url_label.config(text="")
+        elif state == "stopped":
+            self._draw_dot(RED)
+            self.status_label.config(text="Stopped")
+            self.status_sub.config(text="Server is not running")
+            self.url_label.config(text="")
+        elif state == "error":
+            self._draw_dot(RED)
+            self.status_label.config(text="Error")
+            self.status_sub.config(text="Server failed to start — see log")
+            self.url_label.config(text="")
+
+    # ---------- WhatsApp service helpers ----------
+    def prepare_and_launch_whatsapp(self, service_dir):
+        """
+        Check npm for a newer whatsapp-web.js release than the one pinned in
+        whatsapp_service/package.json. If a newer version exists, install it
+        automatically. Either way, launch the Node WhatsApp automation
+        service afterwards. Runs in a background thread so it never blocks
+        the Django/Waitress startup.
+        """
+        if self._stopping:
+            return
+
+        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+
+        # Check Node.js availability
+        self.root.after(0, lambda: self._log("Checking Node.js..."))
+        try:
+            node_result = subprocess.run(
+                ["node", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=creationflags,
+            )
+            if node_result.returncode != 0:
+                raise FileNotFoundError
+            node_version = node_result.stdout.strip()
+            self.root.after(0, lambda: self._log(f"Node.js found: {node_version}"))
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            self.root.after(0, lambda: self._log("ERROR: Node.js was not found."))
+            self.root.after(0, lambda: self._set_status("error"))
+            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+            return
+
+        # Check npm availability
+        self.root.after(0, lambda: self._log("Checking npm..."))
+        try:
+            npm_result = subprocess.run(
+                [npm_cmd, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=creationflags,
+            )
+            if npm_result.returncode != 0:
+                raise FileNotFoundError
+            npm_version = npm_result.stdout.strip()
+            self.root.after(0, lambda: self._log(f"npm found: {npm_version}"))
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            self.root.after(0, lambda: self._log("ERROR: npm was not found."))
+            self.root.after(0, lambda: self._set_status("error"))
+            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+            return
+
+        # Check whatsapp_service directory
+        if not os.path.isdir(service_dir):
+            self.root.after(0, lambda: self._log(f"ERROR: WhatsApp service directory not found: {service_dir}"))
+            self.root.after(0, lambda: self._set_status("error"))
+            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+            return
+
+        # Check server.js and package.json
+        server_js_path = os.path.join(service_dir, "server.js")
+        package_json_path = os.path.join(service_dir, "package.json")
+        if not os.path.isfile(server_js_path):
+            self.root.after(0, lambda: self._log("ERROR: whatsapp_service/server.js not found."))
+            self.root.after(0, lambda: self._set_status("error"))
+            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+            return
+        if not os.path.isfile(package_json_path):
+            self.root.after(0, lambda: self._log("ERROR: whatsapp_service/package.json not found."))
+            self.root.after(0, lambda: self._set_status("error"))
+            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+            return
+
+        self.root.after(0, lambda: self._log("Checking for whatsapp-web.js updates..."))
+        try:
+            current_version = None
+            if os.path.isfile(package_json_path):
+                with open(package_json_path, "r", encoding="utf-8") as f:
+                    pkg_data = json.load(f)
+                deps = pkg_data.get("dependencies", {})
+                current_version = deps.get("whatsapp-web.js")
+
+            result = subprocess.run(
+                [npm_cmd, "view", "whatsapp-web.js", "version"],
+                cwd=service_dir,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=creationflags,
+            )
+
+            if result.returncode != 0 or not result.stdout.strip():
+                self.root.after(0, lambda: self._log(
+                    "Could not check whatsapp-web.js updates (offline or npm error)."
+                ))
+            else:
+                latest_version = result.stdout.strip()
+                cleaned_current = (current_version or "").lstrip("^~=v ").strip()
+
+                if cleaned_current and cleaned_current != latest_version:
+                    self.root.after(0, lambda: self._log(
+                        f"whatsapp-web.js update available: {cleaned_current} → {latest_version}. Installing…"
+                    ))
+
+                    install_result = subprocess.run(
+                        [npm_cmd, "install", f"whatsapp-web.js@{latest_version}"],
+                        cwd=service_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                        creationflags=creationflags,
+                    )
+
+                    if install_result.returncode == 0:
+                        self.root.after(0, lambda: self._log(
+                            f"whatsapp-web.js updated to v{latest_version}."
+                        ))
+                    else:
+                        err_tail = (install_result.stderr or install_result.stdout or "").strip()[-300:]
+                        self.root.after(0, lambda: self._log(
+                            f"whatsapp-web.js update failed, continuing with existing version. ({err_tail})"
+                        ))
+                elif cleaned_current:
+                    self.root.after(0, lambda: self._log(
+                        f"whatsapp-web.js is up to date (v{latest_version})."
+                    ))
+                else:
+                    self.root.after(0, lambda: self._log(
+                        f"Latest whatsapp-web.js version on npm: {latest_version}"
+                    ))
+
+        except subprocess.TimeoutExpired:
+            self.root.after(0, lambda: self._log("whatsapp-web.js update check/install timed out."))
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self._log(f"whatsapp-web.js update check failed: {error_msg}"))
+
+        # Launch the Node service regardless of whether the update check/install succeeded,
+        # so a failed update never prevents the WhatsApp service from starting.
+        if self._stopping:
+            return
+
+        # Find a free port for WhatsApp (with retries)
+        whatsapp_port = None
+        for _ in range(10):  # Try up to 10 times to find a free port
+            candidate = find_free_port(3000)
+            if is_port_available(candidate, host="0.0.0.0"):
+                whatsapp_port = candidate
+                break
+        if whatsapp_port is None:
+            self.root.after(0, lambda: self._log("ERROR: Could not find available port for WhatsApp service."))
+            self.root.after(0, lambda: self._set_status("error"))
+            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+            return
+
+        self.whatsapp_port = whatsapp_port
+        self.root.after(0, lambda: self._log(
+            f"WhatsApp service port selected: {self.whatsapp_port}"
+        ))
+
+        try:
+            kwargs = {
+                "cwd": service_dir,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+            }
+
+            if sys.platform == "win32":
+                kwargs["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP |
+                    subprocess.CREATE_NO_WINDOW
+                )
+            else:
+                kwargs["start_new_session"] = True
+
+            env = os.environ.copy()
+            env["WA_PORT"] = str(self.whatsapp_port)
+            env["WA_API_KEY"] = self.whatsapp_api_key
+
+            self.node_process = subprocess.Popen(
+                ["node", "server.js"],
+                env=env,
+                **kwargs,
+            )
+
+            # Wait briefly to see if the process stays alive
+            time.sleep(2)
+            if self.node_process.poll() is None:
+                # Process is still running after 2 seconds - consider it started
+                self.root.after(0, lambda: self._log("WhatsApp automation service launched."))
+            else:
+                # Process exited quickly - capture output for diagnostics
+                outs, errs = self.node_process.communicate()
+                err_msg = (errs or b"").decode("utf-8", errors="replace")[:500]
+                out_msg = (outs or b"").decode("utf-8", errors="replace")[:500]
+                self.root.after(0, lambda: self._log(
+                    f"ERROR: WhatsApp service exited during startup. stderr: {err_msg}. stdout: {out_msg}"
+                ))
+                self.root.after(0, lambda: messagebox.showwarning(
+                    "Warning", "WhatsApp service failed to start. See log for details."
+                ))
+                self.node_process = None
+                self.whatsapp_port = None
+                # Don't set error state here - Django might still start
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self._log(f"WhatsApp service failed to launch: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showwarning(
+                "Warning", f"Failed to launch WhatsApp automation service:\n{error_msg}"
+            ))
+            self.node_process = None
+
+    # ---------- Core logic (same behavior, now with logging/feedback) ----------
+    def start_services(self):
+        if self._stopping:
+            return
+        if self.is_running:
+            return  # Already running
+
+        self._stopping = False
+        self.server_ready.clear()
+
+        self.start_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL)
+        self._set_status("starting")
+        self._log("Starting server…")
+
+        try:
+            self.django_port = find_free_port(8000)
+            self.whatsapp_port = find_free_port(3000)
+
+            # Verify ports are still available (defensive)
+            if not is_port_available(self.django_port, host="0.0.0.0"):
+                raise RuntimeError(f"Port {self.django_port} became unavailable")
+            if not is_port_available(self.whatsapp_port, host="0.0.0.0"):
+                raise RuntimeError(f"Port {self.whatsapp_port} became unavailable")
+
+            self._log(
+                f"Waitress port selected: {self.django_port}"
+            )
+            self._log(
+                f"WhatsApp service port selected: {self.whatsapp_port}"
+            )
+
+        except Exception as e:
+            self._log(f"Could not find available ports: {e}")
+            self._set_status("error")
+            self.start_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.DISABLED)
+            return
+
+        base_dir = _get_base_dir()
+        service_dir = os.path.join(base_dir, 'whatsapp_service')
+
+        self._log("Checking for whatsapp-web.js updates…")
+        threading.Thread(
+            target=self.prepare_and_launch_whatsapp, args=(service_dir,), daemon=True
+        ).start()
+
+        self.server_thread = threading.Thread(target=self.run_waitress, daemon=True)
+        self.server_thread.start()
+
+        threading.Thread(target=self.open_browser_delayed, daemon=True).start()
+
+    def run_waitress(self):
+        try:
+            self.root.after(0, lambda: self._log("Loading Django & Waitress handlers..."))
+            from waitress.server import create_server
+            from django.contrib.staticfiles.handlers import StaticFilesHandler
+            from school_erp.wsgi import application
+            
+            wsgi_app = StaticFilesHandler(application)
+            self.server_instance = create_server(
+                wsgi_app,
+                host="0.0.0.0",
+                port=self.django_port
+            )
+
+            self.is_running = True
+            self.server_ready.set()
+
+            self.root.after(0, lambda: self._set_status("running"))
+
+            self.root.after(
+                0,
+                lambda: self._log(
+                    f"LAN: Server listening on {self.local_ip}:{self.django_port}."
+                )
+            )
+
+            self.root.after(
+                0,
+                lambda: self._log(
+                    f"LOCAL: Server listening on 127.0.0.1:{self.django_port} (LAN accessible)."
+                ),
+            )
+            self.server_instance.run()
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self._log(f"Server error: {error_msg}"))
+            self.root.after(0, lambda: self._set_status("error"))
+            self.root.after(0, lambda: messagebox.showerror("Server Error", f"Waitress server encountered an error:\n{error_msg}"))
+        finally:
+            self.is_running = False
+            self.root.after(0, self.update_ui_stopped)
+
+    def open_browser_delayed(self):
+        if not self.server_ready.wait(timeout=30):
+            self.root.after(
+                0,
+                lambda: self._log(
+                    "Timed out waiting for Waitress server."
+                )
+            )
+            return
+
+        # Wait for the Django port to be actually listening
+        start_time = time.time()
+        while time.time() - start_time < 10:  # Wait up to 10 seconds
+            if self._stopping:
+                return
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(1)
+                    result = sock.connect_ex(("127.0.0.1", self.django_port))
+                    if result == 0:
+                        # Port is open and accepting connections
+                        break
+            except Exception:
+                pass
+            time.sleep(0.5)
+        else:
+            self.root.after(0, lambda: self._log(
+                "Timed out waiting for Django port to open."
+            ))
+            return
+
+        # Now we know the server is listening
+        url = f"http://127.0.0.1:{self.django_port}"
+        webbrowser.open(url)
+        self.root.after(
+            0,
+            lambda: self._log(
+                f"Opened browser at {url}"
+            )
+        )
+        self.browser_opened = True
+
+    def update_ui_stopped(self):
+        self._set_status("stopped")
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
+        self.is_running = False
+        self._stopping = False
+
+    def stop_services(self):
+        if self._stopping:
+            return
+        self._stopping = True
+        self.stop_btn.config(state=tk.DISABLED)
+        self._set_status("stopping")
+        self._log("Stopping server…")
+
+        if self.node_process:
+            self._stop_process_tree(
+                self.node_process,
+                "WhatsApp service"
+            )
+            self.node_process = None
+            self.whatsapp_port = None
+
+        if self.server_instance:
+            try:
+                self.server_instance.close()
+                self._log("Waitress server closed.")
+            except Exception as e:
+                self._log(f"Error closing server: {e}")
+            self.server_instance = None
+
+        self.django_port = None
+        self.server_ready.clear()
+
+        self.update_ui_stopped()
+
+    def on_closing(self):
+        server_running = (
+            self.server_instance is not None
+        )
+
+        node_running = (
+            self.node_process is not None
+            and self.node_process.poll() is None
+        )
+
+        if server_running or node_running:
+            if not messagebox.askokcancel(
+                "Quit",
+                "School ERP services are still running. Stop them and quit?"
+            ):
+                return
+
+        self._stopping = True
+        self.stop_services()
+
+        # Wait a bit for threads to finish (they are daemon threads, but we want to give them a chance to clean up)
+        time.sleep(0.5)
+
+        self.root.destroy()
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ServerApp(root)
+    root.mainloop()

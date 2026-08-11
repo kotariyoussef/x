@@ -4,7 +4,7 @@ const qrcode = require('qrcode');
 const path = require('path');
 
 const app = express();
-const port = 3000;
+const port = Number(process.env.WA_PORT || 3000);
 
 // ── Simple API-key security ───────────────────────────────────────────────────
 // Set WA_API_KEY environment variable before starting (e.g. in run_server.py or .env).
@@ -95,24 +95,57 @@ function createClient() {
     });
 }
 
+let isShuttingDown = false;
+
+async function shutdown() {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    console.log('Shutting down WhatsApp service...');
+
+    try {
+        if (client) {
+            await client.destroy();
+            client = null;
+            console.log('WhatsApp client destroyed.');
+        }
+    } catch (error) {
+        console.error('Error destroying WhatsApp client:', error);
+    }
+
+    process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
 // Tears down the dead client (if possible) and spins up a fresh one.
 // This replaces "client.initialize() on the same instance", which is
 // what was forcing a manual process restart after logout/disconnect.
 async function restartClient() {
-    if (isRestarting) return;
+    if (isRestarting || isShuttingDown) return;
+
     isRestarting = true;
+
     try {
         const old = client;
+
         if (old) {
             try {
                 await old.destroy();
             } catch (err) {
-                console.warn('Error destroying old client (continuing anyway):', err.message);
+                console.warn(
+                    'Error destroying old client (continuing anyway):',
+                    err.message
+                );
             }
         }
     } finally {
         isRestarting = false;
-        createClient();
+
+        if (!isShuttingDown) {
+            createClient();
+        }
     }
 }
 
@@ -228,7 +261,7 @@ app.post('/restart', requireApiKey, async (req, res) => {
     setTimeout(() => restartClient(), 200);
 });
 
-app.listen(port, () => {
+app.listen(port, '127.0.0.1', () => {
     console.log(`WhatsApp automation service listening at http://localhost:${port}`);
     if (API_KEY) {
         console.log('API key authentication is ENABLED.');

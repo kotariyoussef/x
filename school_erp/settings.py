@@ -33,10 +33,7 @@ SECRET_KEY = 'm9s0r9ex$&lg(4pk0t8lbh7nm#^u03j6q)v-y4z(!y4i-+hg*$nMvB5sLBZjeuZITY
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    '[IP_ADDRESS]',
-    'localhost',
-    '127.0.0.1',
-    '127.0.0.2',
+    "*"
 ]
 
 
@@ -382,6 +379,7 @@ LOGOUT_REDIRECT_URL = '/admin/login/'
 # WhatsApp integration settings
 WHATSAPP_API_KEY = os.environ.get('WA_API_KEY', '')
 WHATSAPP_SESSION_NOTIFICATIONS_ENABLED = True  # Set to True to enable WhatsApp session notifications
+WHATSAPP_SERVICE_PORT = os.environ.get("WA_PORT", 3000)
 
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
