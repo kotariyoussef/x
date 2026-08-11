@@ -285,12 +285,49 @@ WSGI_APPLICATION = 'school_erp.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# ── Phase 2: SQLite WAL Mode & Concurrency Configuration ────────────────────
+#
+# WAL (Write-Ahead Logging) allows concurrent readers while a writer is active,
+# which significantly reduces "database is locked" errors in LAN multi-user
+# scenarios.
+#
+# PRAGMA notes:
+#   journal_mode=WAL    — enables WAL; persisted in the database file header.
+#                         SQLite may create db.sqlite3-wal and db.sqlite3-shm
+#                         sidecar files during normal operation; do not delete them.
+#   synchronous=NORMAL  — sufficient durability for WAL mode; FULL is the
+#                         default for rollback-journal mode and is unnecessarily
+#                         conservative under WAL.
+#   busy_timeout=30000  — SQLite C-level wait (milliseconds) before raising
+#                         OperationalError when another connection holds a write
+#                         lock. Complements OPTIONS["timeout"] (see below).
+#
+# OPTIONS["timeout"] = 30:
+#   Passed to sqlite3.connect(timeout=30). Python's sqlite3 module maps this
+#   to SQLite's busy_timeout internally (30 s → 30 000 ms). The explicit
+#   PRAGMA busy_timeout in init_command is redundant in current CPython but
+#   makes the intent self-documenting and guards against future Python changes.
+#
+# WAL does NOT eliminate all locking: concurrent writers still queue (SQLite
+# uses a single-writer model). WAL improves read/write concurrency, not
+# write/write concurrency.
+# ─────────────────────────────────────────────────────────────────────────────
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
         "OPTIONS": {
-            "timeout": 20,  # seconds
+            # Python-level connection timeout (seconds).
+            # sqlite3.connect(timeout=30) also internally sets SQLite's
+            # busy_timeout to 30 000 ms via CPython's implementation.
+            "timeout": 30,
+            # PRAGMAs executed by Django after every new connection is opened.
+            # Django splits this string on ";" and executes each non-empty part.
+            "init_command": (
+                "PRAGMA journal_mode=WAL;"
+                "PRAGMA synchronous=NORMAL;"
+                "PRAGMA busy_timeout=30000;"
+            ),
         },
     }
 }

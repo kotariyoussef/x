@@ -466,15 +466,6 @@ class ServerApp:
                 self._log(f"Error closing server: {e}")
             self.server_instance = None
 
-        if self.browser_opened and sys.platform == 'win32':
-            try:
-                subprocess.Popen("taskkill /im msedge.exe /f", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                subprocess.Popen("taskkill /im chrome.exe /f", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self._log("Closed browser windows.")
-            except Exception as e:
-                self._log(f"Could not close browser: {e}")
-            self.browser_opened = False
-
         self.update_ui_stopped()
 
     def on_closing(self):
