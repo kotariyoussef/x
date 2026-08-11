@@ -588,13 +588,30 @@ def _collect_py_files(base_dir: str) -> list[str]:
 
 def _find_pyarmor(base_dir: str) -> str:
     """Locate the pyarmor executable; raise FileNotFoundError if absent."""
-    for candidate in (
-        os.path.join(base_dir, 'venv', 'Scripts', 'pyarmor.exe'),
-        os.path.join(base_dir, 'venv', 'bin', 'pyarmor'),
+    py_dir = os.path.dirname(sys.executable)
+    candidates = [
+        os.path.join(py_dir, 'pyarmor'),
+        os.path.join(py_dir, 'pyarmor.exe'),
         shutil.which('pyarmor') or '',
-    ):
+    ]
+
+    curr = os.path.abspath(base_dir)
+    while curr:
+        candidates.extend([
+            os.path.join(curr, 'venv', 'bin', 'pyarmor'),
+            os.path.join(curr, 'venv', 'Scripts', 'pyarmor.exe'),
+            os.path.join(curr, '.venv', 'bin', 'pyarmor'),
+            os.path.join(curr, '.venv', 'Scripts', 'pyarmor.exe'),
+        ])
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
+
+    for candidate in candidates:
         if candidate and os.path.isfile(candidate):
             return candidate
+
     raise FileNotFoundError(
         "pyarmor not found. Install it with:  pip install pyarmor"
     )
@@ -737,10 +754,18 @@ def step_python(base_dir: str, dist_dir: str, fernet_key: bytes) -> bool:
             # Cannot be encrypted with Pyarmor. Compile to .pyc instead.
             stem = os.path.splitext(basename)[0]
             dest_pyc = os.path.join(out_sub, f"{stem}.pyc")
+            dest_py = os.path.join(out_sub, basename)
             try:
                 py_compile.compile(src, cfile=dest_pyc, doraise=True)
+                shim_code = (
+                    "import os, runpy\n"
+                    f"_g = runpy.run_path(os.path.join(os.path.dirname(__file__), '{stem}.pyc'), run_name=__name__)\n"
+                    "globals().update(_g)\n"
+                )
+                with open(dest_py, "w", encoding="utf-8") as fh:
+                    fh.write(shim_code)
                 pyc_compiled_count += 1
-                _info(f"[pyc]  {rel} ({size // 1024} KB) compiled directly to .pyc")
+                _info(f"[pyc]  {rel} ({size // 1024} KB) compiled directly to .pyc with loader shim")
             except Exception as exc:
                 fail_count += 1
                 _fail(f"Compilation failed for {rel}: {exc}")
@@ -951,11 +976,30 @@ def main() -> int:
         action='store_true',
         help="Delete existing dist/ (and dist_tmp/ if present) and exit.",
     )
+    parser.add_argument(
+        '--project-root',
+        default=None,
+        help="Project root directory. Default: parent of tools/ directory",
+    )
+    parser.add_argument(
+        '--output-dir',
+        default=None,
+        help="Output directory for obfuscated code. Default: <project-root>/dist",
+    )
     args = parser.parse_args()
 
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    dist_dir = os.path.join(base_dir, DIST_DIR_NAME)
-    tmp_dir  = os.path.join(base_dir, DIST_TMP_NAME)
+    if args.project_root:
+        base_dir = os.path.abspath(args.project_root)
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(script_dir) if os.path.basename(script_dir) == 'tools' else script_dir
+
+    if args.output_dir:
+        dist_dir = os.path.abspath(args.output_dir)
+        tmp_dir = dist_dir + "_tmp"
+    else:
+        dist_dir = os.path.join(base_dir, DIST_DIR_NAME)
+        tmp_dir  = os.path.join(base_dir, DIST_TMP_NAME)
 
     if args.clean:
         for d in (dist_dir, tmp_dir):
