@@ -587,9 +587,8 @@ class Student(models.Model):
 
         new_num = 1000
         while True:
-            candidate = f"{prefix}{new_num}"
-            if candidate not in used_numbers:
-                return candidate
+            if new_num not in used_numbers:
+                return f"{prefix}{new_num}"
             new_num += 1
 
     @classmethod

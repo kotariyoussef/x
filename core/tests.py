@@ -87,6 +87,11 @@ class PaymentLogicTestCase(TestCase):
         matricule = Student.generate_next_matricule()
         self.assertTrue(matricule.startswith("M26-"))
 
+    def test_student_generate_next_matricule_above_1000(self):
+        used = set(range(1, 1001))
+        candidate = Student._build_candidate_matricule("M26-", used)
+        self.assertEqual(candidate, "M26-1001")
+
     def test_payment_helper_generates_unique_receipt_numbers(self):
         first_receipt = Payment.generate_next_receipt_number(2026)
         Payment.objects.create(

@@ -29,9 +29,7 @@ def _parse_npm_version(raw):
     if not raw:
         return None
     try:
-        # Strip all leading non-digit characters (^, ~, >=, v, spaces, …)
         cleaned = re.sub(r'^[^\d]*', '', str(raw).strip())
-        # Drop pre-release / build metadata after the first space or hyphen
         cleaned = re.split(r'[\s\-]', cleaned)[0]
         parts = cleaned.split('.')
         major = int(parts[0]) if len(parts) > 0 else 0
@@ -59,9 +57,7 @@ def is_port_available(port, host="0.0.0.0"):
 def find_free_port(start_port, host="0.0.0.0", max_port=65535):
     """
     Return the first available TCP port >= start_port on *host*.
-
-    Note: this is a TOCTOU check — a port may be grabbed by another process
-    between the check and binding. Callers should handle EADDRINUSE on bind.
+    Note: TOCTOU check — callers handle EADDRINUSE on bind.
     """
     port = start_port
     while port <= max_port:
@@ -88,17 +84,7 @@ def get_local_ip():
 def _stop_process_tree(process, name, log_fn=None):
     """
     Terminate *process* and its entire process group / tree.
-
-    Pure process management: contains zero Tkinter calls.
-
-    Args:
-        process:  subprocess.Popen instance (or None — no-op).
-        name:     Human-readable label used in log messages.
-        log_fn:   Optional callable(str).  Receives status messages.
-                  If None, messages are silently discarded.
-                  The caller decides whether to route via root.after or direct.
-
-    Blocks until the process exits or timeouts expire.
+    Contains zero Tkinter calls.
     """
     _log = log_fn if callable(log_fn) else (lambda _msg: None)
 
@@ -145,7 +131,7 @@ def _stop_process_tree(process, name, log_fn=None):
                     except Exception:
                         pass
                 except ProcessLookupError:
-                    pass  # Process group already gone
+                    pass
             else:
                 try:
                     process.terminate()
@@ -168,8 +154,7 @@ def _stop_process_tree(process, name, log_fn=None):
 
 def _run_subprocess(args, **kwargs):
     """
-    subprocess.run() wrapper that injects CREATE_NO_WINDOW on Windows only.
-    Never passes creationflags on Linux / macOS.
+    subprocess.run() wrapper injecting CREATE_NO_WINDOW on Windows only.
     """
     if sys.platform == "win32":
         kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
@@ -210,8 +195,7 @@ def _save_local_config(config):
 def _relaunch_in_venv_if_needed():
     """
     If running as a plain script and a venv exists next to this file,
-    re-exec the script using the venv's Python interpreter.
-    No-op when frozen / Nuitka.
+    re-exec using the venv's Python interpreter.
     """
     if getattr(sys, "frozen", False) or "nuitka" in sys.modules:
         return
@@ -251,7 +235,7 @@ _relaunch_in_venv_if_needed()
 
 
 # ---------------------------------------------------------------------------
-# License check — runs before the GUI starts
+# License check — runs before GUI starts
 # ---------------------------------------------------------------------------
 
 try:
@@ -277,28 +261,45 @@ except Exception as _e:
 # Visual constants
 # ---------------------------------------------------------------------------
 
-BG       = "#0f1115"
-PANEL    = "#171a21"
+BG        = "#0f1115"
+PANEL     = "#171a21"
 PANEL_ALT = "#1d2129"
-ACCENT   = "#4f8cff"
-GREEN    = "#2ecc71"
-RED      = "#ff5c5c"
-AMBER    = "#f5a623"
+ACCENT    = "#4f8cff"
+GREEN     = "#2ecc71"
+RED       = "#ff5c5c"
+AMBER     = "#f5a623"
 TEXT_MAIN = "#e8eaed"
 TEXT_DIM  = "#8a8f98"
-FONT     = "Segoe UI"
+FONT      = "Segoe UI"
 
 
 # ---------------------------------------------------------------------------
-# Main application
+# Server Session (Encapsulates all session-specific state)
+# ---------------------------------------------------------------------------
+
+class ServerSession:
+    """
+    Container for session-specific state.
+    A new instance is created on every Start operation.
+    """
+    def __init__(self, session_id):
+        self.id = session_id
+
+        self.django_port = None
+        self.whatsapp_port = None
+
+        self.node_process = None
+        self.server_instance = None
+
+        self.server_ready = threading.Event()
+        self.cancelled = threading.Event()
+
+
+# ---------------------------------------------------------------------------
+# Main Application
 # ---------------------------------------------------------------------------
 
 class ServerApp:
-    """
-    Tkinter GUI that manages the Django/Waitress server and the WhatsApp
-    automation Node.js service as independent background threads.
-    """
-
     def __init__(self, root):
         self.root = root
         self.root.title("School ERP Server Controller")
@@ -306,26 +307,19 @@ class ServerApp:
         self.root.minsize(480, 420)
         self.root.configure(bg=BG)
 
-        # ── Shared state ───────────────────────────────────────────────────────
-        self.server_thread   = None        # django background thread
-        self.server_instance = None        # waitress server object
-        self.node_process    = None        # WhatsApp node subprocess
-        self.browser_opened  = False
-        self.is_running      = False
-        self.local_ip        = get_local_ip()
-        self._stopping       = False
+        # ── Global application state ─────────────────────────────────────────
+        self._session = None          # Active ServerSession instance or None
+        self.is_running = False
+        self.local_ip = get_local_ip()
+        self._stopping = False
 
-        self._startup_lock   = threading.Lock()
-        self._startup_id     = 0           # incremented on every Start / Stop
+        self._startup_lock = threading.Lock()
+        self._startup_counter = 0
 
-        self.django_port     = None
-        self.whatsapp_port   = None
-        self.server_ready    = threading.Event()
-
-        # ── Security ──────────────────────────────────────────────────────────
+        # Security
         self.whatsapp_api_key = self._load_or_create_api_key()
 
-        # ── GUI ───────────────────────────────────────────────────────────────
+        # GUI
         self._build_style()
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -335,11 +329,6 @@ class ServerApp:
     # =========================================================================
 
     def _load_or_create_api_key(self):
-        """
-        Load the persisted API key from run_server_config.json, or generate a
-        new one if the file is missing, malformed, or the key looks invalid.
-        The key is NEVER logged.
-        """
         config = _load_local_config()
         api_key = config.get("WA_API_KEY")
         if not isinstance(api_key, str) or len(api_key) < 10:
@@ -349,33 +338,32 @@ class ServerApp:
         return api_key
 
     # =========================================================================
-    # Startup session management
+    # Session management & Validation
     # =========================================================================
 
     def _new_startup_id(self):
-        """Increment and return the startup counter under a lock."""
         with self._startup_lock:
-            self._startup_id += 1
-            return self._startup_id
+            self._startup_counter += 1
+            return self._startup_counter
 
-    def _current_startup_id(self):
-        with self._startup_lock:
-            return self._startup_id
-
-    def _is_valid_session(self, startup_id):
+    def _is_valid_session(self, session):
         """
-        Return True iff this startup_id is still the active session and no
-        shutdown is in progress.  Background threads call this before every
-        state-mutating operation.
+        Returns True iff *session* is the active session and has not been cancelled.
+        Thread-safe check.
         """
-        return not self._stopping and startup_id == self._current_startup_id()
+        return (
+            session is not None
+            and session is self._session
+            and not self._stopping
+            and not session.cancelled.is_set()
+        )
 
     # =========================================================================
-    # Tkinter-safe logging
+    # Tkinter-safe logging & helpers
     # =========================================================================
 
     def _log(self, message):
-        """Append a timestamped entry to the activity log.  Main thread only."""
+        """Append entry to activity log. Main thread only."""
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.log_text.configure(state="normal")
         self.log_text.insert("end", f"[{timestamp}] {message}\n")
@@ -383,18 +371,11 @@ class ServerApp:
         self.log_text.see("end")
 
     def _thread_log(self, message):
-        """
-        Thread-safe log helper.  Safe to call from any thread.
-        Schedules _log on the Tkinter main thread via root.after.
-        """
-        # Capture message in default arg to avoid late-binding closure issues.
+        """Thread-safe log helper using root.after."""
         self.root.after(0, lambda m=message: self._log(m))
 
     def _make_bg_log(self):
-        """
-        Return a log_fn suitable for passing to _stop_process_tree from a
-        background thread.  Each call schedules exactly one root.after.
-        """
+        """Return a logging function safe for background thread calls."""
         return lambda msg: self.root.after(0, lambda m=msg: self._log(m))
 
     # =========================================================================
@@ -509,15 +490,15 @@ class ServerApp:
         self._log('Ready. Click "Start Server" to begin.')
 
     def _open_url(self, event=None):
-        if self.django_port:
-            webbrowser.open(f"http://127.0.0.1:{self.django_port}")
+        if self._session and self._session.django_port:
+            webbrowser.open(f"http://127.0.0.1:{self._session.django_port}")
 
     def _draw_dot(self, color):
         self.status_dot.delete("all")
         self.status_dot.create_oval(2, 2, 12, 12, fill=color, outline="")
 
-    def _set_status(self, state):
-        """Update the status card.  Must only be called on the main thread."""
+    def _set_status(self, state, session=None):
+        """Update the status card. Main thread only."""
         if state == "starting":
             self._draw_dot(AMBER)
             self.status_label.config(text="Starting…")
@@ -527,11 +508,12 @@ class ServerApp:
             self._draw_dot(GREEN)
             self.status_label.config(text="Running")
             self.status_sub.config(text="Server is live")
-            if self.django_port:
+            port = session.django_port if session else (self._session.django_port if self._session else None)
+            if port:
                 self.url_label.config(
                     text=(
-                        f"LOCAL: http://127.0.0.1:{self.django_port}\n"
-                        f"LAN:   http://{self.local_ip}:{self.django_port}"
+                        f"LOCAL: http://127.0.0.1:{port}\n"
+                        f"LAN:   http://{self.local_ip}:{port}"
                     )
                 )
             else:
@@ -556,30 +538,36 @@ class ServerApp:
     # npm auto-update
     # =========================================================================
 
-    def _check_npm_update(self, npm_cmd, package_json_path, service_dir, startup_id):
+    def _check_npm_update(self, npm_cmd, package_json_path, service_dir, session):
         """
         Check whether a newer stable version of whatsapp-web.js exists on npm
-        and install it automatically if so.
-
-        Called from a background thread.  Entirely non-fatal: any failure is
-        logged and startup continues with the already-installed version.
-        Uses _thread_log throughout (never touches Tkinter directly).
+        and install it automatically if so. Non-fatal.
+        Determines installed version from node_modules/whatsapp-web.js/package.json first.
         """
         self._thread_log("Checking for whatsapp-web.js updates...")
 
-        # -- Read current version from package.json ---------------------------
-        current_version_raw = None
-        try:
-            with open(package_json_path, "r", encoding="utf-8") as f:
-                pkg_data = json.load(f)
-            current_version_raw = pkg_data.get("dependencies", {}).get("whatsapp-web.js")
-        except Exception as exc:
-            self._thread_log(
-                f"Could not read package.json: {exc}. Skipping update check."
-            )
-            return
+        # Determine installed version from node_modules if available
+        installed_version_raw = None
+        installed_pkg_path = os.path.join(
+            service_dir, "node_modules", "whatsapp-web.js", "package.json"
+        )
+        if os.path.isfile(installed_pkg_path):
+            try:
+                with open(installed_pkg_path, "r", encoding="utf-8") as f:
+                    installed_version_raw = json.load(f).get("version")
+            except Exception:
+                pass
 
-        # -- Query npm registry -----------------------------------------------
+        if not installed_version_raw:
+            # Fall back to package.json dependency specifier
+            try:
+                with open(package_json_path, "r", encoding="utf-8") as f:
+                    installed_version_raw = json.load(f).get("dependencies", {}).get("whatsapp-web.js")
+            except Exception as exc:
+                self._thread_log(f"Could not read package.json: {exc}. Skipping update check.")
+                return
+
+        # Query npm registry
         try:
             result = _run_subprocess(
                 [npm_cmd, "view", "whatsapp-web.js", "version"],
@@ -589,10 +577,7 @@ class ServerApp:
                 timeout=15,
             )
         except subprocess.TimeoutExpired:
-            self._thread_log(
-                "whatsapp-web.js update check timed out. "
-                "Continuing with installed version."
-            )
+            self._thread_log("whatsapp-web.js update check timed out. Continuing with installed version.")
             return
         except FileNotFoundError:
             self._thread_log("npm not found during update check. Skipping.")
@@ -609,33 +594,30 @@ class ServerApp:
             return
 
         latest_raw = result.stdout.strip()
-        current_tuple = _parse_npm_version(current_version_raw)
-        latest_tuple  = _parse_npm_version(latest_raw)
+        current_tuple = _parse_npm_version(installed_version_raw)
+        latest_tuple = _parse_npm_version(latest_raw)
 
         if current_tuple is None:
             self._thread_log(
                 f"Latest whatsapp-web.js on npm: {latest_raw} "
-                f"(installed specifier not parseable: {current_version_raw!r})."
+                f"(installed version not parseable: {installed_version_raw!r})."
             )
             return
 
         if latest_tuple is None:
-            self._thread_log(
-                f"Could not parse npm version {latest_raw!r}. Skipping update."
-            )
+            self._thread_log(f"Could not parse npm version {latest_raw!r}. Skipping update.")
             return
 
         current_str = ".".join(str(x) for x in current_tuple)
-        latest_str  = ".".join(str(x) for x in latest_tuple)
+        latest_str = ".".join(str(x) for x in latest_tuple)
 
         if latest_tuple > current_tuple:
-            # Clearly newer — proceed with install
             self._thread_log(
                 f"whatsapp-web.js update available: {current_str} → {latest_str}. Installing…"
             )
 
-            if not self._is_valid_session(startup_id):
-                return   # Session stopped during registry query
+            if not self._is_valid_session(session):
+                return
 
             try:
                 install_result = _run_subprocess(
@@ -651,23 +633,21 @@ class ServerApp:
                     err_tail = (
                         install_result.stderr or install_result.stdout or ""
                     ).strip()[-300:]
+                    if self.whatsapp_api_key:
+                        err_tail = err_tail.replace(self.whatsapp_api_key, "[REDACTED]")
                     self._thread_log(
-                        f"whatsapp-web.js update failed, continuing with existing version. "
-                        f"({err_tail})"
+                        f"whatsapp-web.js update failed, continuing with existing version. ({err_tail})"
                     )
             except subprocess.TimeoutExpired:
                 self._thread_log(
-                    "whatsapp-web.js update installation timed out. "
-                    "Continuing with existing version."
+                    "whatsapp-web.js update installation timed out. Continuing with existing version."
                 )
             except Exception as exc:
                 self._thread_log(f"whatsapp-web.js update error: {exc}")
 
         elif latest_tuple < current_tuple:
-            # npm reports an older version — do NOT downgrade
             self._thread_log(
-                f"whatsapp-web.js: local ({current_str}) is ahead of npm ({latest_str}). "
-                "Skipping update."
+                f"whatsapp-web.js: local ({current_str}) is ahead of npm ({latest_str}). Skipping update."
             )
         else:
             self._thread_log(f"whatsapp-web.js is up to date (v{latest_str}).")
@@ -677,20 +657,6 @@ class ServerApp:
     # =========================================================================
 
     def _whatsapp_health_check(self, port, timeout=25):
-        """
-        Poll GET http://127.0.0.1:<port>/status until the Express server responds.
-
-        Returns:
-            (reachable: bool, wa_status: str | None)
-
-        SEMANTICS — these are independent:
-          reachable=True  →  the Node.js HTTP server is listening.
-          wa_status       →  the WhatsApp *client* state as reported by server.js
-                             (INITIALIZING, QR_RECEIVED, AUTHENTICATED, READY, …).
-
-        HTTP 200 + INITIALIZING does NOT mean WhatsApp is connected.
-        /status is public in server.js — no API key is sent.
-        """
         url = f"http://127.0.0.1:{port}/status"
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -711,31 +677,21 @@ class ServerApp:
     # WhatsApp background thread
     # =========================================================================
 
-    def prepare_and_launch_whatsapp(self, service_dir, startup_id):
+    def prepare_and_launch_whatsapp(self, service_dir, session):
         """
-        Background thread entry point.
-
-        Responsibilities:
-          1. Validate Node.js and npm availability (independently).
-          2. Validate required service files.
-          3. Run npm auto-update check (non-fatal).
-          4. Launch node server.js with correct environment and process flags.
-          5. Detect early failures (EADDRINUSE → retry, other errors → log & return).
-          6. Run health check and report Node HTTP + WhatsApp client state separately.
-
-        Fully independent of the Django startup thread.
+        Background thread for Node.js WhatsApp service.
+        Session-owned process management and stream reader threads.
         """
-        if not self._is_valid_session(startup_id):
+        if not self._is_valid_session(session):
             return
 
         node_cmd = "node.exe" if sys.platform == "win32" else "node"
         npm_cmd  = "npm.cmd"  if sys.platform == "win32" else "npm"
 
-        # -- 1. Check Node.js -------------------------------------------------
+        # Check Node.js
         node_available = False
         try:
-            r = _run_subprocess([node_cmd, "--version"],
-                                capture_output=True, text=True, timeout=5)
+            r = _run_subprocess([node_cmd, "--version"], capture_output=True, text=True, timeout=5)
             if r.returncode == 0:
                 node_available = True
                 self._thread_log(f"Node.js found: {r.stdout.strip()}")
@@ -746,11 +702,10 @@ class ServerApp:
         except subprocess.TimeoutExpired:
             self._thread_log("ERROR: Node.js version check timed out.")
 
-        # -- 2. Check npm (independent) ---------------------------------------
+        # Check npm
         npm_available = False
         try:
-            r = _run_subprocess([npm_cmd, "--version"],
-                                capture_output=True, text=True, timeout=5)
+            r = _run_subprocess([npm_cmd, "--version"], capture_output=True, text=True, timeout=5)
             if r.returncode == 0:
                 npm_available = True
                 self._thread_log(f"npm found: {r.stdout.strip()}")
@@ -761,8 +716,7 @@ class ServerApp:
         except subprocess.TimeoutExpired:
             self._thread_log("npm version check timed out. Skipping update check.")
 
-        # -- 3. Validate required files ---------------------------------------
-        server_js_path   = os.path.join(service_dir, "server.js")
+        server_js_path    = os.path.join(service_dir, "server.js")
         package_json_path = os.path.join(service_dir, "package.json")
 
         if not node_available:
@@ -770,9 +724,7 @@ class ServerApp:
             return
 
         if not os.path.isdir(service_dir):
-            self._thread_log(
-                f"ERROR: WhatsApp service directory not found: {service_dir}"
-            )
+            self._thread_log(f"ERROR: WhatsApp service directory not found: {service_dir}")
             return
 
         if not os.path.isfile(server_js_path):
@@ -783,28 +735,22 @@ class ServerApp:
             self._thread_log("ERROR: whatsapp_service/package.json not found.")
             return
 
-        # -- 4. npm auto-update (non-fatal) -----------------------------------
-        if npm_available and self._is_valid_session(startup_id):
-            self._check_npm_update(npm_cmd, package_json_path, service_dir, startup_id)
+        # npm auto-update
+        if npm_available and self._is_valid_session(session):
+            self._check_npm_update(npm_cmd, package_json_path, service_dir, session)
 
-        if not self._is_valid_session(startup_id):
-            return  # Session stopped during npm update
-
-        # -- 5. Retrieve the port assigned by start_services() ----------------
-        wa_port = self.whatsapp_port
-        if wa_port is None:
-            self._thread_log(
-                "ERROR: WhatsApp port was not assigned. Cannot start service."
-            )
+        if not self._is_valid_session(session):
             return
 
-        self._thread_log(
-            f"Starting WhatsApp automation service on port {wa_port}..."
-        )
+        wa_port = session.whatsapp_port
+        if wa_port is None:
+            self._thread_log("ERROR: WhatsApp port was not assigned. Cannot start service.")
+            return
 
-        # -- 6. Build Popen kwargs (platform-correct, no creationflags on Linux)
+        self._thread_log(f"Starting WhatsApp automation service on port {wa_port}...")
+
         popen_kwargs = {
-            "cwd":    service_dir,
+            "cwd": service_dir,
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
         }
@@ -817,12 +763,11 @@ class ServerApp:
 
         env = os.environ.copy()
         env["WA_PORT"]    = str(wa_port)
-        env["WA_API_KEY"] = self.whatsapp_api_key  # never logged
+        env["WA_API_KEY"] = self.whatsapp_api_key
 
-        # -- 7. Launch Node, retry on EADDRINUSE (up to 3 attempts) -----------
         launched_process = None
         for _attempt in range(1, 4):
-            if not self._is_valid_session(startup_id):
+            if not self._is_valid_session(session):
                 return
 
             try:
@@ -835,98 +780,92 @@ class ServerApp:
                 self._thread_log("ERROR: node executable not found during Popen.")
                 return
             except Exception as exc:
-                self._thread_log(
-                    f"ERROR: Failed to launch WhatsApp service: {exc}"
-                )
+                self._thread_log(f"ERROR: Failed to launch WhatsApp service: {exc}")
                 return
 
-            # Brief wait to catch fast failures (EADDRINUSE, MODULE_NOT_FOUND …)
+            # Atomic session ownership check right after Popen
+            if not self._is_valid_session(session):
+                _stop_process_tree(process, "WhatsApp service (stale session)", log_fn=None)
+                return
+
+            session.node_process = process
+
+            # Dedicated daemon reader threads for stdout/stderr to prevent pipe deadlocks
+            def _stream_reader(pipe, stream_name, sess):
+                try:
+                    for line in iter(pipe.readline, b""):
+                        if not line or not self._is_valid_session(sess):
+                            break
+                        text = line.decode("utf-8", errors="replace").rstrip()
+                        if text:
+                            if self.whatsapp_api_key:
+                                text = text.replace(self.whatsapp_api_key, "[REDACTED]")
+                            # Filter noisy debug lines if needed, or forward diagnostic output
+                            if any(k in text for k in ("listening", "Error", "INITIALIZING", "READY", "QR")):
+                                self._thread_log(f"[{stream_name}] {text}")
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        pipe.close()
+                    except Exception:
+                        pass
+
+            threading.Thread(
+                target=_stream_reader,
+                args=(process.stdout, "WhatsApp", session),
+                daemon=True,
+                name=f"wa-stdout-{session.id}",
+            ).start()
+
+            threading.Thread(
+                target=_stream_reader,
+                args=(process.stderr, "WhatsApp-Err", session),
+                daemon=True,
+                name=f"wa-stderr-{session.id}",
+            ).start()
+
             time.sleep(1.5)
 
             exit_code = process.poll()
             if exit_code is None:
-                # Process is alive — guard before storing
-                if not self._is_valid_session(startup_id):
-                    # Session was invalidated while we waited. Kill the orphan
-                    # silently (no GUI log needed for a dead session).
-                    _stop_process_tree(
-                        process,
-                        "WhatsApp service (stale session)",
-                        log_fn=None,
-                    )
+                if not self._is_valid_session(session):
+                    _stop_process_tree(process, "WhatsApp service (stale session)", log_fn=None)
+                    session.node_process = None
                     return
                 launched_process = process
-                break  # Success
+                break
 
-            # Process exited — collect diagnostics
+            # Exit detected
+            if not self._is_valid_session(session):
+                session.node_process = None
+                return
+
             try:
-                outs, errs = process.communicate(timeout=3)
-            except Exception:
-                outs, errs = b"", b""
-
-            raw_diag  = (errs or outs or b"").decode("utf-8", errors="replace")[:500]
-            # Strip API key from diagnostics before any logging
-            safe_diag = raw_diag.replace(self.whatsapp_api_key, "[REDACTED]")
-
-            if (
-                "EADDRINUSE" in raw_diag
-                or "address already in use" in raw_diag.lower()
-            ):
-                if not self._is_valid_session(startup_id):
-                    return
-                try:
-                    wa_port = find_free_port(wa_port + 1, host="127.0.0.1")
-                    self.whatsapp_port = wa_port
-                    env["WA_PORT"] = str(wa_port)
+                wa_port = find_free_port(wa_port + 1, host="127.0.0.1")
+                session.whatsapp_port = wa_port
+                env["WA_PORT"] = str(wa_port)
+                if self._is_valid_session(session):
                     os.environ["WA_PORT"] = str(wa_port)
-                    try:
-                        from django.conf import settings
-                        if settings.configured:
-                            settings.WHATSAPP_SERVICE_PORT = str(wa_port)
-                    except Exception:
-                        pass
-                    self._thread_log(
-                        f"WhatsApp port conflict. Retrying on port {wa_port}..."
-                    )
-                    continue
-                except RuntimeError as exc2:
-                    self._thread_log(
-                        f"ERROR: No available port for WhatsApp service: {exc2}"
-                    )
-                    return
-
-            # Non-port failure
-            self._thread_log(
-                f"ERROR: WhatsApp service exited during startup. {safe_diag}"
-            )
-            self.root.after(0, lambda: messagebox.showwarning(
-                "WhatsApp Service",
-                "WhatsApp automation service failed to start.\n"
-                "See the activity log for details.",
-            ))
-            return
-
+                self._thread_log(f"WhatsApp port conflict. Retrying on port {wa_port}...")
+                continue
+            except RuntimeError as exc2:
+                self._thread_log(f"ERROR: No available port for WhatsApp service: {exc2}")
+                session.node_process = None
+                return
         else:
-            self._thread_log(
-                "ERROR: WhatsApp service failed to start after multiple port attempts."
-            )
+            self._thread_log("ERROR: WhatsApp service failed to start after multiple port attempts.")
             return
 
-        # Store the process only if launch succeeded
-        self.node_process = launched_process
-
-        # -- 8. Health check: verify Express is listening ---------------------
+        # Health check
         self._thread_log("Waiting for WhatsApp service to respond...")
         reachable, wa_status = self._whatsapp_health_check(wa_port, timeout=25)
 
-        if not self._is_valid_session(startup_id):
+        if not self._is_valid_session(session):
             return
 
         if reachable:
-            # Report Node HTTP availability and WhatsApp client state separately
-            self._thread_log(
-                f"WhatsApp automation service is listening on port {wa_port}."
-            )
+            self._thread_log(f"WhatsApp automation service is listening on port {wa_port}.")
             if wa_status == "READY":
                 self._thread_log("WhatsApp client is connected and ready.")
             elif wa_status in ("QR_RECEIVED", "INITIALIZING", "AUTHENTICATED"):
@@ -941,8 +880,6 @@ class ServerApp:
                 )
             elif wa_status:
                 self._thread_log(f"WhatsApp client status: {wa_status}.")
-            else:
-                self._thread_log("WhatsApp client status: unknown.")
         else:
             self._thread_log(
                 "WhatsApp service started but health check timed out "
@@ -953,11 +890,10 @@ class ServerApp:
     # Django / Waitress background thread
     # =========================================================================
 
-    def run_waitress(self, startup_id):
+    def run_waitress(self, session):
         """
-        Background thread: import Django + Waitress, bind, serve until stopped.
-        Fully independent of the WhatsApp startup thread.
-        All UI mutations go through root.after.
+        Background thread for Waitress/Django server.
+        Session-owned server instance and port binding.
         """
         self._thread_log("Loading Django & Waitress handlers...")
 
@@ -967,256 +903,138 @@ class ServerApp:
             from waitress.server import create_server
         except Exception as exc:
             self._thread_log(f"ERROR: Failed to load Django/Waitress: {exc}")
-            self.root.after(0, lambda: self._set_status("error"))
-            self.root.after(0, lambda: messagebox.showerror(
-                "Django Error", f"Failed to load Django/Waitress:\n{exc}"
-            ))
-            node_snap = self.node_process
-            self.root.after(
-                0, lambda: self._handle_django_failure(startup_id, node_snap)
-            )
+            if self._is_valid_session(session):
+                self.root.after(0, lambda: self._handle_session_failure(session, f"Django error: {exc}"))
             return
 
-        if not self._is_valid_session(startup_id):
+        if not self._is_valid_session(session):
             return
 
-        # -- Bind Waitress, retry on port conflict ----------------------------
         server = None
         for _attempt in range(1, 6):
-            if not self._is_valid_session(startup_id):
+            if not self._is_valid_session(session):
                 return
             try:
                 server = create_server(
                     StaticFilesHandler(application),
                     host="0.0.0.0",
-                    port=self.django_port,
+                    port=session.django_port,
                 )
                 break
             except OSError as exc:
                 msg = str(exc).lower()
-                if (
-                    "address already in use" in msg
-                    or "port is already allocated" in msg
-                ):
-                    self._thread_log(
-                        f"Django port {self.django_port} was taken. Retrying..."
-                    )
+                if "address already in use" in msg or "port is already allocated" in msg:
+                    self._thread_log(f"Django port {session.django_port} was taken. Retrying...")
                     try:
-                        new_port = find_free_port(self.django_port + 1)
-                        self.django_port = new_port
-                        self._thread_log(
-                            f"Waitress port re-selected: {self.django_port}"
-                        )
+                        new_port = find_free_port(session.django_port + 1)
+                        session.django_port = new_port
+                        self._thread_log(f"Waitress port re-selected: {session.django_port}")
                         continue
                     except RuntimeError as port_exc:
-                        self._thread_log(
-                            f"ERROR: Could not find available Django port. {port_exc}"
-                        )
-                        self.root.after(0, lambda: self._set_status("error"))
-                        node_snap = self.node_process
-                        self.root.after(
-                            0,
-                            lambda: self._handle_django_failure(startup_id, node_snap),
-                        )
+                        self._thread_log(f"ERROR: Could not find available Django port. {port_exc}")
+                        if self._is_valid_session(session):
+                            self.root.after(0, lambda: self._handle_session_failure(session, str(port_exc)))
                         return
-                # Non-port OSError
                 self._thread_log(f"ERROR: Waitress failed to bind: {exc}")
-                self.root.after(0, lambda: self._set_status("error"))
-                self.root.after(0, lambda e=exc: messagebox.showerror(
-                    "Server Error", f"Waitress failed to bind:\n{e}"
-                ))
-                node_snap = self.node_process
-                self.root.after(
-                    0,
-                    lambda: self._handle_django_failure(startup_id, node_snap),
-                )
+                if self._is_valid_session(session):
+                    self.root.after(0, lambda e=exc: self._handle_session_failure(session, f"Waitress bind failed: {e}"))
                 return
         else:
-            self._thread_log(
-                "ERROR: Django failed to start after multiple port attempts."
-            )
-            self.root.after(0, lambda: self._set_status("error"))
-            node_snap = self.node_process
-            self.root.after(
-                0,
-                lambda: self._handle_django_failure(startup_id, node_snap),
-            )
+            self._thread_log("ERROR: Django failed to start after multiple port attempts.")
+            if self._is_valid_session(session):
+                self.root.after(0, lambda: self._handle_session_failure(session, "Port allocation exhausted"))
             return
 
-        # -- Guard before marking the session live ----------------------------
-        if not self._is_valid_session(startup_id):
+        if not self._is_valid_session(session):
             try:
                 server.close()
             except Exception:
                 pass
             return
 
-        self.server_instance = server
+        session.server_instance = server
 
-        # Narrow race window: if stop arrived between the guard and the
-        # assignment above, close the server immediately.
-        if not self._is_valid_session(startup_id):
+        if not self._is_valid_session(session):
             try:
                 server.close()
             except Exception:
                 pass
-            self.server_instance = None
+            session.server_instance = None
             return
 
-        self.is_running = True
-        self.server_ready.set()
+        # Mark session live on main thread
+        def _mark_live():
+            if self._is_valid_session(session):
+                self.is_running = True
+                self._set_status("running", session)
+                self._log(
+                    f"Django server is listening on {self.local_ip}:{session.django_port} (LAN accessible)."
+                )
 
-        self.root.after(0, lambda: self._set_status("running"))
-        self.root.after(0, lambda: self._log(
-            f"Django server is listening on {self.local_ip}:{self.django_port} "
-            "(LAN accessible)."
-        ))
+        self.root.after(0, _mark_live)
+        session.server_ready.set()
 
-        # -- Block until Waitress is closed by stop_services() ----------------
         try:
             server.run()
         except Exception as exc:
             self._thread_log(f"Waitress server error: {exc}")
         finally:
-            self.is_running = False
-            # Unexpected exit (not triggered by stop_services) — only clean up
-            # if this is still the active session.
-            if not self._stopping and startup_id == self._current_startup_id():
-                node_snap = self.node_process
-                if node_snap is not None:
-                    self.node_process    = None
-                    self.whatsapp_port   = None
-                self.root.after(
-                    0,
-                    lambda: self._handle_unexpected_django_exit(
-                        startup_id, node_snap
-                    ),
-                )
+            def _on_django_exit():
+                if self._is_valid_session(session):
+                    self.is_running = False
+                    self._begin_shutdown(destroy_after=False)
+
+            self.root.after(0, _on_django_exit)
 
     # =========================================================================
-    # Django failure / unexpected-exit handlers  (main thread)
+    # Session failure handler (main thread)
     # =========================================================================
 
-    def _handle_django_failure(self, startup_id, node_proc_snapshot):
-        """
-        Called on the main thread when Django startup fails.
-
-        Guards on startup_id so a stale thread never resets a newer session.
-        Stops the WhatsApp process that belongs to *this* session only
-        (verified by object identity, not just non-None).
-        Cleanup runs in a daemon thread to avoid freezing the GUI.
-        """
-        if startup_id != self._current_startup_id():
-            return   # A newer session is already running — leave it alone.
-
-        # Prevent another Start while we are cleaning up.
-        self._stopping = True
-        self.start_btn.config(state=tk.DISABLED)
-        self.stop_btn.config(state=tk.DISABLED)
-        self._set_status("error")
-
-        # Capture and clear the node_process ref that belongs to this session.
-        to_stop = None
-        if (
-            node_proc_snapshot is not None
-            and node_proc_snapshot is self.node_process
-        ):
-            to_stop              = node_proc_snapshot
-            self.node_process    = None
-            self.whatsapp_port   = None
-
-        self.is_running    = False
-        self.django_port   = None
-        self.server_ready.clear()
-
-        def _cleanup():
-            bg_log = self._make_bg_log()
-            if to_stop is not None:
-                _stop_process_tree(to_stop, "WhatsApp service", log_fn=bg_log)
-
-            def _reenable():
-                self._stopping = False
-                self.start_btn.config(state=tk.NORMAL)
-                self.stop_btn.config(state=tk.DISABLED)
-
-            self.root.after(0, _reenable)
-
-        threading.Thread(
-            target=_cleanup, daemon=True, name="django-fail-cleanup"
-        ).start()
-
-    def _handle_unexpected_django_exit(self, startup_id, node_proc_snapshot):
-        """
-        Called on the main thread when Django exits unexpectedly after having
-        started successfully.  Same session-ownership rules apply.
-        """
-        if startup_id != self._current_startup_id():
-            return
-
-        self._stopping = True
-
-        to_stop = None
-        if (
-            node_proc_snapshot is not None
-            and node_proc_snapshot is self.node_process
-        ):
-            to_stop            = node_proc_snapshot
-            self.node_process  = None
-            self.whatsapp_port = None
-
-        def _cleanup():
-            bg_log = self._make_bg_log()
-            if to_stop is not None:
-                _stop_process_tree(to_stop, "WhatsApp service", log_fn=bg_log)
-            self.root.after(0, self.update_ui_stopped)
-
-        threading.Thread(
-            target=_cleanup, daemon=True, name="django-exit-cleanup"
-        ).start()
+    def _handle_session_failure(self, session, message):
+        """Called on main thread when a session fails to start."""
+        if self._is_valid_session(session):
+            self._log(f"ERROR: {message}")
+            self._set_status("error")
+            self._begin_shutdown(destroy_after=False)
 
     # =========================================================================
-    # Browser opener  (background thread)
+    # Browser opener (background thread)
     # =========================================================================
 
-    def open_browser_delayed(self, startup_id):
-        """
-        Wait until Django is accepting connections on its port, then open the
-        system browser to the local URL.
-        """
-        if not self.server_ready.wait(timeout=30):
-            if self._is_valid_session(startup_id):
+    def open_browser_delayed(self, session):
+        """Waits on session.server_ready and TCP port check, then opens browser."""
+        if not session.server_ready.wait(timeout=30):
+            if self._is_valid_session(session):
                 self._thread_log("Timed out waiting for Django to become ready.")
             return
 
-        if not self._is_valid_session(startup_id):
+        if not self._is_valid_session(session):
             return
 
-        # TCP readiness poll — confirms the port is truly accepting connections.
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            if not self._is_valid_session(startup_id):
+            if not self._is_valid_session(session):
                 return
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     sock.settimeout(1)
-                    if sock.connect_ex(("127.0.0.1", self.django_port)) == 0:
+                    if sock.connect_ex(("127.0.0.1", session.django_port)) == 0:
                         break
             except Exception:
                 pass
             time.sleep(0.5)
         else:
-            if self._is_valid_session(startup_id):
+            if self._is_valid_session(session):
                 self._thread_log("Timed out waiting for Django port to open.")
             return
 
-        if not self._is_valid_session(startup_id):
+        if not self._is_valid_session(session):
             return
 
-        url = f"http://127.0.0.1:{self.django_port}"
+        url = f"http://127.0.0.1:{session.django_port}"
         try:
             webbrowser.open(url)
             self._thread_log(f"Opened browser at {url}")
-            self.browser_opened = True
         except Exception as exc:
             self._thread_log(f"Could not open browser: {exc}")
 
@@ -1225,156 +1043,132 @@ class ServerApp:
     # =========================================================================
 
     def start_services(self):
-        """
-        Main-thread entry point.  Select ports, then launch WhatsApp and Django
-        as fully independent background threads.
-        """
-        if self.is_running or self._stopping:
+        """Main thread entry point to start services under a new ServerSession."""
+        if self.is_running or self._stopping or self._session is not None:
             return
 
-        startup_id = self._new_startup_id()
-        self.server_ready.clear()
-        self.browser_opened = False
-        self._stopping      = False
+        session_id = self._new_startup_id()
+        session = ServerSession(session_id)
+        self._session = session
+        self._stopping = False
 
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self._set_status("starting")
         self._log("Starting server…")
 
-        # -- Port selection (main thread, before any threads start) -----------
         try:
-            self.django_port    = find_free_port(8000)
-            self._log(f"Waitress port selected: {self.django_port}")
-            # WhatsApp port bound to localhost only
-            self.whatsapp_port  = find_free_port(3000, host="127.0.0.1")
-            self._log(f"WhatsApp service port selected: {self.whatsapp_port}")
-            os.environ["WA_PORT"] = str(self.whatsapp_port)
+            session.django_port = find_free_port(8000)
+            self._log(f"Waitress port selected: {session.django_port}")
+            session.whatsapp_port = find_free_port(3000, host="127.0.0.1")
+            self._log(f"WhatsApp service port selected: {session.whatsapp_port}")
+
+            os.environ["WA_PORT"] = str(session.whatsapp_port)
             os.environ["WA_API_KEY"] = self.whatsapp_api_key
         except Exception as exc:
             self._log(f"ERROR: Could not find available ports: {exc}")
             self._set_status("error")
+            self._session = None
             self.start_btn.config(state=tk.NORMAL)
             self.stop_btn.config(state=tk.DISABLED)
             return
 
-        base_dir    = _get_base_dir()
+        base_dir = _get_base_dir()
         service_dir = os.path.join(base_dir, "whatsapp_service")
 
-        # -- WhatsApp thread (independent — does NOT block Django) ------------
         threading.Thread(
             target=self.prepare_and_launch_whatsapp,
-            args=(service_dir, startup_id),
+            args=(service_dir, session),
             daemon=True,
-            name=f"wa-{startup_id}",
+            name=f"wa-{session_id}",
         ).start()
 
-        # -- Django thread (independent — does NOT wait for WhatsApp) ---------
-        self.server_thread = threading.Thread(
+        threading.Thread(
             target=self.run_waitress,
-            args=(startup_id,),
+            args=(session,),
             daemon=True,
-            name=f"django-{startup_id}",
-        )
-        self.server_thread.start()
+            name=f"django-{session_id}",
+        ).start()
 
-        # -- Browser opener thread --------------------------------------------
         threading.Thread(
             target=self.open_browser_delayed,
-            args=(startup_id,),
+            args=(session,),
             daemon=True,
-            name=f"browser-{startup_id}",
+            name=f"browser-{session_id}",
         ).start()
 
     # =========================================================================
-    # Stop services
+    # Unified Shutdown
     # =========================================================================
 
-    def _do_stop_background(self, node_proc, server_inst, then=None):
+    def _begin_shutdown(self, destroy_after=False):
         """
-        Background thread: stop the captured process and server, then call
-        *then* on the main thread.
-
-        Accepts explicit objects (not self.node_process / self.server_instance)
-        so a stale stop thread can never kill a newer session's processes.
+        Unified shutdown entry point.
+        Invalidates active session, captures process/server references, and tears down in worker thread.
         """
-        bg_log = self._make_bg_log()
-
-        if node_proc is not None:
-            _stop_process_tree(node_proc, "WhatsApp service", log_fn=bg_log)
-
-        if server_inst is not None:
-            try:
-                server_inst.close()
-                bg_log("Waitress server closed.")
-            except Exception as exc:
-                bg_log(f"Error closing Waitress: {exc}")
-
-        # Unblock any thread waiting on server_ready (e.g. browser opener).
-        self.server_ready.set()
-
-        if then is not None:
-            self.root.after(0, then)
-
-    def stop_services(self):
-        """
-        Initiate a clean shutdown.
-
-        Immediately captures and clears process / server refs so no other code
-        can touch the same objects.  Actual blocking teardown happens in a
-        background thread to keep the GUI responsive.
-        """
-        if self._stopping:
+        if self._stopping and not destroy_after:
             return
+
         self._stopping = True
-        self._new_startup_id()   # Invalidate all active startup threads
+        self.is_running = False
 
+        self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.DISABLED)
-        self._set_status("stopping")
-        self._log("Stopping server…")
 
-        # Capture and immediately clear so no future code can inherit them.
-        node_proc            = self.node_process
-        self.node_process    = None
-        srv                  = self.server_instance
-        self.server_instance = None
-        self.django_port     = None
-        self.whatsapp_port   = None
+        if not destroy_after:
+            self._set_status("stopping")
+            self._log("Stopping server…")
+
+        # Capture and clear active session
+        session = self._session
+        self._session = None
+
+        if session:
+            session.cancelled.set()
+            session.server_ready.set()  # Unblock browser thread
+
+        def _worker():
+            bg_log = self._make_bg_log()
+            if session:
+                if session.node_process:
+                    _stop_process_tree(session.node_process, "WhatsApp service", log_fn=bg_log)
+                    session.node_process = None
+                if session.server_instance:
+                    try:
+                        session.server_instance.close()
+                        bg_log("Waitress server closed.")
+                    except Exception as exc:
+                        bg_log(f"Error closing Waitress: {exc}")
+                    session.server_instance = None
+
+            def _finish():
+                self._stopping = False
+                if destroy_after:
+                    self.root.destroy()
+                else:
+                    self._set_status("stopped")
+                    self.start_btn.config(state=tk.NORMAL)
+                    self.stop_btn.config(state=tk.DISABLED)
+
+            self.root.after(0, _finish)
 
         threading.Thread(
-            target=self._do_stop_background,
-            args=(node_proc, srv, self.update_ui_stopped),
+            target=_worker,
             daemon=True,
-            name="stop-services",
+            name="shutdown-worker",
         ).start()
 
-    def update_ui_stopped(self):
-        """Reset the GUI to the Stopped state.  Must be called on the main thread."""
-        self._set_status("stopped")
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
-        self.is_running    = False
-        self._stopping     = False
-        self.django_port   = None
-        self.whatsapp_port = None
-        self.server_ready.clear()
-
-    # =========================================================================
-    # Window close
-    # =========================================================================
+    def stop_services(self):
+        """Stop button callback."""
+        self._begin_shutdown(destroy_after=False)
 
     def on_closing(self):
-        """
-        Handle the window's X button.
-
-        If services are running, prompt the user.  Cleanup runs in a background
-        thread; root.destroy() is called only after cleanup completes — never
-        after a fixed timer.
-        """
-        server_running = self.server_instance is not None
+        """Window close (X button) handler."""
+        server_running = self.is_running
         node_running   = (
-            self.node_process is not None
-            and self.node_process.poll() is None
+            self._session is not None
+            and self._session.node_process is not None
+            and self._session.node_process.poll() is None
         )
 
         if server_running or node_running:
@@ -1384,37 +1178,7 @@ class ServerApp:
             ):
                 return
 
-        # Capture refs and mark stopping — only if not already doing so.
-        node_proc = None
-        srv       = None
-        if not self._stopping:
-            self._stopping       = True
-            self._new_startup_id()
-            node_proc            = self.node_process
-            self.node_process    = None
-            srv                  = self.server_instance
-            self.server_instance = None
-            self.django_port     = None
-            self.whatsapp_port   = None
-
-        def _cleanup_then_destroy():
-            bg_log = self._make_bg_log()
-            if node_proc is not None:
-                _stop_process_tree(node_proc, "WhatsApp service", log_fn=bg_log)
-            if srv is not None:
-                try:
-                    srv.close()
-                except Exception:
-                    pass
-            self.server_ready.set()
-            # Destroy the window only after cleanup has actually finished.
-            self.root.after(0, self.root.destroy)
-
-        threading.Thread(
-            target=_cleanup_then_destroy,
-            daemon=True,
-            name="on-closing",
-        ).start()
+        self._begin_shutdown(destroy_after=True)
 
 
 # ---------------------------------------------------------------------------
