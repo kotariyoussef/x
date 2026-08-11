@@ -390,7 +390,7 @@ class ServerApp:
             from school_erp.wsgi import application
             
             wsgi_app = StaticFilesHandler(application)
-            self.server_instance = create_server(wsgi_app, host="127.0.0.1", port=8000)
+            self.server_instance = create_server(wsgi_app, host="0.0.0.0", port=8000)
             self.is_running = True
             self.root.after(0, lambda: self._set_status("running"))
             self.root.after(0, lambda: self._log("Waitress server bound to 127.0.0.1:8000."))
