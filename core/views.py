@@ -30,6 +30,9 @@ import json
 import mimetypes
 import os
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def payment_create(request):
@@ -2172,126 +2175,234 @@ def whatsapp_payment_reminders(request):
     return render(request, 'core/whatsapp_payment_reminders.html', context)
 
 
+
 @require_GET
 def whatsapp_absence_notifications(request):
-    """Generate WhatsApp links to notify parents of student absences"""
+    """
+    Generate WhatsApp links for parents of students marked absent on a date.
 
-    # Day-of-week mapping (Python weekday() -> CourseGroupSchedule.day code)
-    WEEKDAY_TO_CODE = {0: 'MON', 1: 'TUE', 2: 'WED', 3: 'THU', 4: 'FRI', 5: 'SAT', 6: 'SUN'}
+    Each parent phone number becomes a separate notification contact.
+    Schedule information is only taken from the weekday matching the
+    absence date; we never fall back to another day's schedule.
+    """
 
-    # Get date parameter (default to today)
-    date_param = request.GET.get('date')
+    # ------------------------------------------------------------------------
+    # Resolve target date
+    # ------------------------------------------------------------------------
+
+    date_param = request.GET.get("date")
+    target_date = timezone.now().date()
+
     if date_param:
         try:
-            target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+            target_date = datetime.strptime(
+                date_param,
+                "%Y-%m-%d",
+            ).date()
         except (ValueError, TypeError):
-            target_date = timezone.now().date()
-    else:
-        target_date = timezone.now().date()
+            messages.warning(
+                request,
+                "Date invalide. La date d'aujourd'hui a été utilisée.",
+            )
 
-    day_code = WEEKDAY_TO_CODE[target_date.weekday()]
+    # Python weekday() -> CourseGroupSchedule.day
+    weekday_to_code = {
+        0: "MON",
+        1: "TUE",
+        2: "WED",
+        3: "THU",
+        4: "FRI",
+        5: "SAT",
+        6: "SUN",
+    }
 
-    # Get all absence records for the date, prefetching schedules to avoid N+1
-    absences = Attendance.objects.filter(
-        date=target_date,
-        is_present=False
-    ).select_related(
-        'student',
-        'course_group',
-        'course_group__teacher',
-    ).prefetch_related(
-        'course_group__schedules__room'
+    day_code = weekday_to_code[target_date.weekday()]
+
+    # ------------------------------------------------------------------------
+    # Load absences
+    # ------------------------------------------------------------------------
+
+    absences = (
+        Attendance.objects
+        .filter(
+            date=target_date,
+            is_present=False,
+        )
+        .select_related(
+            "student",
+            "course_group",
+            "course_group__teacher",
+        )
+        .prefetch_related(
+            "course_group__schedules__room",
+        )
     )
 
+    # ------------------------------------------------------------------------
+    # Load template ONCE
+    # ------------------------------------------------------------------------
+
+    default_absence_template = (
+        "Bonjour {name} 👋,\n\n"
+        "📢 Nous vous informons que {student_name} n'a pas assisté au cours "
+        "de {course_name}{time_info} le 📅 {date}.\n\n"
+        "ℹ️ Si cette absence est due à une raison particulière ou si vous "
+        "souhaitez obtenir plus d'informations, n'hésitez pas à nous contacter.\n\n"
+        "🤝 Merci de votre confiance.\n\n"
+        "Cordialement,\n"
+        "🎓 L'équipe pédagogique"
+    )
+
+    template_str = load_message_template(
+        "whatsapp_absence_notification.txt",
+        default_absence_template,
+    )
+
+    # ------------------------------------------------------------------------
     # Build notification contacts
+    # ------------------------------------------------------------------------
+
     absence_contacts = []
 
     for absence in absences:
         student = absence.student
         course = absence.course_group
 
-        if not (student.parent_contact or student.parent_contact_2):
+        # ------------------------------------------------------------
+        # Collect valid parent numbers
+        # ------------------------------------------------------------
+
+        parent_contacts = []
+
+        if student.parent_contact:
+            parent_contacts.append(
+                {
+                    "phone": student.parent_contact,
+                    "phone_label": "Parent 1",
+                }
+            )
+
+        if (
+            student.parent_contact_2
+            and student.parent_contact_2 != student.parent_contact
+        ):
+            parent_contacts.append(
+                {
+                    "phone": student.parent_contact_2,
+                    "phone_label": "Parent 2",
+                }
+            )
+
+        # No parent number -> nothing to notify.
+        if not parent_contacts:
             continue
 
-        # Find the schedule slot that matches the absence date's weekday
+        # ------------------------------------------------------------
+        # Find schedule for the actual weekday
+        # ------------------------------------------------------------
+
         matching_schedule = next(
-            (s for s in course.schedules.all() if s.day == day_code),
-            None
+            (
+                schedule
+                for schedule in course.schedules.all()
+                if schedule.day == day_code
+            ),
+            None,
         )
 
         if matching_schedule:
-            time_str = f"{matching_schedule.start_time.strftime('%H:%M')} - {matching_schedule.end_time.strftime('%H:%M')}"
-            room_str = matching_schedule.room.name if matching_schedule.room else ''
+            time_str = (
+                f"{matching_schedule.start_time.strftime('%H:%M')} - "
+                f"{matching_schedule.end_time.strftime('%H:%M')}"
+            )
+
+            room_str = (
+                matching_schedule.room.name
+                if matching_schedule.room
+                else ""
+            )
         else:
-            slots = course.schedules.all()
-            if slots:
-                s = slots[0]
-                time_str = f"{s.start_time.strftime('%H:%M')} - {s.end_time.strftime('%H:%M')}"
-                room_str = s.room.name if s.room else ''
-            else:
-                time_str = ''
-                room_str = ''
+            # IMPORTANT:
+            # Do not use another day's schedule.
+            time_str = ""
+            room_str = ""
 
-        # One base contact dict (phone filled per-number below)
-        contact_base = {
-            'name': student.parent_name or 'Parent',
-            'student_name': student.name,
-            'course_name': course.name,
-            'date': target_date.strftime('%d/%m/%Y'),
-            'time': time_str,
-            'room': room_str,
-            'teacher': course.teacher.name if course.teacher else '',
-            'schedule': matching_schedule,
-        }
-        contact = contact_base  # kept for message generation below
+        # ------------------------------------------------------------
+        # Common notification data
+        # ------------------------------------------------------------
 
-        # Generate personalised absence message
-        default_absence_template = (
-            "Bonjour {name} 👋,\n\n"
-            "📢 Nous vous informons que {student_name} n'a pas assisté au cours de {course_name}{time_info} le 📅 {date}.\n\n"
-            "ℹ️ Si cette absence est due à une raison particulière ou si vous souhaitez obtenir "
-            "plus d'informations, n'hésitez pas à nous contacter.\n\n"
-            "🤝 Merci de votre confiance.\n\n"
-            "Cordialement,\n"
-            "🎓 L'équipe pédagogique"
+        parent_name = student.parent_name or "Parent"
+        date_str = target_date.strftime("%d/%m/%Y")
+
+        time_info = (
+            f" 🕒 prévu à {time_str}"
+            if time_str
+            else ""
         )
-        template_str = load_message_template('whatsapp_absence_notification.txt', default_absence_template)
-        time_info = f" 🕒 prévu à {contact['time']}" if contact['time'] else ""
-        message = template_str.format_map(SafeDict({
-            'name': contact['name'],
-            'student_name': contact['student_name'],
-            'course_name': contact['course_name'],
-            'time_info': time_info,
-            'date': contact['date'],
-        }))
 
-        # Generate message once — same for both phone numbers
-        whatsapp_link = WhatsAppUtils.generate_chat_link(contact['phone'], message)
-        contact['whatsapp_link'] = whatsapp_link
-        contact['message'] = message
-        contact['student'] = student
-        contact['absence'] = absence
-        absence_contacts.append(contact)
+        message = template_str.format_map(
+            SafeDict(
+                {
+                    "name": parent_name,
+                    "student_name": student.name,
+                    "course_name": course.name,
+                    "time_info": time_info,
+                    "date": date_str,
+                }
+            )
+        )
 
-        # If a second parent number exists, add a separate entry
-        if student.parent_contact_2 and student.parent_contact_2 != student.parent_contact:
-            contact2 = dict(contact)
-            contact2['phone'] = student.parent_contact_2
-            contact2['phone_label'] = 'Parent 2'
-            contact2['whatsapp_link'] = WhatsAppUtils.generate_chat_link(student.parent_contact_2, message)
-            absence_contacts.append(contact2)
+        # ------------------------------------------------------------
+        # Create one WhatsApp contact per parent number
+        # ------------------------------------------------------------
+
+        for parent in parent_contacts:
+            phone = parent["phone"]
+
+            contact = {
+                "phone": phone,
+                "phone_label": parent["phone_label"],
+                "name": parent_name,
+                "student_name": student.name,
+                "course_name": course.name,
+                "date": date_str,
+                "time": time_str,
+                "room": room_str,
+                "teacher": (
+                    course.teacher.name
+                    if course.teacher
+                    else ""
+                ),
+                "schedule": matching_schedule,
+                "message": message,
+                "whatsapp_link": WhatsAppUtils.generate_chat_link(
+                    phone,
+                    message,
+                ),
+                "student": student,
+                "absence": absence,
+            }
+
+            absence_contacts.append(contact)
+
+    # ------------------------------------------------------------------------
+    # WhatsApp service status
+    # ------------------------------------------------------------------------
 
     status_data = WhatsAppServiceAPI.get_status()
 
     context = {
-        'absence_contacts': absence_contacts,
-        'total_absences': len(absence_contacts),
-        'target_date': target_date,
-        'status_data': status_data,
+        "absence_contacts": absence_contacts,
+        "total_absences": len(absence_contacts),
+        "target_date": target_date,
+        "status_data": status_data,
     }
 
-    return render(request, 'core/whatsapp_absence_notifications.html', context)
-
+    return render(
+        request,
+        "core/whatsapp_absence_notifications.html",
+        context,
+    )
 
 
 @require_http_methods(["GET", "POST"])
@@ -2734,7 +2845,19 @@ def course_group_create(request):
                 course = form.save()
                 formset.instance = course
                 formset.save()
-            messages.success(request, f"Le groupe '{course.name}' a été créé avec succès.")
+
+            # Automatically create/sync WhatsApp group safely
+            try:
+                from core.services.whatsapp import WhatsAppGroupService
+                res = WhatsAppGroupService.create_course_group(course)
+                if res.get('success'):
+                    messages.success(request, f"Le groupe '{course.name}' a été créé et le groupe WhatsApp a été généré.")
+                else:
+                    messages.warning(request, f"Le groupe '{course.name}' a été créé, mais la création du groupe WhatsApp a échoué: {res.get('error')}")
+            except Exception as e:
+                logger.error(f"WhatsApp group creation exception for course {course.id}: {e}")
+                messages.warning(request, f"Le groupe '{course.name}' a été créé, mais une erreur est survenue lors de la création du groupe WhatsApp.")
+
             return redirect('core:courses_list')
     else:
         form = CourseGroupForm()
@@ -5340,6 +5463,22 @@ def restore_history_ajax(request, session_id):
         return JsonResponse({'success': False, 'error': str(ve)}, status=400)
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@require_POST
+def course_group_sync_whatsapp(request, group_id):
+    """
+    Manually trigger WhatsApp group sync for a course group.
+    """
+    course_group = get_object_or_404(CourseGroup, id=group_id)
+    from core.services.whatsapp import WhatsAppGroupService
+    res = WhatsAppGroupService.sync_course_group(course_group)
+    if res.get('success'):
+        messages.success(request, f"WhatsApp Group Sync Success: {res.get('group_name', '')}")
+    else:
+        warn = res.get('warnings', ['Unknown error'])
+        messages.warning(request, f"WhatsApp Group Sync Warning/Error: {', '.join(warn)}")
+    return redirect('courses_list')
 
 
 

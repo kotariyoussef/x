@@ -356,6 +356,33 @@ class CourseGroup(models.Model):
         null=True,
         verbose_name="Lien du groupe WhatsApp"
     )
+    whatsapp_group_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="ID du groupe WhatsApp"
+    )
+    whatsapp_group_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Nom du groupe WhatsApp"
+    )
+    whatsapp_group_status = models.CharField(
+        max_length=50,
+        default='NOT_CREATED',
+        choices=[
+            ('NOT_CREATED', 'Non créé'),
+            ('ACTIVE', 'Actif'),
+            ('FAILED', 'Échec'),
+        ],
+        verbose_name="Statut du groupe WhatsApp"
+    )
+    whatsapp_last_synced_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Dernière synchronisation WhatsApp"
+    )
     
     requires_accessibility = models.BooleanField(default=False, verbose_name="Requiert accessibilité")
     requires_computer_lab = models.BooleanField(default=False, verbose_name="Requiert labo info")

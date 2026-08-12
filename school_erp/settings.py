@@ -378,7 +378,7 @@ LOGOUT_REDIRECT_URL = '/admin/login/'
 
 # WhatsApp integration settings
 WHATSAPP_API_KEY = os.environ.get('WA_API_KEY', '')
-WHATSAPP_SESSION_NOTIFICATIONS_ENABLED = True  # Set to True to enable WhatsApp session notifications
+WHATSAPP_SESSION_NOTIFICATIONS_ENABLED = True
 WHATSAPP_SERVICE_PORT = os.environ.get("WA_PORT", 3000)
 
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True

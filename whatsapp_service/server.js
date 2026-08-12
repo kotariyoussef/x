@@ -152,6 +152,20 @@ async function restartClient() {
 // Initial boot
 createClient();
 
+// Helper to format Moroccan or international phone number to contact ID (formatted e.g. 2126...@c.us)
+function formatPhoneToChatId(phone) {
+    if (!phone) return null;
+    let cleaned = String(phone).replace(/\D/g, '');
+    if (/^(06|07|05)/.test(cleaned) && cleaned.length === 10) {
+        cleaned = '212' + cleaned.substring(1);
+    } else if (/^(6|7|5)/.test(cleaned) && cleaned.length === 9) {
+        cleaned = '212' + cleaned;
+    } else if (cleaned.startsWith('00212')) {
+        cleaned = cleaned.substring(2);
+    }
+    return cleaned ? `${cleaned}@c.us` : null;
+}
+
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 
 // GET /status — Get status, QR code, and connected info (public, no auth needed)
@@ -180,20 +194,10 @@ app.post('/send', requireApiKey, async (req, res) => {
     }
 
     try {
-        let cleanedPhone = phone.replace(/\D/g, '');
-
-        // Morocco: local numbers 06x/07x/05x (10 digits) → international
-        if (/^(06|07|05)/.test(cleanedPhone) && cleanedPhone.length === 10) {
-            cleanedPhone = '212' + cleanedPhone.substring(1);
-        // Morocco: 9-digit without leading 0 → prepend 212
-        } else if (/^(6|7|5)/.test(cleanedPhone) && cleanedPhone.length === 9) {
-            cleanedPhone = '212' + cleanedPhone;
-        // International 00212 → 212
-        } else if (cleanedPhone.startsWith('00212')) {
-            cleanedPhone = cleanedPhone.substring(2);
+        const chatId = formatPhoneToChatId(phone);
+        if (!chatId) {
+            return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
-
-        const chatId = `${cleanedPhone}@c.us`;
         console.log(`Attempting to send message to: ${chatId}`);
 
         const isRegistered = await client.isRegisteredUser(chatId);
@@ -238,13 +242,253 @@ app.post('/send', requireApiKey, async (req, res) => {
     }
 });
 
+// POST /create-group — Create a WhatsApp group
+app.post('/create-group', requireApiKey, async (req, res) => {
+    const { name, participants = [] } = req.body;
+    if (!name) {
+        return res.status(400).json({ success: false, error: 'Group name is required' });
+    }
+    if (clientStatus !== 'READY') {
+        return res.status(503).json({ success: false, error: 'WhatsApp client is not ready' });
+    }
+
+    try {
+        const participantChatIds = [];
+        for (const phone of participants) {
+            const cId = formatPhoneToChatId(phone);
+            if (cId) {
+                try {
+                    const isReg = await client.isRegisteredUser(cId);
+                    if (isReg) {
+                        participantChatIds.push(cId);
+                    }
+                } catch (err) {
+                    console.warn(`Error checking registration for ${phone}:`, err.message);
+                }
+            }
+        }
+
+        console.log(`Creating WhatsApp group "${name}" with ${participantChatIds.length} initial participants`);
+        const groupResult = await client.createGroup(name, participantChatIds);
+
+        const groupId = typeof groupResult === 'string' ? groupResult : (groupResult.gid?._serialized || groupResult.gid);
+        
+        let inviteLink = null;
+        try {
+            const chat = await client.getChatById(groupId);
+            if (chat && typeof chat.getInviteCode === 'function') {
+                const inviteCode = await chat.getInviteCode();
+                if (inviteCode) {
+                    inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
+                }
+            }
+        } catch (linkErr) {
+            console.warn(`Could not get invite code for group ${groupId}:`, linkErr.message);
+        }
+
+        return res.json({
+            success: true,
+            groupId: groupId,
+            inviteLink: inviteLink
+        });
+    } catch (error) {
+        console.error('Failed to create group:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /group-add-participants — Add participants to an existing group
+app.post('/group-add-participants', requireApiKey, async (req, res) => {
+    const { groupId, participants = [] } = req.body;
+    if (!groupId || !participants || participants.length === 0) {
+        return res.status(400).json({ success: false, error: 'groupId and participants array are required' });
+    }
+    if (clientStatus !== 'READY') {
+        return res.status(503).json({ success: false, error: 'WhatsApp client is not ready' });
+    }
+
+    try {
+        const chat = await client.getChatById(groupId);
+        if (!chat) {
+            return res.status(404).json({ success: false, error: `Group ${groupId} not found` });
+        }
+
+        const participantChatIds = [];
+        for (const phone of participants) {
+            const cId = formatPhoneToChatId(phone);
+            if (cId) {
+                try {
+                    const isReg = await client.isRegisteredUser(cId);
+                    if (isReg) participantChatIds.push(cId);
+                } catch (err) {
+                    console.warn(`Error checking registration for ${phone}:`, err.message);
+                }
+            }
+        }
+
+        if (participantChatIds.length === 0) {
+            return res.json({ success: true, added: [], message: 'No valid registered participants to add' });
+        }
+
+        let addResult = null;
+        let addError = null;
+        try {
+            addResult = await chat.addParticipants(participantChatIds);
+        } catch (err) {
+            console.error(`Error in chat.addParticipants for group ${groupId}:`, err);
+            addError = err;
+        }
+
+        // Format response so backend can inspect per-participant status or fallback
+        const results = {};
+        for (const cId of participantChatIds) {
+            const cleanPhone = cId.replace('@c.us', '');
+            if (addError) {
+                // Direct addition failed (e.g. WhatsApp privacy setting, not in contacts, or driver error)
+                results[cleanPhone] = {
+                    status: 403,
+                    message: typeof addError === 'string' ? addError : (addError.message || 'Error adding participant directly')
+                };
+            } else if (addResult && typeof addResult === 'object' && addResult[cId]) {
+                const code = addResult[cId].code || 200;
+                results[cleanPhone] = {
+                    status: code,
+                    message: code === 200 ? 'Added' : (addResult[cId].message || 'Failed')
+                };
+            } else {
+                results[cleanPhone] = { status: 200, message: 'Added' };
+            }
+        }
+
+        return res.json({
+            success: true,
+            results: results,
+            raw: addResult
+        });
+    } catch (error) {
+        console.error(`Failed to add participants to group ${groupId}:`, error);
+        return res.status(500).json({ success: false, error: error.message || String(error) });
+    }
+});
+
+// POST /group-remove-participants — Remove participants from an existing group
+app.post('/group-remove-participants', requireApiKey, async (req, res) => {
+    const { groupId, participants = [] } = req.body;
+    if (!groupId || !participants || participants.length === 0) {
+        return res.status(400).json({ success: false, error: 'groupId and participants array are required' });
+    }
+    if (clientStatus !== 'READY') {
+        return res.status(503).json({ success: false, error: 'WhatsApp client is not ready' });
+    }
+
+    try {
+        const chat = await client.getChatById(groupId);
+        if (!chat) {
+            return res.status(404).json({ success: false, error: `Group ${groupId} not found` });
+        }
+
+        const participantChatIds = [];
+        for (const phone of participants) {
+            const cId = formatPhoneToChatId(phone);
+            if (cId) participantChatIds.push(cId);
+        }
+
+        if (participantChatIds.length === 0) {
+            return res.json({ success: true, removed: [] });
+        }
+
+        let removeResult = null;
+        let removeError = null;
+        try {
+            removeResult = await chat.removeParticipants(participantChatIds);
+        } catch (err) {
+            console.error(`Error in chat.removeParticipants for group ${groupId}:`, err);
+            removeError = err;
+        }
+
+        const results = {};
+        for (const cId of participantChatIds) {
+            const cleanPhone = cId.replace('@c.us', '');
+            if (removeError) {
+                results[cleanPhone] = {
+                    status: 500,
+                    message: typeof removeError === 'string' ? removeError : (removeError.message || 'Error removing participant')
+                };
+            } else if (removeResult && typeof removeResult === 'object' && removeResult[cId]) {
+                const code = removeResult[cId].code || 200;
+                results[cleanPhone] = {
+                    status: code,
+                    message: code === 200 ? 'Removed' : (removeResult[cId].message || 'Failed')
+                };
+            } else {
+                results[cleanPhone] = { status: 200, message: 'Removed' };
+            }
+        }
+
+        return res.json({
+            success: true,
+            results: results,
+            raw: removeResult
+        });
+    } catch (error) {
+        console.error(`Failed to remove participants from group ${groupId}:`, error);
+        return res.status(500).json({ success: false, error: error.message || String(error) });
+    }
+});
+
+// GET /group-info — Get group info including participants
+app.get('/group-info', requireApiKey, async (req, res) => {
+    const groupId = req.query.groupId;
+    if (!groupId) {
+        return res.status(400).json({ success: false, error: 'groupId query parameter is required' });
+    }
+    if (clientStatus !== 'READY') {
+        return res.status(503).json({ success: false, error: 'WhatsApp client is not ready' });
+    }
+
+    try {
+        const chat = await client.getChatById(groupId);
+        if (!chat) {
+            return res.status(404).json({ success: false, error: `Group ${groupId} not found` });
+        }
+
+        let inviteLink = null;
+        try {
+            if (typeof chat.getInviteCode === 'function') {
+                const inviteCode = await chat.getInviteCode();
+                if (inviteCode) {
+                    inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
+                }
+            }
+        } catch (err) {
+            console.warn(`Could not fetch invite code for ${groupId}:`, err.message);
+        }
+
+        const participants = (chat.participants || []).map(p => ({
+            id: p.id._serialized,
+            user: p.id.user,
+            isAdmin: p.isAdmin,
+            isSuperAdmin: p.isSuperAdmin
+        }));
+
+        return res.json({
+            success: true,
+            id: chat.id._serialized,
+            name: chat.name,
+            inviteLink: inviteLink,
+            participants: participants
+        });
+    } catch (error) {
+        console.error(`Failed to fetch group info for ${groupId}:`, error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // POST /logout — Logout session
 app.post('/logout', requireApiKey, async (req, res) => {
     try {
         console.log('Logging out from WhatsApp session...');
         await client.logout();
-        // 'disconnected' will fire from the logout and trigger restartClient(),
-        // but we also kick it off here in case the event doesn't fire.
         restartClient();
         res.json({ success: true });
     } catch (error) {
@@ -257,7 +501,6 @@ app.post('/logout', requireApiKey, async (req, res) => {
 app.post('/restart', requireApiKey, async (req, res) => {
     console.log('Manual restart requested via API...');
     res.json({ success: true, message: 'Restart initiated' });
-    // Respond first, then restart so the response gets through
     setTimeout(() => restartClient(), 200);
 });
 

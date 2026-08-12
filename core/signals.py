@@ -7,7 +7,7 @@ Flow:
   pre_save  → snapshot (status, date, start_time, room_id) before DB write
   post_save → compare snapshot to saved values; if changed, send WA messages
 """
-from django.db.models.signals import pre_save, post_save
+from django.db.models.signals import pre_save, post_save, post_delete
 from django.dispatch import receiver
 from django.conf import settings
 
@@ -191,3 +191,57 @@ if settings.WHATSAPP_SESSION_NOTIFICATIONS_ENABLED:
                 )
         except Exception:
             pass
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Enrollment WhatsApp Group Automation Signals
+# ──────────────────────────────────────────────────────────────────────────────
+
+@receiver(post_save, sender='core.Enrollment')
+def enrollment_post_save_whatsapp_sync(sender, instance, created, **kwargs):
+    """
+    When an Enrollment is created or updated:
+    If active, automatically syncs the student, parent_contact, parent_contact_2,
+    and teacher into the CourseGroup's WhatsApp group.
+    """
+    if not instance.is_active:
+        return
+
+    try:
+        from .services.whatsapp import WhatsAppGroupService
+        course_group = instance.course_group
+        student = instance.student
+
+        # If WhatsApp group doesn't exist yet, try full sync / creation
+        if not course_group.whatsapp_group_id:
+            WhatsAppGroupService.sync_course_group(course_group)
+        else:
+            # Collect student phone, parent_contact, parent_contact_2
+            phones = [p for p in [student.phone, student.parent_contact, student.parent_contact_2] if p]
+            if phones:
+                WhatsAppGroupService.add_participant(course_group, phones)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error in enrollment_post_save_whatsapp_sync: {e}")
+
+
+@receiver(post_delete, sender='core.Enrollment')
+def enrollment_post_delete_whatsapp_sync(sender, instance, **kwargs):
+    """
+    When an Enrollment is deleted/removed:
+    Attempts to remove student and parent phone numbers from the WhatsApp group.
+    """
+    try:
+        from .services.whatsapp import WhatsAppGroupService
+        course_group = instance.course_group
+        student = instance.student
+
+        if course_group.whatsapp_group_id:
+            phones = [p for p in [student.phone, student.parent_contact, student.parent_contact_2] if p]
+            if phones:
+                WhatsAppGroupService.remove_participant(course_group, phones)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error in enrollment_post_delete_whatsapp_sync: {e}")

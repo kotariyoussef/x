@@ -148,6 +148,7 @@ urlpatterns = [
     path('whatsapp/restart/',
          views.whatsapp_restart_ajax,
          name='whatsapp_restart_ajax'),
+    path('courses/<int:group_id>/sync-whatsapp/', views.course_group_sync_whatsapp, name='course_group_sync_whatsapp'),
     
     # Dashboard admin API
     path('admin-api/kpis/', views.admin_kpis_api, name='admin_kpis_api'),

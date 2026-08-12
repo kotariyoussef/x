@@ -80,6 +80,7 @@ used_phones = set()
 
 def generate_phone():
     """Génère un numéro de téléphone marocain réaliste et unique"""
+    return "0715125245"
     while True:
         prefix = random.choice(["06", "07"])
         digits = "".join(random.choices("0123456789", k=8))
@@ -372,6 +373,7 @@ def generate_fixtures(
         # 1 ou 2 séances hebdomadaires
         num_sessions = random.choices([1, 2], weights=[0.7, 0.3])[0]
         
+        has_wa = random.random() > 0.4
         course = CourseGroup(
             name=f"{subject} - {level.name} (G{idx+1})",
             subject=subject,
@@ -379,7 +381,10 @@ def generate_fixtures(
             monthly_price=price,
             teacher=teacher,
             is_active=is_active,
-            whatsapp_group_link=f"https://chat.whatsapp.com/mockgroup{idx}" if random.random() > 0.4 else None
+            whatsapp_group_id=f"1203630000000{idx}@g.us" if has_wa else None,
+            whatsapp_group_name=f"School ERP - {subject} - {level.name} (G{idx+1})" if has_wa else None,
+            whatsapp_group_status="ACTIVE" if has_wa else "NONE",
+            whatsapp_group_link=f"https://chat.whatsapp.com/mockgroup{idx}" if has_wa else None
         )
         
         # Sauvegarde directe pour bypasser les signaux

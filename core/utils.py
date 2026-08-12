@@ -2769,5 +2769,105 @@ class WhatsAppServiceAPI:
                 'error': str(e)
             }
 
+    @classmethod
+    def create_group(cls, name: str, participants: Optional[List[str]] = None):
+        """
+        Creates a WhatsApp group.
+        """
+        url = f"{cls.BASE_URL}/create-group"
+        payload_data = {'name': name, 'participants': participants or []}
+        payload = json.dumps(payload_data).encode('utf-8')
+        headers = {'Content-Type': 'application/json'}
+        api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
+        if api_key:
+            headers['X-API-Key'] = api_key
+
+        req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode('utf-8'))
+            except Exception:
+                return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
+    def add_group_participants(cls, group_id: str, participants: List[str]):
+        """
+        Adds participants to an existing group.
+        """
+        url = f"{cls.BASE_URL}/group-add-participants"
+        payload_data = {'groupId': group_id, 'participants': participants}
+        payload = json.dumps(payload_data).encode('utf-8')
+        headers = {'Content-Type': 'application/json'}
+        api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
+        if api_key:
+            headers['X-API-Key'] = api_key
+
+        req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode('utf-8'))
+            except Exception:
+                return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
+    def remove_group_participants(cls, group_id: str, participants: List[str]):
+        """
+        Removes participants from an existing group.
+        """
+        url = f"{cls.BASE_URL}/group-remove-participants"
+        payload_data = {'groupId': group_id, 'participants': participants}
+        payload = json.dumps(payload_data).encode('utf-8')
+        headers = {'Content-Type': 'application/json'}
+        api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
+        if api_key:
+            headers['X-API-Key'] = api_key
+
+        req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode('utf-8'))
+            except Exception:
+                return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
+    def get_group_info(cls, group_id: str):
+        """
+        Gets info for a WhatsApp group.
+        """
+        import urllib.parse
+        encoded_gid = urllib.parse.quote(group_id)
+        url = f"{cls.BASE_URL}/group-info?groupId={encoded_gid}"
+        headers = {'Content-Type': 'application/json'}
+        api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
+        if api_key:
+            headers['X-API-Key'] = api_key
+
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode('utf-8'))
+            except Exception:
+                return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
 
 

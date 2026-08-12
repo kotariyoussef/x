@@ -235,16 +235,6 @@ class ConflictService:
                             session1_id=s1.id,
                             date=s1.date
                         ))
-                elif enrolled <= cap * 0.3 and cap >= 10:
-                    conflicts.append(Conflict(
-                        type=ConflictType.LARGE_CLASSROOM,
-                        severity=ConflictSeverity.WARNING,
-                        description=f"La salle '{s1.room.name}' ({cap} places) est trop grande pour le groupe '{s1.group.name if s1.group else ''}' ({enrolled} élèves inscrits).",
-                        entity_id=s1.room.id,
-                        entity_name=s1.room.name,
-                        session1_id=s1.id,
-                        date=s1.date
-                    ))
 
             # Room suitability check
             if s1.room and s1.group:
@@ -494,15 +484,6 @@ class ConflictService:
                             entity_name=sch1.room.name,
                             sch1_id=sch1.id
                         ))
-                elif enrolled <= cap * 0.3 and cap >= 10:
-                    conflicts.append(Conflict(
-                        type=ConflictType.LARGE_CLASSROOM,
-                        severity=ConflictSeverity.WARNING,
-                        description=f"La salle hebdomadaire '{sch1.room.name}' ({cap} places) est sous-utilisée par le groupe '{sch1.course_group.name}' ({enrolled} élèves inscrits) le {sch1.get_day_display()}.",
-                        entity_id=sch1.room.id,
-                        entity_name=sch1.room.name,
-                        sch1_id=sch1.id
-                    ))
 
             # Room suitability check (weekly schedule)
             if sch1.room and sch1.course_group:
@@ -652,7 +633,6 @@ class ConflictService:
         all_session_conflicts = cls.check_conflicts_for_sessions(sessions)
         
         session_conflicts = [c for c in all_session_conflicts if c.severity == ConflictSeverity.BLOCKING]
-        capacity_warnings = [c for c in all_session_conflicts if c.type in (ConflictType.SMALL_CLASSROOM, ConflictType.CAPACITY_NEAR_LIMIT, ConflictType.LARGE_CLASSROOM)]
         info_alerts = [c for c in all_session_conflicts if c.severity == ConflictSeverity.INFO]
         
         # Merge any student overlaps found on session level
@@ -660,12 +640,11 @@ class ConflictService:
         student_conflicts.extend(session_student_overlaps)
 
         # Total counts
-        total_count = len(schedule_conflicts) + len(session_conflicts) + len(capacity_warnings) + len(student_conflicts) + len(info_alerts)
+        total_count = len(schedule_conflicts) + len(session_conflicts) + len(student_conflicts) + len(info_alerts)
 
         return {
             'schedule_conflicts': schedule_conflicts,
             'session_conflicts': session_conflicts,
-            'capacity_warnings': capacity_warnings,
             'student_conflicts': student_conflicts,
             'info_alerts': info_alerts,
             'total_count': total_count,
