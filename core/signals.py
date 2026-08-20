@@ -204,20 +204,23 @@ def enrollment_post_save_whatsapp_sync(sender, instance, created, **kwargs):
     If active, automatically syncs the student, parent_contact, parent_contact_2,
     and teacher into the CourseGroup's WhatsApp group.
     """
-    if not instance.is_active:
-        return
-
     try:
         from .services.whatsapp import WhatsAppGroupService
         course_group = instance.course_group
         student = instance.student
 
-        # If WhatsApp group doesn't exist yet, try full sync / creation
+        phones = [p for p in [student.phone, student.parent_contact, student.parent_contact_2] if p]
+
+        if not instance.is_active:
+            # Deactivated enrollment: remove participant from group
+            if course_group.whatsapp_group_id and phones:
+                WhatsAppGroupService.remove_participant(course_group, phones)
+            return
+
+        # Active enrollment: create group or add participant
         if not course_group.whatsapp_group_id:
             WhatsAppGroupService.sync_course_group(course_group)
         else:
-            # Collect student phone, parent_contact, parent_contact_2
-            phones = [p for p in [student.phone, student.parent_contact, student.parent_contact_2] if p]
             if phones:
                 WhatsAppGroupService.add_participant(course_group, phones)
     except Exception as e:
