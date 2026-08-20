@@ -247,7 +247,8 @@ class WhatsAppGroupService:
 
         # 1. Verify WhatsApp service availability
         status_info = WhatsAppServiceAPI.get_status()
-        if status_info.get('status') != 'authenticated':
+        status_str = str(status_info.get('status', '')).lower()
+        if status_str not in ('authenticated', 'ready') or status_info.get('offline'):
             err = f"WhatsApp service is offline or disconnected (status: {status_info.get('status', 'unknown')})"
             logger.warning(err)
             course_group.whatsapp_group_status = 'FAILED'
@@ -343,4 +344,35 @@ class WhatsAppGroupService:
             'already_members': all_already,
             'failed': failed,
             'warnings': warnings
+        }
+
+    @classmethod
+    def sync_all_active_groups(cls) -> Dict[str, Any]:
+        """
+        Batch-sync all active CourseGroups.
+        Useful for administrative tasks, automated health checks, or bulk group updates.
+        """
+        from core.models import CourseGroup
+        active_groups = CourseGroup.objects.filter(is_active=True)
+        results = []
+        synced_count = 0
+        failed_count = 0
+
+        for group in active_groups:
+            res = cls.sync_course_group(group)
+            results.append({
+                'group_id': group.id,
+                'group_name': group.name,
+                'result': res
+            })
+            if res.get('success'):
+                synced_count += 1
+            else:
+                failed_count += 1
+
+        return {
+            'total': active_groups.count(),
+            'synced': synced_count,
+            'failed': failed_count,
+            'details': results
         }
