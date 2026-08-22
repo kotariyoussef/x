@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% block title %}Enregistrement des Groupes WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+{% block title %}Groupes WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
 
 {% block breadcrumb %}
   <span class="context-bar-sep">›</span>
@@ -7,7 +7,7 @@
   <span class="context-bar-sep">›</span>
   <a href="{% url 'core:whatsapp_groups' %}" class="text-decoration-none text-secondary">Groupes</a>
   <span class="context-bar-sep">›</span>
-  <span class="context-bar-current">Enregistrement des Groupes</span>
+  <span class="context-bar-current">Association des Groupes</span>
 {% endblock %}
 
 {% block content %}
@@ -22,18 +22,27 @@
     {% endfor %}
   {% endif %}
 
+  {% if backfilled > 0 %}
+    <div class="alert alert-success border-0 shadow-sm mb-3">
+      <i class="bi bi-check-circle me-2"></i>
+      <strong>{{ backfilled }} groupe(s) WhatsApp</strong> existant(s) ont été automatiquement ajoutés au registre.
+    </div>
+  {% endif %}
+
   <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
       <h1 class="h3 fw-bold text-dark mb-1">
-        <i class="bi bi-whatsapp text-success me-2"></i>Enregistrement des Groupes WhatsApp
+        <i class="bi bi-whatsapp text-success me-2"></i>Association des Groupes WhatsApp
       </h1>
-      <p class="text-secondary mb-0">Associez l'identifiant WhatsApp de chaque groupe de cours. Aucun scan automatique requis.</p>
+      <p class="text-secondary mb-0">Associez chaque groupe de cours à son groupe WhatsApp correspondant.</p>
     </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addGroupModal">
-        <i class="bi bi-plus-lg me-1"></i> Ajouter un groupe
-      </button>
+    <div class="d-flex gap-2 flex-wrap">
+      {% if wa_ready %}
+        <button class="btn btn-outline-success btn-sm" id="btn-sync-all" title="Synchroniser tous les groupes existants">
+          <i class="bi bi-arrow-repeat me-1"></i> Synchroniser tout
+        </button>
+      {% endif %}
       <a href="{% url 'core:whatsapp_groups' %}" class="btn btn-outline-primary btn-sm">
         <i class="bi bi-list-ul me-1"></i> Registre complet
       </a>
@@ -62,24 +71,22 @@
     </div>
   </div>
 
-  <!-- How to find the WhatsApp group ID -->
-  <div class="alert alert-info border-0 shadow-sm d-flex gap-3 align-items-start p-3 mb-4">
-    <i class="bi bi-info-circle-fill fs-4 text-info flex-shrink-0 mt-1"></i>
-    <div>
-      <h6 class="fw-bold mb-1">Comment trouver l'identifiant d'un groupe WhatsApp ?</h6>
-      <p class="mb-1 small">L'identifiant ressemble à : <code>120363xxxxxxxxxx@g.us</code></p>
-      <ol class="mb-0 small ps-3">
-        <li>Ouvrez le tableau de bord WhatsApp → <strong>Registre des Groupes</strong> → <strong>Découverte</strong> (si disponible)</li>
-        <li>Ou : dans WhatsApp Web, ouvrez le groupe → l'URL contient l'identifiant</li>
-        <li>Ou : demandez à l'admin système de récupérer l'identifiant depuis les logs WhatsApp</li>
-      </ol>
+  {% if not wa_ready %}
+    <div class="alert alert-warning border-0 shadow-sm d-flex gap-3 align-items-center p-3 mb-4">
+      <i class="bi bi-exclamation-circle-fill fs-4 text-warning flex-shrink-0"></i>
+      <div>
+        <h6 class="fw-bold mb-1">WhatsApp non connecté</h6>
+        <p class="mb-0 small">Le service WhatsApp n'est pas connecté. Le sélecteur de groupes ne sera pas disponible.<br>
+          Les groupes créés automatiquement via les cours sont toujours visibles ci-dessous.</p>
+      </div>
     </div>
-  </div>
+  {% endif %}
 
   <!-- Course Groups Table -->
   <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-white border-0 py-3">
-      <h6 class="fw-bold mb-0"><i class="bi bi-mortarboard me-2 text-primary"></i>Groupes de cours et leurs groupes WhatsApp</h6>
+    <div class="card-header bg-white border-0 py-3 d-flex align-items-center justify-content-between">
+      <h6 class="fw-bold mb-0"><i class="bi bi-mortarboard me-2 text-primary"></i>Groupes de cours</h6>
+      <span class="badge bg-secondary">{{ all_course_groups|length }}</span>
     </div>
     <div class="table-responsive">
       <table class="table table-hover align-middle mb-0">
@@ -87,7 +94,6 @@
           <tr>
             <th>Groupe de cours</th>
             <th>Professeur</th>
-            <th>Niveau</th>
             <th>Groupes WhatsApp liés</th>
             <th class="text-end">Action</th>
           </tr>
@@ -96,44 +102,40 @@
           {% for cg in all_course_groups %}
             <tr id="cg-row-{{ cg.pk }}">
               <td>
-                <a href="{% url 'core:group_detail' cg.pk %}" class="fw-bold text-dark text-decoration-none">
-                  {{ cg.name }}
-                </a>
+                <a href="{% url 'core:group_detail' cg.pk %}" class="fw-bold text-dark text-decoration-none">{{ cg.name }}</a>
+                {% if cg.level %}<div class="text-muted small">{{ cg.level.name }}</div>{% endif %}
               </td>
               <td class="text-secondary small">{{ cg.teacher.name|default:"—" }}</td>
-              <td class="text-secondary small">{{ cg.level.name|default:"—" }}</td>
-              <td>
+              <td id="wa-badges-{{ cg.pk }}">
                 {% for wag in cg.registered_whatsapp_groups.all %}
-                  <span class="badge bg-success me-1">
-                    <i class="bi bi-whatsapp me-1"></i>
-                    <a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="text-white text-decoration-none">
-                      {{ wag.display_name }}
-                    </a>
-                  </span>
+                  <a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="badge bg-success text-decoration-none me-1">
+                    <i class="bi bi-whatsapp me-1"></i>{{ wag.display_name }}
+                  </a>
                 {% empty %}
-                  <span class="text-muted small"><i class="bi bi-dash-circle text-warning me-1"></i>Non configuré</span>
+                  <span class="text-muted small" id="no-badge-{{ cg.pk }}"><i class="bi bi-dash-circle text-warning me-1"></i>Non configuré</span>
                 {% endfor %}
               </td>
               <td class="text-end">
-                <button class="btn btn-outline-success btn-sm btn-link-group"
-                        data-cg-id="{{ cg.pk }}"
-                        data-cg-name="{{ cg.name }}"
-                        title="Associer un groupe WhatsApp">
-                  <i class="bi bi-link-45deg me-1"></i> Associer
-                </button>
+                {% if wa_ready %}
+                  <button class="btn btn-outline-success btn-sm btn-pick-group"
+                          data-cg-id="{{ cg.pk }}"
+                          data-cg-name="{{ cg.name }}">
+                    <i class="bi bi-link-45deg me-1"></i> Associer
+                  </button>
+                {% else %}
+                  <span class="text-muted small">WA déconnecté</span>
+                {% endif %}
               </td>
             </tr>
           {% empty %}
-            <tr>
-              <td colspan="5" class="text-center py-4 text-muted">Aucun groupe de cours actif.</td>
-            </tr>
+            <tr><td colspan="4" class="text-center py-4 text-muted">Aucun groupe de cours actif.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Standalone groups (not linked to a course) -->
+  <!-- Standalone groups -->
   {% if standalone_groups %}
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-header bg-white border-0 py-3">
@@ -142,32 +144,15 @@
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light small text-uppercase text-secondary">
-            <tr>
-              <th>Nom</th><th>Type</th><th>Statut</th><th class="text-end">Actions</th>
-            </tr>
+            <tr><th>Nom</th><th>Type</th><th>Statut</th><th class="text-end">Voir</th></tr>
           </thead>
           <tbody>
             {% for wag in standalone_groups %}
               <tr>
-                <td>
-                  <a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="fw-bold text-dark text-decoration-none">
-                    {{ wag.display_name }}
-                  </a>
-                  <div class="text-muted small font-monospace" style="font-size:.72rem;">{{ wag.whatsapp_group_id }}</div>
-                </td>
+                <td><a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="fw-bold text-dark text-decoration-none">{{ wag.display_name }}</a></td>
                 <td><span class="badge bg-secondary">{{ wag.get_group_type_display }}</span></td>
-                <td>
-                  {% if wag.is_active %}
-                    <span class="badge bg-success">Actif</span>
-                  {% else %}
-                    <span class="badge bg-secondary">Inactif</span>
-                  {% endif %}
-                </td>
-                <td class="text-end">
-                  <a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-eye"></i> Voir
-                  </a>
-                </td>
+                <td>{% if wag.is_active %}<span class="badge bg-success">Actif</span>{% else %}<span class="badge bg-secondary">Inactif</span>{% endif %}</td>
+                <td class="text-end"><a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye"></i></a></td>
               </tr>
             {% endfor %}
           </tbody>
@@ -178,95 +163,42 @@
 
 </div>
 
-<!-- Modal: Add/Link WhatsApp Group -->
-<div class="modal fade" id="addGroupModal" tabindex="-1" aria-labelledby="addGroupModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+<!-- Modal: Pick & Link WhatsApp Group -->
+<div class="modal fade" id="pickGroupModal" tabindex="-1" aria-labelledby="pickGroupModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
       <div class="modal-header border-0 pb-0">
-        <h5 class="modal-title fw-bold" id="addGroupModalLabel">
-          <i class="bi bi-whatsapp text-success me-2"></i>Enregistrer un groupe WhatsApp
+        <h5 class="modal-title fw-bold" id="pickGroupModalLabel">
+          <i class="bi bi-whatsapp text-success me-2"></i>Associer un groupe WhatsApp à <span id="modal-cg-name">ce cours</span>
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="post" action="{% url 'core:whatsapp_group_discover' %}" id="add-group-form">
-        {% csrf_token %}
-        <div class="modal-body pt-3">
-          <div class="mb-3">
-            <label class="form-label fw-semibold small">Identifiant WhatsApp du groupe <span class="text-danger">*</span></label>
-            <input type="text" name="whatsapp_group_id" id="input-gid" class="form-control font-monospace"
-                   placeholder="120363xxxxxxxxxx@g.us" required>
-            <div class="form-text">L'identifiant unique du groupe WhatsApp (format : <code>xxxxx@g.us</code>)</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold small">Nom affiché</label>
-            <input type="text" name="display_name" id="input-name" class="form-control"
-                   placeholder="Ex : 3ème A — Parents">
-            <div class="form-text">Laissez vide pour utiliser le nom du cours associé.</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold small">Type de groupe</label>
-            <select name="group_type" class="form-select">
-              {% for code, label in group_types %}
-                <option value="{{ code }}" {% if code == 'CLASS' %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold small">Associer à un groupe de cours (optionnel)</label>
-            <select name="course_group_id" id="input-cg" class="form-select">
-              <option value="">-- Aucun cours --</option>
-              {% for cg in all_course_groups %}
-                <option value="{{ cg.pk }}" data-name="{{ cg.name }}">{{ cg.name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-        <div class="modal-footer border-0 pt-0">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
-          <button type="submit" class="btn btn-success">
-            <i class="bi bi-check-lg me-1"></i> Enregistrer
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
+      <div class="modal-body pt-2">
+        <input type="hidden" id="modal-cg-id">
 
-<!-- Modal: Link group to a specific course -->
-<div class="modal fade" id="linkGroupModal" tabindex="-1" aria-labelledby="linkGroupModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header border-0 pb-0">
-        <h5 class="modal-title fw-bold" id="linkGroupModalLabel">
-          <i class="bi bi-link-45deg text-success me-2"></i>Associer un groupe WhatsApp à <span id="link-cg-name">ce cours</span>
-        </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body pt-3">
-        <input type="hidden" id="link-cg-id">
-        <div class="mb-3">
-          <label class="form-label fw-semibold small">Identifiant WhatsApp du groupe <span class="text-danger">*</span></label>
-          <input type="text" id="link-gid" class="form-control font-monospace"
-                 placeholder="120363xxxxxxxxxx@g.us">
+        <!-- Loading state -->
+        <div id="picker-loading" class="text-center py-4">
+          <div class="spinner-border text-success mb-2"></div>
+          <p class="text-secondary small mb-0">Chargement des groupes WhatsApp...</p>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold small">Nom affiché (optionnel)</label>
-          <input type="text" id="link-name" class="form-control" placeholder="Laisser vide = nom du cours">
+
+        <!-- Error state -->
+        <div id="picker-error" class="alert alert-danger d-none py-2 small"></div>
+
+        <!-- Group list -->
+        <div id="picker-groups" class="d-none">
+          <div class="mb-2">
+            <input type="text" class="form-control form-control-sm" id="picker-search" placeholder="Filtrer les groupes...">
+          </div>
+          <div class="border rounded overflow-auto" style="max-height:320px;" id="picker-list">
+            <!-- Populated by JS -->
+          </div>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold small">Type de groupe</label>
-          <select id="link-type" class="form-select">
-            {% for code, label in group_types %}
-              <option value="{{ code }}" {% if code == 'CLASS' %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div id="link-alert" class="alert alert-danger d-none py-2 small"></div>
       </div>
       <div class="modal-footer border-0 pt-0">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
-        <button type="button" class="btn btn-success" id="link-confirm-btn">
-          <i class="bi bi-link-45deg me-1"></i> Associer
+        <button type="button" class="btn btn-success d-none" id="picker-confirm-btn">
+          <i class="bi bi-link-45deg me-1"></i> Associer ce groupe
         </button>
       </div>
     </div>
@@ -274,82 +206,171 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  // Auto-fill display name when selecting a course group in the Add modal
-  var cgSelect = document.getElementById('input-cg');
-  var nameInput = document.getElementById('input-name');
-  if (cgSelect && nameInput) {
-    cgSelect.addEventListener('change', function() {
-      var opt = this.options[this.selectedIndex];
-      if (opt && opt.dataset.name && !nameInput.value) {
-        nameInput.value = opt.dataset.name;
-      }
+(function() {
+  var csrfToken = '{{ csrf_token }}';
+  var ajaxUrl = '{% url "core:whatsapp_group_discover_ajax" %}';
+  var selectedGroupId = null;
+  var selectedGroupName = null;
+
+  // ── Sync All button ──────────────────────────────────────────────
+  var syncBtn = document.getElementById('btn-sync-all');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', function() {
+      syncBtn.disabled = true;
+      syncBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>';
+      postAjax({ action: 'sync_all' }, function(data) {
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Synchroniser tout';
+        if (data.success) {
+          if (data.synced > 0) {
+            alert(data.synced + ' groupe(s) synchronisé(s). Rechargement...');
+            window.location.reload();
+          } else {
+            alert('Tous les groupes sont déjà synchronisés.');
+          }
+        } else {
+          alert('Erreur : ' + (data.error || 'Erreur inconnue'));
+        }
+      });
     });
   }
 
-  // "Associer" buttons per course group row — open the link modal
-  document.querySelectorAll('.btn-link-group').forEach(function(btn) {
+  // ── "Associer" buttons ───────────────────────────────────────────
+  document.querySelectorAll('.btn-pick-group').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var cgId = this.dataset.cgId;
       var cgName = this.dataset.cgName;
-      document.getElementById('link-cg-id').value = cgId;
-      document.getElementById('link-cg-name').textContent = cgName;
-      document.getElementById('link-name').value = cgName;
-      document.getElementById('link-gid').value = '';
-      document.getElementById('link-alert').classList.add('d-none');
-      new bootstrap.Modal(document.getElementById('linkGroupModal')).show();
+      document.getElementById('modal-cg-id').value = cgId;
+      document.getElementById('modal-cg-name').textContent = cgName;
+      selectedGroupId = null;
+      selectedGroupName = null;
+      document.getElementById('picker-loading').classList.remove('d-none');
+      document.getElementById('picker-groups').classList.add('d-none');
+      document.getElementById('picker-error').classList.add('d-none');
+      document.getElementById('picker-confirm-btn').classList.add('d-none');
+      document.getElementById('picker-search').value = '';
+
+      new bootstrap.Modal(document.getElementById('pickGroupModal')).show();
+      loadWaGroups();
     });
   });
 
-  // Link confirm button
-  document.getElementById('link-confirm-btn').addEventListener('click', function() {
-    var btn = this;
-    var cgId = document.getElementById('link-cg-id').value;
-    var gid = document.getElementById('link-gid').value.trim();
-    var name = document.getElementById('link-name').value.trim();
-    var type = document.getElementById('link-type').value;
-    var alertBox = document.getElementById('link-alert');
+  function loadWaGroups() {
+    postAjax({ action: 'fetch_wa_groups' }, function(data) {
+      document.getElementById('picker-loading').classList.add('d-none');
+      if (!data.success) {
+        var err = document.getElementById('picker-error');
+        err.textContent = data.error || 'Impossible de charger les groupes WhatsApp.';
+        err.classList.remove('d-none');
+        return;
+      }
+      renderGroups(data.groups || []);
+      document.getElementById('picker-groups').classList.remove('d-none');
 
-    if (!gid) {
-      alertBox.textContent = "L'identifiant WhatsApp est obligatoire.";
-      alertBox.classList.remove('d-none');
+      document.getElementById('picker-search').addEventListener('input', function() {
+        var q = this.value.toLowerCase();
+        document.querySelectorAll('.picker-item').forEach(function(item) {
+          item.style.display = item.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+        });
+      });
+    });
+  }
+
+  function renderGroups(groups) {
+    var list = document.getElementById('picker-list');
+    if (groups.length === 0) {
+      list.innerHTML = '<div class="text-center py-4 text-muted small">Aucun groupe trouvé sur ce compte WhatsApp.</div>';
       return;
     }
-    alertBox.classList.add('d-none');
+    var html = '';
+    groups.forEach(function(g) {
+      var badge = g.is_registered
+        ? '<span class="badge bg-success ms-1 small">Enregistré</span>'
+        : '';
+      html += '<div class="picker-item d-flex align-items-center gap-2 px-3 py-2 border-bottom" data-gid="' + esc(g.id) + '" data-name="' + esc(g.name) + '" style="cursor:pointer;">' +
+        '<div class="flex-grow-1">' +
+          '<div class="fw-semibold">' + esc(g.name) + badge + '</div>' +
+          '<div class="text-muted small"><i class="bi bi-people me-1"></i>' + g.participant_count + ' membres</div>' +
+        '</div>' +
+        '<div class="picker-check text-success d-none"><i class="bi bi-check-circle-fill fs-5"></i></div>' +
+      '</div>';
+    });
+    list.innerHTML = html;
+
+    list.querySelectorAll('.picker-item').forEach(function(item) {
+      item.addEventListener('click', function() {
+        // Deselect all
+        list.querySelectorAll('.picker-item').forEach(function(i) {
+          i.style.background = '';
+          i.querySelector('.picker-check').classList.add('d-none');
+        });
+        // Select this
+        item.style.background = '#f0fdf4';
+        item.querySelector('.picker-check').classList.remove('d-none');
+        selectedGroupId = item.dataset.gid;
+        selectedGroupName = item.dataset.name;
+        document.getElementById('picker-confirm-btn').classList.remove('d-none');
+      });
+    });
+  }
+
+  // ── Confirm link ─────────────────────────────────────────────────
+  document.getElementById('picker-confirm-btn').addEventListener('click', function() {
+    if (!selectedGroupId) return;
+    var btn = this;
+    var cgId = document.getElementById('modal-cg-id').value;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> En cours...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>';
 
+    postAjax({
+      action: 'link',
+      whatsapp_group_id: selectedGroupId,
+      display_name: selectedGroupName,
+      group_type: 'CLASS',
+      course_group_id: cgId
+    }, function(data) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-link-45deg me-1"></i> Associer ce groupe';
+      if (data.success) {
+        bootstrap.Modal.getInstance(document.getElementById('pickGroupModal')).hide();
+        // Update badge in row without reload
+        var noBadge = document.getElementById('no-badge-' + cgId);
+        if (noBadge) noBadge.remove();
+        var badgesCell = document.getElementById('wa-badges-' + cgId);
+        if (badgesCell) {
+          var a = document.createElement('a');
+          a.href = '/whatsapp/groups/' + data.group_pk + '/';
+          a.className = 'badge bg-success text-decoration-none me-1';
+          a.innerHTML = '<i class="bi bi-whatsapp me-1"></i>' + esc(data.display_name);
+          badgesCell.appendChild(a);
+        }
+      } else {
+        var err = document.getElementById('picker-error');
+        err.textContent = data.error || 'Erreur inconnue';
+        err.classList.remove('d-none');
+      }
+    });
+  });
+
+  function postAjax(params, callback) {
     var fd = new FormData();
-    fd.append('action', 'link');
-    fd.append('whatsapp_group_id', gid);
-    fd.append('display_name', name);
-    fd.append('group_type', type);
-    fd.append('course_group_id', cgId);
-
-    fetch('{% url "core:whatsapp_group_discover_ajax" %}', {
+    Object.keys(params).forEach(function(k) { fd.append(k, params[k]); });
+    fetch(ajaxUrl, {
       method: 'POST',
-      headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+      headers: { 'X-CSRFToken': csrfToken },
       body: fd
     })
     .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.success) {
-        bootstrap.Modal.getInstance(document.getElementById('linkGroupModal')).hide();
-        window.location.reload();
-      } else {
-        alertBox.textContent = data.error || 'Erreur inconnue';
-        alertBox.classList.remove('d-none');
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-link-45deg me-1"></i> Associer';
-      }
-    })
-    .catch(function() {
-      alertBox.textContent = 'Erreur réseau';
-      alertBox.classList.remove('d-none');
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-link-45deg me-1"></i> Associer';
+    .then(callback)
+    .catch(function(e) {
+      callback({ success: false, error: 'Erreur réseau' });
     });
-  });
-});
+  }
+
+  function esc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+})();
 </script>
 {% endblock %}

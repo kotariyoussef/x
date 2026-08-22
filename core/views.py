@@ -2865,30 +2865,47 @@ def whatsapp_group_health_check_all_ajax(request):
 def whatsapp_group_discover(request):
     """
     WhatsApp group registry page.
-    Shows all CourseGroups and their WhatsApp group status.
-    Allows admins to manually link/register a WhatsApp group ID to a course group
-    without any API scanning.
+    - Auto-backfills WhatsAppGroup entries for CourseGroups that already have
+      a whatsapp_group_id (from creation) but no registry entry.
+    - Shows all active CourseGroups with their linked WhatsApp groups.
+    - Lets admin pick a group from the connected WhatsApp account to link.
     """
-    import json as _json
+    from core.services.group_automation import import_whatsapp_group
+
+    # ── Auto-backfill: register any CourseGroup that has a WA ID but no registry entry ──
+    backfilled = 0
+    for cg in CourseGroup.objects.filter(
+        is_active=True,
+        whatsapp_group_status='ACTIVE',
+    ).exclude(whatsapp_group_id__isnull=True).exclude(whatsapp_group_id=''):
+        already = cg.registered_whatsapp_groups.filter(
+            whatsapp_group_id=cg.whatsapp_group_id
+        ).exists()
+        if not already:
+            try:
+                import_whatsapp_group(
+                    whatsapp_group_id=cg.whatsapp_group_id,
+                    display_name=cg.whatsapp_group_name or cg.name,
+                    group_type='CLASS',
+                    course_group_id=cg.pk,
+                )
+                backfilled += 1
+            except Exception:
+                pass
 
     if request.method == 'POST':
-        # Handle manual linking: POST with course_group_id + whatsapp_group_id + display_name + group_type
+        # Handle FORM-based link (fallback, non-JS)
         course_id = request.POST.get('course_group_id', '').strip()
         gid = request.POST.get('whatsapp_group_id', '').strip()
         name = request.POST.get('display_name', '').strip()
         group_type = request.POST.get('group_type', 'CLASS')
-
         if not gid:
             messages.error(request, "L'identifiant WhatsApp est obligatoire.")
         else:
-            from core.services.group_automation import import_whatsapp_group
             course_group_id = int(course_id) if course_id and course_id.isdigit() else None
             if not name:
-                if course_group_id:
-                    cg = CourseGroup.objects.filter(pk=course_group_id).first()
-                    name = cg.name if cg else gid
-                else:
-                    name = gid
+                cg = CourseGroup.objects.filter(pk=course_group_id).first() if course_group_id else None
+                name = cg.name if cg else gid
             try:
                 group, created = import_whatsapp_group(
                     whatsapp_group_id=gid,
@@ -2897,21 +2914,19 @@ def whatsapp_group_discover(request):
                     course_group_id=course_group_id,
                 )
                 if created:
-                    messages.success(request, f"Groupe WhatsApp « {group.display_name} » enregistré avec succès.")
+                    messages.success(request, f"Groupe « {group.display_name} » enregistré.")
                 else:
-                    messages.info(request, f"Le groupe « {group.display_name} » existait déjà dans le registre.")
+                    messages.info(request, f"Groupe « {group.display_name} » déjà dans le registre.")
             except Exception as e:
-                messages.error(request, f"Erreur lors de l'enregistrement : {e}")
-
+                messages.error(request, f"Erreur : {e}")
         from django.shortcuts import redirect
         return redirect('core:whatsapp_group_discover')
 
-    # GET — build the registry view from Django data only
+    # GET
     all_course_groups = CourseGroup.objects.filter(is_active=True).select_related(
         'teacher', 'level'
     ).prefetch_related('registered_whatsapp_groups').order_by('name')
 
-    # Standalone registered groups (not linked to a course group)
     standalone_groups = WhatsAppGroup.objects.filter(
         course_group__isnull=True
     ).order_by('display_name')
@@ -2919,9 +2934,11 @@ def whatsapp_group_discover(request):
     registered_count = WhatsAppGroup.objects.count()
     linked_count = WhatsAppGroup.objects.filter(course_group__isnull=False).count()
     unlinked_course_count = sum(
-        1 for cg in all_course_groups
-        if not cg.registered_whatsapp_groups.exists()
+        1 for cg in all_course_groups if not cg.registered_whatsapp_groups.exists()
     )
+
+    status_data = WhatsAppServiceAPI.get_status()
+    wa_ready = status_data.get('status') in ('READY', 'AUTHENTICATED') and not status_data.get('offline')
 
     return render(request, 'core/whatsapp_discover.html', {
         'all_course_groups': all_course_groups,
@@ -2930,25 +2947,63 @@ def whatsapp_group_discover(request):
         'registered_count': registered_count,
         'linked_count': linked_count,
         'unlinked_course_count': unlinked_course_count,
-        'status_data': WhatsAppServiceAPI.get_status(),
+        'status_data': status_data,
+        'wa_ready': wa_ready,
+        'backfilled': backfilled,
     })
 
 
 @staff_member_required
 @require_POST
 def whatsapp_group_discover_ajax(request):
-    """AJAX: link or unlink a WhatsApp group ID to a course group."""
+    """
+    AJAX endpoint for the discover page.
+    action=fetch_wa_groups  → fetch available groups from connected WhatsApp account
+    action=link             → register/link a WhatsApp group ID to a course group
+    action=sync_all         → backfill all CourseGroups with WA IDs into registry
+    """
+    from core.services.group_automation import import_whatsapp_group
     action = request.POST.get('action', 'link')
 
-    if action == 'unlink':
-        group_pk = request.POST.get('group_pk', '')
-        try:
-            group = WhatsAppGroup.objects.get(pk=int(group_pk))
-            group.course_group = None
-            group.save(update_fields=['course_group', 'updated_at'])
-            return JsonResponse({'success': True})
-        except (WhatsAppGroup.DoesNotExist, ValueError) as e:
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+    if action == 'fetch_wa_groups':
+        # Fetch groups from the WhatsApp service for the picker
+        res = WhatsAppServiceAPI.get_groups()
+        if not res.get('success'):
+            return JsonResponse({'success': False, 'error': res.get('error', 'Impossible de récupérer les groupes')})
+        # Get already-registered IDs so we can mark them
+        registered_ids = set(WhatsAppGroup.objects.values_list('whatsapp_group_id', flat=True))
+        groups = []
+        for g in res.get('groups', []):
+            gid = g.get('id', '')
+            groups.append({
+                'id': gid,
+                'name': g.get('name', 'Sans nom'),
+                'participant_count': g.get('participantCount', 0),
+                'is_registered': gid in registered_ids,
+            })
+        return JsonResponse({'success': True, 'groups': groups})
+
+    if action == 'sync_all':
+        # Backfill all CourseGroups that have a WA ID but no registry entry
+        synced = 0
+        for cg in CourseGroup.objects.filter(
+            is_active=True, whatsapp_group_status='ACTIVE'
+        ).exclude(whatsapp_group_id__isnull=True).exclude(whatsapp_group_id=''):
+            already = cg.registered_whatsapp_groups.filter(
+                whatsapp_group_id=cg.whatsapp_group_id
+            ).exists()
+            if not already:
+                try:
+                    import_whatsapp_group(
+                        whatsapp_group_id=cg.whatsapp_group_id,
+                        display_name=cg.whatsapp_group_name or cg.name,
+                        group_type='CLASS',
+                        course_group_id=cg.pk,
+                    )
+                    synced += 1
+                except Exception:
+                    pass
+        return JsonResponse({'success': True, 'synced': synced})
 
     # action == 'link'
     course_id = request.POST.get('course_group_id', '').strip()
@@ -2961,13 +3016,9 @@ def whatsapp_group_discover_ajax(request):
 
     course_group_id = int(course_id) if course_id and course_id.isdigit() else None
     if not name:
-        if course_group_id:
-            cg = CourseGroup.objects.filter(pk=course_group_id).first()
-            name = cg.name if cg else gid
-        else:
-            name = gid
+        cg = CourseGroup.objects.filter(pk=course_group_id).first() if course_group_id else None
+        name = cg.name if cg else gid
 
-    from core.services.group_automation import import_whatsapp_group
     try:
         group, created = import_whatsapp_group(
             whatsapp_group_id=gid,
@@ -2983,7 +3034,6 @@ def whatsapp_group_discover_ajax(request):
         })
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=400)
-
 
 
 
@@ -3780,6 +3830,17 @@ def course_group_create(request):
                 from core.services.whatsapp import WhatsAppGroupService
                 res = WhatsAppGroupService.create_course_group(course)
                 if res.get('success'):
+                    # Also register in the WhatsAppGroup registry so it appears in dashboard
+                    try:
+                        from core.services.group_automation import import_whatsapp_group
+                        import_whatsapp_group(
+                            whatsapp_group_id=res['group_id'],
+                            display_name=course.name,
+                            group_type='CLASS',
+                            course_group_id=course.pk,
+                        )
+                    except Exception as reg_err:
+                        logger.warning(f"WhatsApp registry entry failed for course {course.id}: {reg_err}")
                     messages.success(request, f"Le groupe '{course.name}' a été créé et le groupe WhatsApp a été généré.")
                 else:
                     messages.warning(request, f"Le groupe '{course.name}' a été créé, mais la création du groupe WhatsApp a échoué: {res.get('error')}")
