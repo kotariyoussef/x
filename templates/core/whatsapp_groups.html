@@ -174,7 +174,7 @@
               </td>
               <td>
                 {% if group.course_group %}
-                  <a href="{% url 'core:course_group_detail' group.course_group.pk %}" class="badge bg-info bg-opacity-10 text-primary text-decoration-none">
+                  <a href="{% url 'core:group_detail' group.course_group.pk %}" class="badge bg-info bg-opacity-10 text-primary text-decoration-none">
                     <i class="bi bi-book"></i> {{ group.course_group.name }}
                   </a>
                 {% else %}
