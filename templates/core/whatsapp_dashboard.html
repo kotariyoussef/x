@@ -29,7 +29,7 @@
         <div class="card-body p-4">
           <input type="hidden" id="whatsapp-status-val" value="{% if status_data.offline %}OFFLINE{% else %}{{ status_data.status }}{% endif %}">
           
-          {% if status_data.offline %}
+          {% if status_data.offline or status_data.status == "STOPPED" %}
             <!-- OFFLINE STATE -->
             <div class="d-flex align-items-center gap-4 flex-column flex-sm-row">
               <div class="status-icon-wrapper offline shadow-sm">
@@ -42,7 +42,7 @@
               </div>
             </div>
             
-          {% elif status_data.status == "INITIALIZING" %}
+          {% elif status_data.status == "INITIALIZING" or status_data.status == "STARTING" or status_data.status == "RESTARTING" or status_data.status == "RECONNECTING" %}
             <!-- INITIALIZING STATE -->
             <div class="d-flex align-items-center gap-4 flex-column flex-sm-row">
               <div class="status-icon-wrapper warning shadow-sm">
@@ -55,7 +55,7 @@
               </div>
             </div>
             
-          {% elif status_data.status == "QR_RECEIVED" %}
+          {% elif status_data.status == "QR_REQUIRED" or status_data.status == "QR_RECEIVED" %}
             <!-- QR CODE STATE -->
             <div class="row g-4 align-items-center">
               <div class="col-md-5 text-center">
@@ -85,7 +85,7 @@
               </div>
             </div>
             
-          {% elif status_data.status == "AUTHENTICATED" %}
+          {% elif status_data.status == "AUTHENTICATING" or status_data.status == "AUTHENTICATED" %}
             <!-- AUTHENTICATED STATE -->
             <div class="d-flex align-items-center gap-4 flex-column flex-sm-row">
               <div class="status-icon-wrapper info shadow-sm">
@@ -138,6 +138,38 @@
           {% endif %}
           
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI Metrics Bar -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="card border-0 shadow-sm p-3 text-center bg-white rounded-3">
+        <div class="text-muted small fw-bold text-uppercase" style="font-size: 0.75rem;">Groupes Actifs</div>
+        <div class="fs-3 fw-bold text-dark mt-1">{{ active_groups_count }}</div>
+        <small class="text-secondary">Enregistrés</small>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card border-0 shadow-sm p-3 text-center bg-white rounded-3">
+        <div class="text-muted small fw-bold text-uppercase" style="font-size: 0.75rem;">Envoyés Aujourd'hui</div>
+        <div class="fs-3 fw-bold text-success mt-1">{{ sent_today }}</div>
+        <small class="text-success"><i class="bi bi-check2"></i> Avec succès</small>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card border-0 shadow-sm p-3 text-center bg-white rounded-3">
+        <div class="text-muted small fw-bold text-uppercase" style="font-size: 0.75rem;">Échecs Aujourd'hui</div>
+        <div class="fs-3 fw-bold {% if failed_today > 0 %}text-danger{% else %}text-muted{% endif %} mt-1">{{ failed_today }}</div>
+        <small class="{% if failed_today > 0 %}text-danger{% else %}text-secondary{% endif %}">À vérifier</small>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card border-0 shadow-sm p-3 text-center bg-white rounded-3">
+        <div class="text-muted small fw-bold text-uppercase" style="font-size: 0.75rem;">En file d'attente</div>
+        <div class="fs-3 fw-bold {% if pending_count > 0 %}text-warning{% else %}text-muted{% endif %} mt-1">{{ pending_count }}</div>
+        <small class="text-secondary">Messages en cours</small>
       </div>
     </div>
   </div>

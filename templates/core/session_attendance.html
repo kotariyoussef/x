@@ -154,9 +154,14 @@
     </h1>
     <p class="page-subtitle">{{ session.group.name }} — {{ session.date|date:"l d F Y" }}</p>
   </div>
-  <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-secondary flex-shrink-0">
-    <i class="bi bi-arrow-left"></i> Retour aux sessions
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{% url 'core:whatsapp_session_reminder' session.id %}" class="btn btn-outline-success flex-shrink-0">
+      <i class="bi bi-whatsapp me-1"></i> Rappel WhatsApp
+    </a>
+    <a href="{% url 'core:sessions_today' %}" class="btn btn-outline-secondary flex-shrink-0">
+      <i class="bi bi-arrow-left"></i> Retour aux sessions
+    </a>
+  </div>
 </div>
 
 <!-- ── Session info strip ──────────────────────────────────────────── -->

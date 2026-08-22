@@ -472,6 +472,9 @@ def student_page(request, student_id):
         })
 
 
+    from .models import WhatsAppMessageTemplate
+    whatsapp_templates = WhatsAppMessageTemplate.objects.filter(enabled=True)
+
     context = {
         'student': student,
         'enrollments': enrollments,
@@ -485,6 +488,7 @@ def student_page(request, student_id):
         'payment_months': payment_months,
         'group_attendance': group_attendance,
         'recent_attendance': recent_attendance,
+        'whatsapp_templates': whatsapp_templates,
     }
 
     return render(request, 'core/student_detail.html', context)
@@ -2658,9 +2662,28 @@ def whatsapp_dashboard(request):
         
     recent_logs = WhatsAppSendLog.objects.select_related('student').all()[:20]
     
+    today = timezone.now().date()
+    active_groups_count = WhatsAppGroup.objects.filter(is_active=True).count()
+    sent_today = (
+        WhatsAppSendLog.objects.filter(sent_at__date=today, status='SENT').count()
+        + WhatsAppMessageDelivery.objects.filter(completed_at__date=today, status='SUCCESS').count()
+    )
+    failed_today = (
+        WhatsAppSendLog.objects.filter(sent_at__date=today, status='FAILED').count()
+        + WhatsAppMessageDelivery.objects.filter(completed_at__date=today, status='FAILED').count()
+    )
+    pending_count = (
+        WhatsAppMessageJob.objects.filter(status='PENDING').count()
+        + WhatsAppMessageDelivery.objects.filter(status='PENDING').count()
+    )
+
     context = {
         'status_data': status_data,
         'recent_logs': recent_logs,
+        'active_groups_count': active_groups_count,
+        'sent_today': sent_today,
+        'failed_today': failed_today,
+        'pending_count': pending_count,
     }
     return render(request, 'core/whatsapp_dashboard.html', context)
 
@@ -2839,19 +2862,129 @@ def whatsapp_group_health_check_all_ajax(request):
 
 
 @staff_member_required
-@require_GET
 def whatsapp_group_discover(request):
-    """Scans WhatsApp for all groups and presents an import interface."""
-    from core.services.group_automation import discover_whatsapp_groups
-    discovery_res = discover_whatsapp_groups()
-    course_groups = CourseGroup.objects.filter(is_active=True).order_by('name')
+    """
+    WhatsApp group registry page.
+    Shows all CourseGroups and their WhatsApp group status.
+    Allows admins to manually link/register a WhatsApp group ID to a course group
+    without any API scanning.
+    """
+    import json as _json
+
+    if request.method == 'POST':
+        # Handle manual linking: POST with course_group_id + whatsapp_group_id + display_name + group_type
+        course_id = request.POST.get('course_group_id', '').strip()
+        gid = request.POST.get('whatsapp_group_id', '').strip()
+        name = request.POST.get('display_name', '').strip()
+        group_type = request.POST.get('group_type', 'CLASS')
+
+        if not gid:
+            messages.error(request, "L'identifiant WhatsApp est obligatoire.")
+        else:
+            from core.services.group_automation import import_whatsapp_group
+            course_group_id = int(course_id) if course_id and course_id.isdigit() else None
+            if not name:
+                if course_group_id:
+                    cg = CourseGroup.objects.filter(pk=course_group_id).first()
+                    name = cg.name if cg else gid
+                else:
+                    name = gid
+            try:
+                group, created = import_whatsapp_group(
+                    whatsapp_group_id=gid,
+                    display_name=name,
+                    group_type=group_type,
+                    course_group_id=course_group_id,
+                )
+                if created:
+                    messages.success(request, f"Groupe WhatsApp « {group.display_name} » enregistré avec succès.")
+                else:
+                    messages.info(request, f"Le groupe « {group.display_name} » existait déjà dans le registre.")
+            except Exception as e:
+                messages.error(request, f"Erreur lors de l'enregistrement : {e}")
+
+        from django.shortcuts import redirect
+        return redirect('core:whatsapp_group_discover')
+
+    # GET — build the registry view from Django data only
+    all_course_groups = CourseGroup.objects.filter(is_active=True).select_related(
+        'teacher', 'level'
+    ).prefetch_related('registered_whatsapp_groups').order_by('name')
+
+    # Standalone registered groups (not linked to a course group)
+    standalone_groups = WhatsAppGroup.objects.filter(
+        course_group__isnull=True
+    ).order_by('display_name')
+
+    registered_count = WhatsAppGroup.objects.count()
+    linked_count = WhatsAppGroup.objects.filter(course_group__isnull=False).count()
+    unlinked_course_count = sum(
+        1 for cg in all_course_groups
+        if not cg.registered_whatsapp_groups.exists()
+    )
 
     return render(request, 'core/whatsapp_discover.html', {
-        'discovery': discovery_res,
-        'course_groups': course_groups,
+        'all_course_groups': all_course_groups,
+        'standalone_groups': standalone_groups,
         'group_types': WhatsAppGroup.TYPE_CHOICES,
+        'registered_count': registered_count,
+        'linked_count': linked_count,
+        'unlinked_course_count': unlinked_course_count,
         'status_data': WhatsAppServiceAPI.get_status(),
     })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_group_discover_ajax(request):
+    """AJAX: link or unlink a WhatsApp group ID to a course group."""
+    action = request.POST.get('action', 'link')
+
+    if action == 'unlink':
+        group_pk = request.POST.get('group_pk', '')
+        try:
+            group = WhatsAppGroup.objects.get(pk=int(group_pk))
+            group.course_group = None
+            group.save(update_fields=['course_group', 'updated_at'])
+            return JsonResponse({'success': True})
+        except (WhatsAppGroup.DoesNotExist, ValueError) as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+    # action == 'link'
+    course_id = request.POST.get('course_group_id', '').strip()
+    gid = request.POST.get('whatsapp_group_id', '').strip()
+    name = request.POST.get('display_name', '').strip()
+    group_type = request.POST.get('group_type', 'CLASS')
+
+    if not gid:
+        return JsonResponse({'success': False, 'error': 'ID WhatsApp manquant'}, status=400)
+
+    course_group_id = int(course_id) if course_id and course_id.isdigit() else None
+    if not name:
+        if course_group_id:
+            cg = CourseGroup.objects.filter(pk=course_group_id).first()
+            name = cg.name if cg else gid
+        else:
+            name = gid
+
+    from core.services.group_automation import import_whatsapp_group
+    try:
+        group, created = import_whatsapp_group(
+            whatsapp_group_id=gid,
+            display_name=name,
+            group_type=group_type,
+            course_group_id=course_group_id,
+        )
+        return JsonResponse({
+            'success': True,
+            'created': created,
+            'group_pk': group.pk,
+            'display_name': group.display_name,
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+
 
 
 @staff_member_required
@@ -3397,6 +3530,56 @@ def whatsapp_history(request):
         'current_tab': tab,
         'status_filter': status_filter or '',
         'search_query': q,
+    })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_retry_job_ajax(request, job_id):
+    """Retries all failed or skipped deliveries for a WhatsApp group job."""
+    from .services.group_automation import process_next_job
+    job = get_object_or_404(WhatsAppMessageJob, pk=job_id)
+    
+    updated_count = job.deliveries.filter(status__in=['FAILED', 'SKIPPED', 'CANCELLED']).update(
+        status='PENDING',
+        error_code='',
+        error_message='',
+    )
+    
+    job.status = 'PENDING'
+    job.retry_count += 1
+    job.save(update_fields=['status', 'retry_count'])
+    
+    # Trigger processing
+    process_next_job(delay_between_sends=0.5)
+    
+    return JsonResponse({
+        'success': True,
+        'retried_count': updated_count,
+        'status': job.status,
+    })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_retry_log_ajax(request, log_id):
+    """Retries a failed individual message send log."""
+    log_entry = get_object_or_404(WhatsAppSendLog, pk=log_id)
+    
+    res = WhatsAppServiceAPI.send_message(
+        phone=log_entry.phone,
+        message=log_entry.message_preview,
+    )
+    
+    success = res.get('success') is True
+    log_entry.status = 'SENT' if success else 'FAILED'
+    log_entry.error_message = '' if success else str(res.get('error', 'Échec de réessai'))
+    log_entry.sent_at = timezone.now()
+    log_entry.save(update_fields=['status', 'error_message', 'sent_at'])
+    
+    return JsonResponse({
+        'success': success,
+        'error': log_entry.error_message if not success else '',
     })
 
 
@@ -4128,6 +4311,9 @@ def teacher_detail(request, teacher_id):
         group__teacher=teacher
     ).select_related('group', 'room').order_by('-date')[:10]
 
+    from .models import WhatsAppMessageTemplate
+    whatsapp_templates = WhatsAppMessageTemplate.objects.filter(enabled=True)
+
     context = {
         'teacher': teacher,
         'course_groups': course_groups,
@@ -4138,6 +4324,7 @@ def teacher_detail(request, teacher_id):
         'planned_sessions': planned_sessions,
         'recent_sessions': recent_sessions,
         'total_groups': course_groups.count(),
+        'whatsapp_templates': whatsapp_templates,
     }
     return render(request, 'core/teacher_detail.html', context)
 

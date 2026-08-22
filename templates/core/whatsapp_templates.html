@@ -155,7 +155,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('previewModalBody').textContent = data.rendered;
         let varsHtml = `<strong>Variables détectées :</strong> `;
         if (data.variables && data.variables.length > 0) {
-          varsHtml += data.variables.map(v => `<span class="badge bg-white text-secondary border font-monospace me-1">{{${v}}}</span>`).join('');
+          varsHtml += data.variables.map(v => {
+            {% verbatim %}return `<span class="badge bg-white text-secondary border font-monospace me-1">{{` + v + `}}</span>`;{% endverbatim %}
+          }).join('');
         } else {
           varsHtml += `<em>Aucune variable dynamique</em>`;
         }

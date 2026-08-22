@@ -72,6 +72,11 @@
         </div>
       </div>
       <div class="col-auto d-flex gap-2 flex-wrap">
+        {% if teacher.phone %}
+          <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#quickWhatsAppTeacherModal">
+            <i class="bi bi-whatsapp me-1"></i> WhatsApp
+          </button>
+        {% endif %}
         <a href="{% url 'core:teacher_availability' teacher.id %}" class="btn btn-outline-secondary">
           <i class="bi bi-clock"></i> Disponibilités
         </a>
@@ -326,11 +331,124 @@
 
 </div>
 
-<!-- Back button -->
-<div class="mt-4 d-flex gap-2">
-  <a href="{% url 'core:teachers_list' %}" class="btn btn-outline-secondary">
-    <i class="bi bi-arrow-left"></i> Retour à la liste
-  </a>
+<!-- ── Quick WhatsApp Modal for Teacher ────────────────────────── -->
+{% if teacher.phone %}
+<div class="modal fade" id="quickWhatsAppTeacherModal" tabindex="-1" aria-labelledby="quickWhatsAppTeacherModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold text-dark" id="quickWhatsAppTeacherModalLabel">
+          <i class="bi bi-whatsapp text-success me-2"></i> Envoyer un WhatsApp — {{ teacher.name }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body pt-3">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Numéro WhatsApp</label>
+          <input type="text" class="form-control font-monospace bg-light" value="{{ teacher.phone }}" readonly>
+        </div>
+
+        {% if whatsapp_templates %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Choisir un modèle (optionnel)</label>
+            <select id="quickWaTeacherTemplateSelect" class="form-select">
+              <option value="">-- Message personnalisé --</option>
+              {% for tpl in whatsapp_templates %}
+                <option value="{{ tpl.body }}">{{ tpl.name }} ({{ tpl.get_category_display }})</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Message</label>
+          <textarea id="quickWaTeacherMessage" class="form-control" rows="4" placeholder="Tapez votre message ici..."></textarea>
+        </div>
+
+        <div id="quickWaTeacherAlert" class="alert alert-danger d-none py-2 small"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-success" id="quickWaTeacherSendBtn">
+          <i class="bi bi-send-fill me-1"></i> Envoyer maintenant
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const tplSelect = document.getElementById('quickWaTeacherTemplateSelect');
+  const msgArea = document.getElementById('quickWaTeacherMessage');
+  const sendBtn = document.getElementById('quickWaTeacherSendBtn');
+  const alertBox = document.getElementById('quickWaTeacherAlert');
+
+  if (tplSelect && msgArea) {
+    tplSelect.addEventListener('change', function() {
+      if (this.value) {
+        let text = this.value;
+        text = text.replace(/\{\{\s*teacher_name\s*\}\}/gi, '{{ teacher.name|escapejs }}');
+        msgArea.value = text;
+      }
+    });
+  }
+
+  if (sendBtn) {
+    sendBtn.addEventListener('click', function() {
+      const phone = '{{ teacher.phone|escapejs }}';
+      const message = msgArea.value.trim();
+
+      if (!message) {
+        alertBox.textContent = 'Veuillez saisir un message.';
+        alertBox.classList.remove('d-none');
+        return;
+      }
+
+      alertBox.classList.add('d-none');
+      sendBtn.disabled = true;
+      sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Envoi en cours...';
+
+      const formData = new URLSearchParams();
+      formData.append('phone', phone);
+      formData.append('message', message);
+      formData.append('message_type', 'teacher_message');
+
+      function getCsrfToken() {
+        return document.querySelector('[name=csrfmiddlewaretoken]')?.value || (document.cookie.match(/csrftoken=([^;]+)/)||[])[1];
+      }
+
+      fetch('{% url "core:whatsapp_send_ajax" %}', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': getCsrfToken(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString()
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          bootstrap.Modal.getInstance(document.getElementById('quickWhatsAppTeacherModal')).hide();
+          alert('Message WhatsApp envoyé au professeur avec succès !');
+          msgArea.value = '';
+        } else {
+          alertBox.textContent = data.error || "Erreur lors de l'envoi du message.";
+          alertBox.classList.remove('d-none');
+        }
+      })
+      .catch(err => {
+        alertBox.textContent = "Erreur de communication avec le serveur.";
+        alertBox.classList.remove('d-none');
+      })
+      .finally(() => {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Envoyer maintenant';
+      });
+    });
+  }
+});
+</script>
+{% endif %}
 
 {% endblock %}

@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% block title %}Scanner les groupes WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+{% block title %}Enregistrement des Groupes WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
 
 {% block breadcrumb %}
   <span class="context-bar-sep">›</span>
@@ -7,156 +7,166 @@
   <span class="context-bar-sep">›</span>
   <a href="{% url 'core:whatsapp_groups' %}" class="text-decoration-none text-secondary">Groupes</a>
   <span class="context-bar-sep">›</span>
-  <span class="context-bar-current">Scanner et Importer</span>
+  <span class="context-bar-current">Enregistrement des Groupes</span>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid py-4">
 
+  {% if messages %}
+    {% for msg in messages %}
+      <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show border-0 shadow-sm mb-3" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
       <h1 class="h3 fw-bold text-dark mb-1">
-        <i class="bi bi-search text-success me-2"></i>Découverte et Importation de Groupes
+        <i class="bi bi-whatsapp text-success me-2"></i>Enregistrement des Groupes WhatsApp
       </h1>
-      <p class="text-secondary mb-0">Scannez les groupes existants sur le compte WhatsApp connecté et importez-les dans le registre officiel.</p>
+      <p class="text-secondary mb-0">Associez l'identifiant WhatsApp de chaque groupe de cours. Aucun scan automatique requis.</p>
     </div>
     <div class="d-flex gap-2">
-      <a href="{% url 'core:whatsapp_group_discover' %}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-clockwise"></i> Rafraîchir le scan
-      </a>
+      <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addGroupModal">
+        <i class="bi bi-plus-lg me-1"></i> Ajouter un groupe
+      </button>
       <a href="{% url 'core:whatsapp_groups' %}" class="btn btn-outline-primary btn-sm">
-        <i class="bi bi-arrow-left"></i> Registre des groupes
+        <i class="bi bi-list-ul me-1"></i> Registre complet
       </a>
     </div>
   </div>
 
-  {% if discovery.error %}
-    <div class="alert alert-danger border-0 shadow-sm d-flex gap-3 align-items-center p-3 mb-4">
-      <i class="bi bi-exclamation-triangle-fill fs-3 text-danger"></i>
-      <div>
-        <h6 class="fw-bold mb-1">Erreur de scan WhatsApp</h6>
-        <p class="mb-0 small">{{ discovery.error }}. Assurez-vous que le service WhatsApp est démarré et connecté.</p>
+  <!-- KPI row -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-4">
+      <div class="card border-0 shadow-sm p-3 text-center">
+        <div class="text-muted small fw-bold text-uppercase" style="font-size:.75rem;">Groupes enregistrés</div>
+        <div class="fs-3 fw-bold text-dark mt-1">{{ registered_count }}</div>
       </div>
     </div>
-  {% else %}
-
-    <!-- Discovery Summary Card -->
-    <div class="row g-3 mb-4">
-      <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body d-flex align-items-center gap-3">
-            <div class="rounded-3 bg-primary bg-opacity-10 text-primary p-3 fs-4"><i class="bi bi-whatsapp"></i></div>
-            <div>
-              <div class="text-muted small">Total groupes détectés</div>
-              <div class="fw-bold fs-4">{{ discovery.total_found }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body d-flex align-items-center gap-3">
-            <div class="rounded-3 bg-success bg-opacity-10 text-success p-3 fs-4"><i class="bi bi-check-circle-fill"></i></div>
-            <div>
-              <div class="text-muted small">Déjà enregistrés</div>
-              <div class="fw-bold fs-4 text-success">{{ discovery.registered_count }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-          <div class="card-body d-flex align-items-center gap-3">
-            <div class="rounded-3 bg-warning bg-opacity-10 text-warning-emphasis p-3 fs-4"><i class="bi bi-box-arrow-in-down"></i></div>
-            <div>
-              <div class="text-muted small">Prêts à importer</div>
-              <div class="fw-bold fs-4 text-warning-emphasis">{{ discovery.unregistered_count }}</div>
-            </div>
-          </div>
-        </div>
+    <div class="col-6 col-md-4">
+      <div class="card border-0 shadow-sm p-3 text-center">
+        <div class="text-muted small fw-bold text-uppercase" style="font-size:.75rem;">Liés à un cours</div>
+        <div class="fs-3 fw-bold text-success mt-1">{{ linked_count }}</div>
       </div>
     </div>
+    <div class="col-6 col-md-4">
+      <div class="card border-0 shadow-sm p-3 text-center">
+        <div class="text-muted small fw-bold text-uppercase" style="font-size:.75rem;">Cours sans groupe WA</div>
+        <div class="fs-3 fw-bold {% if unlinked_course_count > 0 %}text-warning{% else %}text-muted{% endif %} mt-1">{{ unlinked_course_count }}</div>
+      </div>
+    </div>
+  </div>
 
-    <!-- Discovered Groups Table -->
-    <div class="card shadow-sm border-0">
-      <div class="card-header bg-white py-3 border-0">
-        <h6 class="fw-bold mb-0 text-dark">Groupes WhatsApp disponibles</h6>
+  <!-- How to find the WhatsApp group ID -->
+  <div class="alert alert-info border-0 shadow-sm d-flex gap-3 align-items-start p-3 mb-4">
+    <i class="bi bi-info-circle-fill fs-4 text-info flex-shrink-0 mt-1"></i>
+    <div>
+      <h6 class="fw-bold mb-1">Comment trouver l'identifiant d'un groupe WhatsApp ?</h6>
+      <p class="mb-1 small">L'identifiant ressemble à : <code>120363xxxxxxxxxx@g.us</code></p>
+      <ol class="mb-0 small ps-3">
+        <li>Ouvrez le tableau de bord WhatsApp → <strong>Registre des Groupes</strong> → <strong>Découverte</strong> (si disponible)</li>
+        <li>Ou : dans WhatsApp Web, ouvrez le groupe → l'URL contient l'identifiant</li>
+        <li>Ou : demandez à l'admin système de récupérer l'identifiant depuis les logs WhatsApp</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Course Groups Table -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-0 py-3">
+      <h6 class="fw-bold mb-0"><i class="bi bi-mortarboard me-2 text-primary"></i>Groupes de cours et leurs groupes WhatsApp</h6>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light small text-uppercase text-secondary">
+          <tr>
+            <th>Groupe de cours</th>
+            <th>Professeur</th>
+            <th>Niveau</th>
+            <th>Groupes WhatsApp liés</th>
+            <th class="text-end">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cg in all_course_groups %}
+            <tr id="cg-row-{{ cg.pk }}">
+              <td>
+                <a href="{% url 'core:group_detail' cg.pk %}" class="fw-bold text-dark text-decoration-none">
+                  {{ cg.name }}
+                </a>
+              </td>
+              <td class="text-secondary small">{{ cg.teacher.name|default:"—" }}</td>
+              <td class="text-secondary small">{{ cg.level.name|default:"—" }}</td>
+              <td>
+                {% for wag in cg.registered_whatsapp_groups.all %}
+                  <span class="badge bg-success me-1">
+                    <i class="bi bi-whatsapp me-1"></i>
+                    <a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="text-white text-decoration-none">
+                      {{ wag.display_name }}
+                    </a>
+                  </span>
+                {% empty %}
+                  <span class="text-muted small"><i class="bi bi-dash-circle text-warning me-1"></i>Non configuré</span>
+                {% endfor %}
+              </td>
+              <td class="text-end">
+                <button class="btn btn-outline-success btn-sm btn-link-group"
+                        data-cg-id="{{ cg.pk }}"
+                        data-cg-name="{{ cg.name }}"
+                        title="Associer un groupe WhatsApp">
+                  <i class="bi bi-link-45deg me-1"></i> Associer
+                </button>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="5" class="text-center py-4 text-muted">Aucun groupe de cours actif.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Standalone groups (not linked to a course) -->
+  {% if standalone_groups %}
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-0 py-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-people me-2 text-secondary"></i>Groupes WhatsApp sans cours associé</h6>
       </div>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light small text-uppercase text-secondary">
             <tr>
-              <th>Nom du groupe</th>
-              <th>Membres</th>
-              <th>Statut Registre</th>
-              <th>Type suggéré</th>
-              <th>Associer à un cours</th>
-              <th class="text-end">Action</th>
+              <th>Nom</th><th>Type</th><th>Statut</th><th class="text-end">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {% for g in discovery.groups %}
-              <tr id="row-{{ forloop.counter }}">
+            {% for wag in standalone_groups %}
+              <tr>
                 <td>
-                  <div class="fw-bold text-dark">{{ g.name }}</div>
-                  <div class="text-muted small font-monospace" style="font-size:0.72rem;">{{ g.whatsapp_group_id }}</div>
+                  <a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="fw-bold text-dark text-decoration-none">
+                    {{ wag.display_name }}
+                  </a>
+                  <div class="text-muted small font-monospace" style="font-size:.72rem;">{{ wag.whatsapp_group_id }}</div>
                 </td>
+                <td><span class="badge bg-secondary">{{ wag.get_group_type_display }}</span></td>
                 <td>
-                  <span class="badge bg-light text-dark border">
-                    <i class="bi bi-people"></i> {{ g.participant_count }}
-                  </span>
-                </td>
-                <td>
-                  {% if g.is_registered %}
-                    <span class="badge bg-success"><i class="bi bi-check2"></i> Enregistré</span>
-                    <div class="small text-muted">{{ g.registry_group.get_group_type_display }}</div>
+                  {% if wag.is_active %}
+                    <span class="badge bg-success">Actif</span>
                   {% else %}
-                    <span class="badge bg-warning text-dark"><i class="bi bi-stars"></i> Non importé</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if not g.is_registered %}
-                    <select class="form-select form-select-sm" id="type-{{ forloop.counter }}" style="width: 140px;">
-                      {% for code, label in group_types %}
-                        <option value="{{ code }}" {% if code == 'CLASS' %}selected{% endif %}>{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                  {% else %}
-                    <span class="small text-muted">{{ g.registry_group.get_group_type_display }}</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if not g.is_registered %}
-                    <select class="form-select form-select-sm" id="course-{{ forloop.counter }}" style="width: 180px;">
-                      <option value="">-- Aucun cours --</option>
-                      {% for cg in course_groups %}
-                        <option value="{{ cg.pk }}">{{ cg.name }}</option>
-                      {% endfor %}
-                    </select>
-                  {% else %}
-                    <span class="small">{{ g.registry_group.course_group.name|default:"—" }}</span>
+                    <span class="badge bg-secondary">Inactif</span>
                   {% endif %}
                 </td>
                 <td class="text-end">
-                  {% if g.is_registered %}
-                    <a href="{% url 'core:whatsapp_group_detail' g.registry_group.pk %}" class="btn btn-outline-secondary btn-sm">
-                      <i class="bi bi-eye"></i> Voir
-                    </a>
-                  {% else %}
-                    <button class="btn btn-success btn-sm btn-import"
-                            data-index="{{ forloop.counter }}"
-                            data-gid="{{ g.whatsapp_group_id }}"
-                            data-name="{{ g.name }}">
-                      <i class="bi bi-box-arrow-in-down me-1"></i> Importer
-                    </button>
-                  {% endif %}
-                </td>
-              </tr>
-            {% empty %}
-              <tr>
-                <td colspan="6" class="text-center py-5 text-muted">
-                  <i class="bi bi-inbox fs-2 mb-2 d-block text-secondary"></i>
-                  Aucun groupe trouvé sur ce compte WhatsApp.
+                  <a href="{% url 'core:whatsapp_group_detail' wag.pk %}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-eye"></i> Voir
+                  </a>
                 </td>
               </tr>
             {% endfor %}
@@ -164,61 +174,180 @@
         </table>
       </div>
     </div>
-
   {% endif %}
 
 </div>
 
+<!-- Modal: Add/Link WhatsApp Group -->
+<div class="modal fade" id="addGroupModal" tabindex="-1" aria-labelledby="addGroupModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold" id="addGroupModalLabel">
+          <i class="bi bi-whatsapp text-success me-2"></i>Enregistrer un groupe WhatsApp
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{% url 'core:whatsapp_group_discover' %}" id="add-group-form">
+        {% csrf_token %}
+        <div class="modal-body pt-3">
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Identifiant WhatsApp du groupe <span class="text-danger">*</span></label>
+            <input type="text" name="whatsapp_group_id" id="input-gid" class="form-control font-monospace"
+                   placeholder="120363xxxxxxxxxx@g.us" required>
+            <div class="form-text">L'identifiant unique du groupe WhatsApp (format : <code>xxxxx@g.us</code>)</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Nom affiché</label>
+            <input type="text" name="display_name" id="input-name" class="form-control"
+                   placeholder="Ex : 3ème A — Parents">
+            <div class="form-text">Laissez vide pour utiliser le nom du cours associé.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Type de groupe</label>
+            <select name="group_type" class="form-select">
+              {% for code, label in group_types %}
+                <option value="{{ code }}" {% if code == 'CLASS' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Associer à un groupe de cours (optionnel)</label>
+            <select name="course_group_id" id="input-cg" class="form-select">
+              <option value="">-- Aucun cours --</option>
+              {% for cg in all_course_groups %}
+                <option value="{{ cg.pk }}" data-name="{{ cg.name }}">{{ cg.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-lg me-1"></i> Enregistrer
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Link group to a specific course -->
+<div class="modal fade" id="linkGroupModal" tabindex="-1" aria-labelledby="linkGroupModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold" id="linkGroupModalLabel">
+          <i class="bi bi-link-45deg text-success me-2"></i>Associer un groupe WhatsApp à <span id="link-cg-name">ce cours</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-3">
+        <input type="hidden" id="link-cg-id">
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Identifiant WhatsApp du groupe <span class="text-danger">*</span></label>
+          <input type="text" id="link-gid" class="form-control font-monospace"
+                 placeholder="120363xxxxxxxxxx@g.us">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Nom affiché (optionnel)</label>
+          <input type="text" id="link-name" class="form-control" placeholder="Laisser vide = nom du cours">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Type de groupe</label>
+          <select id="link-type" class="form-select">
+            {% for code, label in group_types %}
+              <option value="{{ code }}" {% if code == 'CLASS' %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div id="link-alert" class="alert alert-danger d-none py-2 small"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-success" id="link-confirm-btn">
+          <i class="bi bi-link-45deg me-1"></i> Associer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('.btn-import').forEach(btn => {
+  // Auto-fill display name when selecting a course group in the Add modal
+  var cgSelect = document.getElementById('input-cg');
+  var nameInput = document.getElementById('input-name');
+  if (cgSelect && nameInput) {
+    cgSelect.addEventListener('change', function() {
+      var opt = this.options[this.selectedIndex];
+      if (opt && opt.dataset.name && !nameInput.value) {
+        nameInput.value = opt.dataset.name;
+      }
+    });
+  }
+
+  // "Associer" buttons per course group row — open the link modal
+  document.querySelectorAll('.btn-link-group').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      const idx = this.dataset.index;
-      const gid = this.dataset.gid;
-      const name = this.dataset.name;
-      const typeSelect = document.getElementById(`type-${idx}`);
-      const courseSelect = document.getElementById(`course-${idx}`);
-      
-      const groupType = typeSelect ? typeSelect.value : 'CUSTOM';
-      const courseId = courseSelect ? courseSelect.value : '';
+      var cgId = this.dataset.cgId;
+      var cgName = this.dataset.cgName;
+      document.getElementById('link-cg-id').value = cgId;
+      document.getElementById('link-cg-name').textContent = cgName;
+      document.getElementById('link-name').value = cgName;
+      document.getElementById('link-gid').value = '';
+      document.getElementById('link-alert').classList.add('d-none');
+      new bootstrap.Modal(document.getElementById('linkGroupModal')).show();
+    });
+  });
 
-      const originalHtml = this.innerHTML;
-      this.disabled = true;
-      this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  // Link confirm button
+  document.getElementById('link-confirm-btn').addEventListener('click', function() {
+    var btn = this;
+    var cgId = document.getElementById('link-cg-id').value;
+    var gid = document.getElementById('link-gid').value.trim();
+    var name = document.getElementById('link-name').value.trim();
+    var type = document.getElementById('link-type').value;
+    var alertBox = document.getElementById('link-alert');
 
-      const formData = new FormData();
-      formData.append('whatsapp_group_id', gid);
-      formData.append('display_name', name);
-      formData.append('group_type', groupType);
-      if (courseId) formData.append('course_group_id', courseId);
+    if (!gid) {
+      alertBox.textContent = "L'identifiant WhatsApp est obligatoire.";
+      alertBox.classList.remove('d-none');
+      return;
+    }
+    alertBox.classList.add('d-none');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> En cours...';
 
-      fetch('/whatsapp/groups/import/', {
-        method: 'POST',
-        headers: {
-          'X-CSRFToken': '{{ csrf_token }}',
-        },
-        body: formData
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          this.className = 'btn btn-outline-success btn-sm';
-          this.innerHTML = '<i class="bi bi-check-lg"></i> Importé';
-          const row = document.getElementById(`row-${idx}`);
-          if (row) {
-            row.classList.add('table-success');
-          }
-        } else {
-          alert('Erreur lors de l\'import: ' + (data.error || 'Erreur inconnue'));
-          this.disabled = false;
-          this.innerHTML = originalHtml;
-        }
-      })
-      .catch(err => {
-        alert('Erreur réseau');
-        this.disabled = false;
-        this.innerHTML = originalHtml;
-      });
+    var fd = new FormData();
+    fd.append('action', 'link');
+    fd.append('whatsapp_group_id', gid);
+    fd.append('display_name', name);
+    fd.append('group_type', type);
+    fd.append('course_group_id', cgId);
+
+    fetch('{% url "core:whatsapp_group_discover_ajax" %}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+      body: fd
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        bootstrap.Modal.getInstance(document.getElementById('linkGroupModal')).hide();
+        window.location.reload();
+      } else {
+        alertBox.textContent = data.error || 'Erreur inconnue';
+        alertBox.classList.remove('d-none');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-link-45deg me-1"></i> Associer';
+      }
+    })
+    .catch(function() {
+      alertBox.textContent = 'Erreur réseau';
+      alertBox.classList.remove('d-none');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-link-45deg me-1"></i> Associer';
     });
   });
 });

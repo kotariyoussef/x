@@ -103,7 +103,7 @@
 <script>
 function insertVar(varName) {
   const textarea = document.getElementById('tplBody');
-  const token = `{{${varName}}}`;
+  const token = '{{' + varName + '}}';
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const text = textarea.value;

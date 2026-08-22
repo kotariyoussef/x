@@ -2935,6 +2935,8 @@ class WhatsAppServiceAPI:
     def get_groups(cls):
         """
         Lists all accessible WhatsApp groups from the WhatsApp service.
+        NOTE: Uses a longer timeout (60s) because client.getChats() on the Node.js
+        side must load all chats and can be slow when there are many conversations.
         """
         url = f"{cls.BASE_URL}/groups"
         headers = _whatsapp_headers({'Content-Type': 'application/json'})
@@ -2944,13 +2946,14 @@ class WhatsAppServiceAPI:
 
         req = urllib.request.Request(url, headers=headers, method='GET')
         try:
-            with urllib.request.urlopen(req, timeout=15) as response:
+            with urllib.request.urlopen(req, timeout=60) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             try:
-                return json.loads(e.read().decode('utf-8'))
+                body = json.loads(e.read().decode('utf-8'))
+                return {'success': False, 'error': body.get('error', f"HTTP {e.code}: {e.reason}")}
             except Exception:
-                return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
+                return {'success': False, 'error': f"HTTP {e.code}: {e.reason}"}
         except Exception as e:
             return {'success': False, 'error': str(e)}
 

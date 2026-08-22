@@ -107,12 +107,15 @@ urlpatterns = [
 
     # WhatsApp Integration
     path('whatsapp/', views.whatsapp_dashboard, name='whatsapp_dashboard'),
+    # WhatsApp History & Retries
     path('whatsapp/history/', views.whatsapp_history, name='whatsapp_history'),
+    path('whatsapp/history/retry-log/<int:log_id>/', views.whatsapp_retry_log_ajax, name='whatsapp_retry_log_ajax'),
     
     # WhatsApp Groups Management
     path('whatsapp/groups/', views.whatsapp_groups, name='whatsapp_groups'),
     path('whatsapp/groups/send/', views.whatsapp_group_send, name='whatsapp_group_send'),
     path('whatsapp/groups/discover/', views.whatsapp_group_discover, name='whatsapp_group_discover'),
+    path('whatsapp/groups/discover/link/', views.whatsapp_group_discover_ajax, name='whatsapp_group_discover_ajax'),
     path('whatsapp/groups/import/', views.whatsapp_group_import_ajax, name='whatsapp_group_import_ajax'),
     path('whatsapp/groups/health-check-all/', views.whatsapp_group_health_check_all_ajax, name='whatsapp_group_health_check_all_ajax'),
     path('whatsapp/groups/<int:group_id>/', views.whatsapp_group_detail, name='whatsapp_group_detail'),
@@ -124,6 +127,7 @@ urlpatterns = [
     path('whatsapp/groups/job/<int:job_id>/', views.whatsapp_group_job, name='whatsapp_group_job'),
     path('whatsapp/groups/job/<int:job_id>/progress/', views.whatsapp_group_job_progress_ajax, name='whatsapp_group_job_progress_ajax'),
     path('whatsapp/groups/job/<int:job_id>/cancel/', views.whatsapp_group_job_cancel_ajax, name='whatsapp_group_job_cancel_ajax'),
+    path('whatsapp/groups/job/<int:job_id>/retry/', views.whatsapp_retry_job_ajax, name='whatsapp_retry_job_ajax'),
     
     # WhatsApp Message Templates
     path('whatsapp/templates/', views.whatsapp_templates, name='whatsapp_templates'),

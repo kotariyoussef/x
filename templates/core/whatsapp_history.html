@@ -121,6 +121,11 @@
                 </td>
                 <td>{{ j.created_by.username|default:"Système" }}</td>
                 <td class="text-end">
+                  {% if j.status == 'FAILED' or j.status == 'PARTIAL' %}
+                    <button class="btn btn-outline-warning btn-sm me-1 retry-job-btn" data-id="{{ j.pk }}" title="Réessayer les envois échoués">
+                      <i class="bi bi-arrow-clockwise"></i> Réessayer
+                    </button>
+                  {% endif %}
                   <a href="{% url 'core:whatsapp_group_job' j.pk %}" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-eye"></i> Détails
                   </a>
@@ -152,6 +157,7 @@
               <th>Type de message</th>
               <th>Aperçu</th>
               <th>Statut</th>
+              <th class="text-end">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -181,10 +187,19 @@
                     <span class="badge bg-danger" title="{{ l.error_message }}"><i class="bi bi-x-circle"></i> Échec</span>
                   {% endif %}
                 </td>
+                <td class="text-end">
+                  {% if l.status == 'FAILED' %}
+                    <button class="btn btn-outline-warning btn-sm retry-log-btn" data-id="{{ l.pk }}" title="Réessayer l'envoi">
+                      <i class="bi bi-arrow-clockwise"></i> Réessayer
+                    </button>
+                  {% else %}
+                    <span class="text-muted small">—</span>
+                  {% endif %}
+                </td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="6" class="text-center py-5 text-muted">
+                <td colspan="7" class="text-center py-5 text-muted">
                   Aucun log de message individuel.
                 </td>
               </tr>
@@ -222,20 +237,20 @@
                 <td><span class="badge bg-light text-secondary border font-monospace">{{ r.trigger_event }}</span></td>
                 <td>
                   {% if r.status == 'SUCCESS' %}
-                    <span class="badge bg-success">Succès</span>
-                  {% elif r.status == 'DRY_RUN' %}
-                    <span class="badge bg-info text-dark">Simulation</span>
+                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Succès</span>
                   {% elif r.status == 'SKIPPED' %}
-                    <span class="badge bg-warning text-dark">Ignoré</span>
+                    <span class="badge bg-secondary"><i class="bi bi-slash-circle"></i> Ignoré</span>
+                  {% elif r.status == 'DRY_RUN' %}
+                    <span class="badge bg-info text-dark"><i class="bi bi-eye"></i> Simulation</span>
                   {% else %}
-                    <span class="badge bg-danger">Échec</span>
+                    <span class="badge bg-danger"><i class="bi bi-x-circle"></i> Échec</span>
                   {% endif %}
                 </td>
                 <td>{{ r.groups_targeted }} groupe(s)</td>
                 <td>
                   {% if r.job %}
-                    <a href="{% url 'core:whatsapp_group_job' r.job.pk %}" class="font-monospace text-decoration-none">
-                      Job #{{ r.job.pk }}
+                    <a href="{% url 'core:whatsapp_group_job' r.job.pk %}" class="btn btn-outline-secondary btn-sm py-0 font-monospace">
+                      #{{ r.job.pk }}
                     </a>
                   {% else %}
                     <span class="text-muted">—</span>
@@ -256,4 +271,64 @@
   {% endif %}
 
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Retry Job
+  document.querySelectorAll('.retry-job-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const jobId = btn.dataset.id;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Réessai...';
+      fetch(`/whatsapp/groups/job/${jobId}/retry/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          window.location.reload();
+        } else {
+          alert('Erreur: ' + (data.error || 'Impossible de relancer le job'));
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Réessayer';
+        }
+      })
+      .catch(() => {
+        alert('Erreur de connexion');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Réessayer';
+      });
+    });
+  });
+
+  // Retry Log
+  document.querySelectorAll('.retry-log-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const logId = btn.dataset.id;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Réessai...';
+      fetch(`/whatsapp/history/retry-log/${logId}/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          window.location.reload();
+        } else {
+          alert('Échec du réenvoi: ' + (data.error || 'Erreur inconnue'));
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Réessayer';
+        }
+      })
+      .catch(() => {
+        alert('Erreur de connexion');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Réessayer';
+      });
+    });
+  });
+});
+</script>
 {% endblock %}

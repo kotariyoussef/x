@@ -77,6 +77,11 @@
         </div>
       </div>
       <div class="col-12 col-sm-auto d-flex flex-wrap gap-2">
+        {% if student.parent_contact or student.parent_contact_2 or student.phone %}
+          <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#quickWhatsAppModal" style="min-height: 44px; display: inline-flex; align-items: center;">
+            <i class="bi bi-whatsapp me-1" aria-hidden="true"></i> WhatsApp
+          </button>
+        {% endif %}
         <a href="{% url 'core:student_edit' student.id %}" class="btn btn-outline-primary" style="min-height: 44px; display: inline-flex; align-items: center;">
           <i class="bi bi-pencil" aria-hidden="true"></i> Éditer
         </a>
@@ -417,9 +422,16 @@
                   </span>
                 </td>
                 <td>
-                  <a href="{% url 'core:receipt_download' payment.id %}" class="btn btn-sm btn-outline-primary" title="Télécharger le reçu PDF" aria-label="Télécharger le reçu PDF N° {{ payment.receipt_number }}" style="min-height:40px; display:inline-flex; align-items:center;">
-                    <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF
-                  </a>
+                  <div class="d-flex gap-1">
+                    <a href="{% url 'core:receipt_download' payment.id %}" class="btn btn-sm btn-outline-primary" title="Télécharger le reçu PDF" aria-label="Télécharger le reçu PDF N° {{ payment.receipt_number }}" style="min-height:40px; display:inline-flex; align-items:center;">
+                      <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF
+                    </a>
+                    {% if student.parent_contact or student.phone %}
+                      <a href="{% url 'core:whatsapp_payment_confirmation' payment.id %}" class="btn btn-sm btn-outline-success" title="Envoyer le reçu via WhatsApp" style="min-height:40px; display:inline-flex; align-items:center;">
+                        <i class="bi bi-whatsapp" aria-hidden="true"></i> Reçu
+                      </a>
+                    {% endif %}
+                  </div>
                 </td>
               </tr>
             {% empty %}
@@ -668,7 +680,128 @@ function getCookie(name) {
       if (t.startsWith(name + '=')) { v = decodeURIComponent(t.substring(name.length + 1)); break; }
     }
   }
-  return v;
-}
+<!-- ── Quick WhatsApp Modal ────────────────────────────────────────── -->
+<div class="modal fade" id="quickWhatsAppModal" tabindex="-1" aria-labelledby="quickWhatsAppModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold text-dark" id="quickWhatsAppModalLabel">
+          <i class="bi bi-whatsapp text-success me-2"></i> Envoyer un WhatsApp — {{ student.name }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body pt-3">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Destinataire</label>
+          <select id="quickWaRecipient" class="form-select">
+            {% if student.parent_contact %}
+              <option value="{{ student.parent_contact }}">Parent 1 ({{ student.parent_contact }})</option>
+            {% endif %}
+            {% if student.parent_contact_2 %}
+              <option value="{{ student.parent_contact_2 }}">Parent 2 ({{ student.parent_contact_2 }})</option>
+            {% endif %}
+            {% if student.phone %}
+              <option value="{{ student.phone }}">Élève ({{ student.phone }})</option>
+            {% endif %}
+          </select>
+        </div>
+
+        {% if whatsapp_templates %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Choisir un modèle (optionnel)</label>
+            <select id="quickWaTemplateSelect" class="form-select">
+              <option value="">-- Message personnalisé --</option>
+              {% for tpl in whatsapp_templates %}
+                <option value="{{ tpl.body }}" data-name="{{ tpl.name }}">{{ tpl.name }} ({{ tpl.get_category_display }})</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Message</label>
+          <textarea id="quickWaMessage" class="form-control" rows="4" placeholder="Tapez votre message ici..."></textarea>
+        </div>
+
+        <div id="quickWaAlert" class="alert alert-danger d-none py-2 small"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-success" id="quickWaSendBtn">
+          <i class="bi bi-send-fill me-1"></i> Envoyer maintenant
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const tplSelect = document.getElementById('quickWaTemplateSelect');
+  const msgArea = document.getElementById('quickWaMessage');
+  const sendBtn = document.getElementById('quickWaSendBtn');
+  const alertBox = document.getElementById('quickWaAlert');
+
+  if (tplSelect && msgArea) {
+    tplSelect.addEventListener('change', function() {
+      if (this.value) {
+        let text = this.value;
+        text = text.replace(/\{\{\s*student_name\s*\}\}/gi, '{{ student.name|escapejs }}');
+        text = text.replace(/\{\{\s*amount\s*\}\}/gi, '{{ payment_status.remaining|floatformat:0 }}');
+        msgArea.value = text;
+      }
+    });
+  }
+
+  if (sendBtn) {
+    sendBtn.addEventListener('click', function() {
+      const phone = document.getElementById('quickWaRecipient').value;
+      const message = msgArea.value.trim();
+
+      if (!message) {
+        alertBox.textContent = 'Veuillez saisir un message.';
+        alertBox.classList.remove('d-none');
+        return;
+      }
+
+      alertBox.classList.add('d-none');
+      sendBtn.disabled = true;
+      sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Envoi en cours...';
+
+      const formData = new URLSearchParams();
+      formData.append('phone', phone);
+      formData.append('message', message);
+      formData.append('message_type', 'direct_message');
+
+      fetch('{% url "core:whatsapp_send_ajax" %}', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': getCookie('csrftoken') || document.querySelector('[name=csrfmiddlewaretoken]')?.value,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString()
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          bootstrap.Modal.getInstance(document.getElementById('quickWhatsAppModal')).hide();
+          alert('Message WhatsApp envoyé avec succès !');
+          msgArea.value = '';
+        } else {
+          alertBox.textContent = data.error || "Erreur lors de l'envoi du message.";
+          alertBox.classList.remove('d-none');
+        }
+      })
+      .catch(err => {
+        alertBox.textContent = "Erreur de communication avec le serveur.";
+        alertBox.classList.remove('d-none');
+      })
+      .finally(() => {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Envoyer maintenant';
+      });
+    });
+  }
+});
 </script>
 {% endblock %}

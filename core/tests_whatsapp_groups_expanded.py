@@ -3,17 +3,15 @@ Tests for the WhatsApp Groups & Automation expansion.
 
 Covers:
   - Group targeting / resolve_groups
-  - Enqueueing idempotency
-  - Dry-run mode
+  - Enqueueing idempotency and dry-run
   - Template variable extraction and render
-  - Automation trigger engine and cooldowns
-  - Typed condition evaluation
+  - Automation trigger engine (trigger_automation) with cooldown
+  - Typed condition evaluation (evaluate_automation_conditions)
   - Health verification (mocked)
   - View endpoint smoke tests
 """
 
-from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -23,6 +21,7 @@ from django.utils import timezone
 from core.models import (
     CourseGroup,
     Level,
+    LevelCategory,
     Teacher,
     WhatsAppAutomation,
     WhatsAppAutomationRun,
@@ -37,19 +36,24 @@ from core.services.group_automation import (
     get_job_progress,
     resolve_groups,
     trigger_automation,
+    verify_group_health,
 )
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Fixture helpers
 # ---------------------------------------------------------------------------
 
-def make_wa_group(name="Test Group", course_group=None, group_type="PARENTS",
-                  is_active=True, automation_enabled=True, blocked=False,
-                  archived=False, whatsapp_group_id="123456789@g.us"):
+def make_template(name="Notif", body="Bonjour {{student_name}}."):
+    return WhatsAppMessageTemplate.objects.create(name=name, body=body)
+
+
+def make_wa_group(display_name="Test Group", course_group=None,
+                  group_type="PARENTS", is_active=True,
+                  automation_enabled=True, blocked=False, archived=False,
+                  whatsapp_group_id="123456789@g.us"):
     return WhatsAppGroup.objects.create(
-        name=name,
-        display_name=name,
+        display_name=display_name,
         whatsapp_group_id=whatsapp_group_id,
         group_type=group_type,
         course_group=course_group,
@@ -61,7 +65,8 @@ def make_wa_group(name="Test Group", course_group=None, group_type="PARENTS",
 
 
 def make_level(name="6eme"):
-    return Level.objects.get_or_create(name=name)[0]
+    cat, _ = LevelCategory.objects.get_or_create(name="Général")
+    return Level.objects.get_or_create(name=name, defaults={"category": cat})[0]
 
 
 def make_course_group(name="Maths 6A", level=None):
@@ -78,6 +83,21 @@ def make_course_group(name="Maths 6A", level=None):
             "monthly_price": 300,
         },
     )[0]
+
+
+def make_automation(trigger="STUDENT_ABSENT", enabled=True,
+                    cooldown_seconds=0, conditions=None):
+    template = make_template(name=f"Template-{trigger}")
+    return WhatsAppAutomation.objects.create(
+        name=f"Auto-{trigger}",
+        trigger=trigger,
+        target_type="ALL_GROUPS",
+        target_value="",
+        template=template,
+        enabled=enabled,
+        cooldown_seconds=cooldown_seconds,
+        conditions=conditions or {},
+    )
 
 
 # ===========================================================================
@@ -135,22 +155,24 @@ class ResolveGroupsTest(TestCase):
 
 # ===========================================================================
 # 2. Enqueueing & Idempotency
+#    Real return: {'job': <obj>, 'created': bool, 'group_count': N, 'groups': [...]}
+#    dry_run return: {'dry_run': True, 'group_count': N, 'groups': [...], 'message_preview': ...}
 # ===========================================================================
 
 class EnqueueGroupMessageTest(TestCase):
     def setUp(self):
         self.g = make_wa_group()
 
-    def test_creates_job_and_delivery(self):
+    def test_creates_job(self):
         result = enqueue_group_message(
             target_type="ALL_GROUPS",
             target_value=None,
             message="Hello everyone",
             source_event="test",
         )
-        self.assertEqual(result["status"], "queued")
-        self.assertGreater(result["deliveries_created"], 0)
-        self.assertIsNotNone(result.get("job_id"))
+        self.assertTrue(result["created"])
+        self.assertIn("job", result)
+        self.assertGreater(result["group_count"], 0)
 
     def test_idempotency_prevents_duplicate(self):
         kwargs = dict(
@@ -161,8 +183,8 @@ class EnqueueGroupMessageTest(TestCase):
         )
         r1 = enqueue_group_message(**kwargs)
         r2 = enqueue_group_message(**kwargs)
-        self.assertEqual(r1["job_id"], r2["job_id"])
-        self.assertEqual(r2["status"], "already_queued")
+        self.assertEqual(r1["job"].pk, r2["job"].pk)
+        self.assertFalse(r2["created"])  # second call: not created
 
     def test_dry_run_does_not_persist(self):
         result = enqueue_group_message(
@@ -172,21 +194,23 @@ class EnqueueGroupMessageTest(TestCase):
             source_event="test",
             dry_run=True,
         )
-        self.assertEqual(result["status"], "dry_run")
+        self.assertTrue(result["dry_run"])
         self.assertEqual(WhatsAppMessageJob.objects.count(), 0)
 
-    def test_no_matching_groups_returns_no_targets(self):
+    def test_no_matching_groups_returns_empty_list(self):
+        # GROUP_TYPE "STUDENTS" doesn't exist in DB
         result = enqueue_group_message(
             target_type="GROUP_TYPE",
-            target_value="NONEXISTENT",
+            target_value="NONEXISTENT_TYPE_XYZ",
             message="No one",
             source_event="test",
         )
-        self.assertEqual(result["status"], "no_targets")
+        self.assertEqual(result["group_count"], 0)
 
 
 # ===========================================================================
 # 3. Job Progress & Cancel
+#    cancel_job returns bool; get_job_progress returns dict with 'error' on miss
 # ===========================================================================
 
 class JobProgressTest(TestCase):
@@ -194,11 +218,11 @@ class JobProgressTest(TestCase):
         result = get_job_progress(99999)
         self.assertIn("error", result)
 
-    def test_cancel_nonexistent_job(self):
+    def test_cancel_nonexistent_job_returns_false(self):
         result = cancel_job(99999)
-        self.assertIn("error", result)
+        self.assertFalse(result)
 
-    def test_cancel_pending_job(self):
+    def test_cancel_pending_job_returns_true(self):
         make_wa_group()
         r = enqueue_group_message(
             target_type="ALL_GROUPS",
@@ -206,15 +230,16 @@ class JobProgressTest(TestCase):
             message="Cancel me",
             source_event="cancel-test",
         )
-        job_id = r["job_id"]
-        cancel_result = cancel_job(job_id)
-        self.assertEqual(cancel_result["status"], "cancelled")
+        job_id = r["job"].pk
+        result = cancel_job(job_id)
+        self.assertTrue(result)
         job = WhatsAppMessageJob.objects.get(pk=job_id)
         self.assertEqual(job.status, "CANCELLED")
 
 
 # ===========================================================================
 # 4. Template Variable Extraction and Render
+#    render() returns (rendered_text, missing_vars_list)
 # ===========================================================================
 
 class MessageTemplateTest(TestCase):
@@ -236,89 +261,94 @@ class MessageTemplateTest(TestCase):
             name="Test",
             body="Bonjour {{student_name}}, vous devez {{amount}} DH.",
         )
-        rendered = t.render({"student_name": "Ali", "amount": "500"})
+        rendered, missing = t.render({"student_name": "Ali", "amount": "500"})
         self.assertIn("Ali", rendered)
         self.assertIn("500", rendered)
+        self.assertEqual(missing, [])
 
-    def test_render_leaves_missing_vars(self):
-        t = WhatsAppMessageTemplate(
-            name="Test",
-            body="Bonjour {{student_name}}.",
-        )
-        rendered = t.render({})
-        self.assertIn("{{student_name}}", rendered)
+    def test_render_reports_missing_vars(self):
+        t = WhatsAppMessageTemplate(name="Test", body="Bonjour {{student_name}}.")
+        rendered, missing = t.render({})
+        self.assertIn("student_name", missing)
+
+    def test_render_replaces_single_brace(self):
+        t = WhatsAppMessageTemplate(name="Test", body="Hello {name}.")
+        rendered, missing = t.render({"name": "Sara"})
+        self.assertIn("Sara", rendered)
+        self.assertEqual(missing, [])
 
 
 # ===========================================================================
 # 5. Automation Condition Evaluation
+#    evaluate_automation_conditions(conditions_dict, context_dict) -> (bool, str)
+#    Key: always mock WhatsAppServiceAPI.get_status so require_whatsapp_ready passes
 # ===========================================================================
 
+MOCK_READY_STATUS = {"status": "READY", "offline": False}
+
+
 class ConditionEvaluationTest(TestCase):
-    def test_empty_conditions_always_pass(self):
-        automation = WhatsAppAutomation(conditions=[])
-        self.assertTrue(evaluate_automation_conditions(automation, {}))
+    def _eval(self, conditions, context):
+        """Helper that mocks WhatsApp status so require_whatsapp_ready doesn't interfere."""
+        with patch(
+            "core.services.group_automation.WhatsAppServiceAPI.get_status",
+            return_value=MOCK_READY_STATUS,
+        ):
+            return evaluate_automation_conditions(conditions, context)
 
-    def test_equals_condition_pass(self):
-        automation = WhatsAppAutomation(
-            conditions=[{"field": "level", "op": "equals", "value": "Terminale"}]
-        )
-        self.assertTrue(
-            evaluate_automation_conditions(automation, {"level": "Terminale"})
-        )
+    def test_empty_dict_always_passes(self):
+        passed, _ = self._eval({}, {})
+        self.assertTrue(passed)
 
-    def test_equals_condition_fail(self):
-        automation = WhatsAppAutomation(
-            conditions=[{"field": "level", "op": "equals", "value": "Terminale"}]
-        )
-        self.assertFalse(
-            evaluate_automation_conditions(automation, {"level": "Primaire"})
-        )
+    def test_none_conditions_passes(self):
+        passed, _ = self._eval(None, {})
+        self.assertTrue(passed)
 
-    def test_contains_condition_pass(self):
-        automation = WhatsAppAutomation(
-            conditions=[{"field": "subject", "op": "contains", "value": "Math"}]
-        )
-        self.assertTrue(
-            evaluate_automation_conditions(automation, {"subject": "Mathematiques"})
-        )
+    def test_min_amount_passes_when_sufficient(self):
+        passed, _ = self._eval({"min_amount": "100"}, {"amount": 500})
+        self.assertTrue(passed)
 
-    def test_contains_condition_fail(self):
-        automation = WhatsAppAutomation(
-            conditions=[{"field": "subject", "op": "contains", "value": "Physics"}]
-        )
-        self.assertFalse(
-            evaluate_automation_conditions(automation, {"subject": "Mathematiques"})
-        )
+    def test_min_amount_fails_when_below_threshold(self):
+        passed, reason = self._eval({"min_amount": "500"}, {"amount": 50})
+        self.assertFalse(passed)
+        self.assertIn("seuil", reason)
 
-    def test_gt_condition_pass(self):
-        automation = WhatsAppAutomation(
-            conditions=[{"field": "count", "op": "gt", "value": "3"}]
-        )
-        self.assertTrue(evaluate_automation_conditions(automation, {"count": 5}))
+    def test_level_ids_whitelist_passes(self):
+        passed, _ = self._eval({"level_ids": [1, 2, 3]}, {"level_id": 2})
+        self.assertTrue(passed)
 
-    def test_gt_condition_fail(self):
-        automation = WhatsAppAutomation(
-            conditions=[{"field": "count", "op": "gt", "value": "3"}]
-        )
-        self.assertFalse(evaluate_automation_conditions(automation, {"count": 2}))
+    def test_level_ids_whitelist_fails(self):
+        passed, _ = self._eval({"level_ids": [1, 2]}, {"level_id": 99})
+        self.assertFalse(passed)
 
-    def test_multiple_conditions_all_must_pass(self):
-        automation = WhatsAppAutomation(
-            conditions=[
-                {"field": "level", "op": "equals", "value": "Terminale"},
-                {"field": "count", "op": "gt", "value": "0"},
-            ]
+    def test_only_active_students_passes_for_active(self):
+        class FakeStudent:
+            is_active = True
+        passed, _ = self._eval(
+            {"only_active_students": True},
+            {"student": FakeStudent()},
         )
-        self.assertTrue(
-            evaluate_automation_conditions(
-                automation, {"level": "Terminale", "count": 1}
+        self.assertTrue(passed)
+
+    def test_only_active_students_blocks_inactive(self):
+        class FakeStudent:
+            is_active = False
+        passed, reason = self._eval(
+            {"only_active_students": True},
+            {"student": FakeStudent()},
+        )
+        self.assertFalse(passed)
+
+    def test_require_whatsapp_not_ready_blocks(self):
+        """Without mocking, an offline WhatsApp should block."""
+        with patch(
+            "core.services.group_automation.WhatsAppServiceAPI.get_status",
+            return_value={"status": "LOADING", "offline": True},
+        ):
+            passed, reason = evaluate_automation_conditions(
+                {"require_whatsapp_ready": True}, {}
             )
-        )
-        self.assertFalse(
-            evaluate_automation_conditions(
-                automation, {"level": "Terminale", "count": 0}
-            )
-        )
+        self.assertFalse(passed)
 
 
 # ===========================================================================
@@ -327,68 +357,74 @@ class ConditionEvaluationTest(TestCase):
 
 class TriggerAutomationTest(TestCase):
     def setUp(self):
-        self.group = make_wa_group()
-        self.template = WhatsAppMessageTemplate.objects.create(
-            name="Absence notif",
-            body="Absence de {{student_name}} signalee.",
-        )
-        self.automation = WhatsAppAutomation.objects.create(
-            name="Absence Auto",
-            trigger_event="STUDENT_ABSENT",
-            target_type="ALL_GROUPS",
-            target_value="",
-            message_template=self.template,
-            is_active=True,
-            cooldown_minutes=60,
-            conditions=[],
-        )
+        make_wa_group()  # Need at least one eligible group
 
     def test_trigger_creates_audit_run(self):
-        with patch(
-            "core.services.group_automation.enqueue_group_message",
-            return_value={"status": "queued", "job_id": 1, "deliveries_created": 1},
-        ):
-            trigger_automation(
-                self.automation,
-                context={"student_name": "Sara"},
-                source_event="STUDENT_ABSENT:123",
-            )
-        run = WhatsAppAutomationRun.objects.filter(automation=self.automation).first()
-        self.assertIsNotNone(run)
-
-    def test_cooldown_prevents_second_trigger(self):
-        WhatsAppAutomationRun.objects.create(
-            automation=self.automation,
-            trigger_event="STUDENT_ABSENT",
-            status="SUCCESS",
-            triggered_at=timezone.now() - timedelta(minutes=10),
+        auto = make_automation(trigger="STUDENT_ABSENT", enabled=True)
+        job = WhatsAppMessageJob.objects.create(
+            target_type="ALL_GROUPS",
+            message="Test",
+            idempotency_key="test-job-key-123",
+            correlation_id="corr-123",
         )
         with patch(
-            "core.services.group_automation.enqueue_group_message"
-        ) as mock_enqueue:
-            trigger_automation(
-                self.automation,
-                context={"student_name": "Sara"},
-                source_event="STUDENT_ABSENT:124",
-            )
-            mock_enqueue.assert_not_called()
+            "core.services.group_automation.enqueue_group_message",
+            return_value={"job": job, "created": True, "group_count": 1},
+        ):
+            with patch(
+                "core.services.group_automation.WhatsAppServiceAPI.get_status",
+                return_value=MOCK_READY_STATUS,
+            ):
+                trigger_automation("STUDENT_ABSENT", context={"student_name": "Sara"})
+        run = WhatsAppAutomationRun.objects.filter(automation=auto).first()
+        self.assertIsNotNone(run)
+        self.assertEqual(run.status, "SUCCESS")
 
-    def test_inactive_automation_not_triggered(self):
-        self.automation.is_active = False
-        self.automation.save()
+    def test_cooldown_prevents_repeated_trigger(self):
+        auto = make_automation(
+            trigger="PAYMENT_RECEIVED",
+            enabled=True,
+            cooldown_seconds=3600,
+        )
+        auto.last_run_at = timezone.now() - timezone.timedelta(minutes=5)
+        auto.save(update_fields=["last_run_at"])
+
         with patch(
             "core.services.group_automation.enqueue_group_message"
         ) as mock_enqueue:
-            trigger_automation(
-                self.automation,
-                context={},
-                source_event="STUDENT_ABSENT:125",
-            )
+            trigger_automation("PAYMENT_RECEIVED", context={})
             mock_enqueue.assert_not_called()
+
+        skipped = WhatsAppAutomationRun.objects.filter(
+            automation=auto, status="SKIPPED"
+        ).first()
+        self.assertIsNotNone(skipped)
+
+    def test_disabled_automation_not_triggered(self):
+        auto = make_automation(trigger="ANNOUNCEMENT_PUBLISHED", enabled=False)
+        with patch(
+            "core.services.group_automation.enqueue_group_message"
+        ) as mock_enqueue:
+            trigger_automation("ANNOUNCEMENT_PUBLISHED", context={})
+            mock_enqueue.assert_not_called()
+
+    def test_missing_template_vars_results_in_failed_run(self):
+        auto = make_automation(trigger="STUDENT_ABSENT", enabled=True)
+        auto.template.body = "Dear {{student_name}}"
+        auto.template.save()
+        with patch(
+            "core.services.group_automation.WhatsAppServiceAPI.get_status",
+            return_value=MOCK_READY_STATUS,
+        ):
+            trigger_automation("STUDENT_ABSENT", context={})
+        failed_run = WhatsAppAutomationRun.objects.filter(
+            automation=auto, status="FAILED"
+        ).first()
+        self.assertIsNotNone(failed_run)
 
 
 # ===========================================================================
-# 7. Health Verification (mocked)
+# 7. Health Verification (mocked WhatsAppServiceAPI)
 # ===========================================================================
 
 class HealthVerificationTest(TestCase):
@@ -397,27 +433,30 @@ class HealthVerificationTest(TestCase):
 
     @patch("core.services.group_automation.WhatsAppServiceAPI")
     def test_verify_health_marks_healthy(self, MockAPI):
-        instance = MockAPI.return_value
-        instance.get_group_info.return_value = {
+        MockAPI.get_group_info.return_value = {
+            "success": True,
             "id": "123456789@g.us",
             "name": "Test Group",
             "participants": [{"id": "213600000001@c.us"}],
         }
-        from core.services.group_automation import verify_group_health
         result = verify_group_health(self.group)
-        self.assertTrue(result["healthy"])
+        self.assertTrue(result["success"])
+        self.assertEqual(result["status"], "HEALTHY")
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.health_status, "HEALTHY")
 
     @patch("core.services.group_automation.WhatsAppServiceAPI")
     def test_verify_health_marks_unhealthy_on_error(self, MockAPI):
-        instance = MockAPI.return_value
-        instance.get_group_info.side_effect = Exception("Connection refused")
-        from core.services.group_automation import verify_group_health
+        MockAPI.get_group_info.side_effect = Exception("Connection refused")
         result = verify_group_health(self.group)
-        self.assertFalse(result["healthy"])
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "ERROR")
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.health_status, "ERROR")
 
 
 # ===========================================================================
-# 8. View Smoke Tests (authenticated)
+# 8. View Smoke Tests (authenticated superuser)
 # ===========================================================================
 
 class WhatsAppViewSmokeTest(TestCase):
@@ -428,20 +467,8 @@ class WhatsAppViewSmokeTest(TestCase):
         self.client = Client()
         self.client.login(username="admin_test", password="testpass123")
         self.wa_group = make_wa_group()
-        self.template = WhatsAppMessageTemplate.objects.create(
-            name="Test Template",
-            body="Hello {{name}}",
-        )
-        self.automation = WhatsAppAutomation.objects.create(
-            name="Test Auto",
-            trigger_event="STUDENT_ABSENT",
-            target_type="ALL_GROUPS",
-            target_value="",
-            message_template=self.template,
-            is_active=True,
-            cooldown_minutes=0,
-            conditions=[],
-        )
+        self.template = make_template(name="View Test Template")
+        self.automation = make_automation(trigger="MANUAL")
 
     def _get(self, url_name, *args):
         url = reverse(f"core:{url_name}", args=args if args else None)
@@ -451,10 +478,14 @@ class WhatsAppViewSmokeTest(TestCase):
         self.assertEqual(self._get("whatsapp_groups").status_code, 200)
 
     def test_whatsapp_group_detail(self):
-        self.assertEqual(self._get("whatsapp_group_detail", self.wa_group.pk).status_code, 200)
+        self.assertEqual(
+            self._get("whatsapp_group_detail", self.wa_group.pk).status_code, 200
+        )
 
     def test_whatsapp_group_edit(self):
-        self.assertEqual(self._get("whatsapp_group_edit", self.wa_group.pk).status_code, 200)
+        self.assertEqual(
+            self._get("whatsapp_group_edit", self.wa_group.pk).status_code, 200
+        )
 
     def test_whatsapp_group_send(self):
         self.assertEqual(self._get("whatsapp_group_send").status_code, 200)
@@ -469,7 +500,9 @@ class WhatsAppViewSmokeTest(TestCase):
         self.assertEqual(self._get("whatsapp_template_create").status_code, 200)
 
     def test_whatsapp_template_edit(self):
-        self.assertEqual(self._get("whatsapp_template_edit", self.template.pk).status_code, 200)
+        self.assertEqual(
+            self._get("whatsapp_template_edit", self.template.pk).status_code, 200
+        )
 
     def test_whatsapp_automations_list(self):
         self.assertEqual(self._get("whatsapp_automations").status_code, 200)
@@ -478,13 +511,17 @@ class WhatsAppViewSmokeTest(TestCase):
         self.assertEqual(self._get("whatsapp_automation_create").status_code, 200)
 
     def test_whatsapp_automation_edit(self):
-        self.assertEqual(self._get("whatsapp_automation_edit", self.automation.pk).status_code, 200)
+        self.assertEqual(
+            self._get("whatsapp_automation_edit", self.automation.pk).status_code, 200
+        )
 
     def test_whatsapp_automation_runs(self):
-        self.assertEqual(self._get("whatsapp_automation_runs", self.automation.pk).status_code, 200)
+        self.assertEqual(
+            self._get("whatsapp_automation_runs", self.automation.pk).status_code, 200
+        )
 
     def test_whatsapp_history(self):
         self.assertEqual(self._get("whatsapp_history").status_code, 200)
 
-    def test_whatsapp_group_job_nonexistent(self):
+    def test_whatsapp_group_job_nonexistent_returns_404(self):
         self.assertEqual(self._get("whatsapp_group_job", 99999).status_code, 404)
