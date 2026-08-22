@@ -142,19 +142,95 @@
     </div>
   </div>
 
-  <!-- Main Action Cards -->
-  <div class="row g-4 justify-content-center">
+  <!-- Main Action Cards Grid -->
+  <div class="row g-4 justify-content-center mb-5">
     
-    <!-- 1. Payment Remaining Card -->
-    <div class="col-md-4">
+    <!-- 1. Group Registry -->
+    <div class="col-md-6 col-lg-4">
+      <a href="{% url 'core:whatsapp_groups' %}" class="whatsapp-card card-link">
+        <div class="whatsapp-card-content">
+          <div class="whatsapp-card-icon-wrapper" style="background: rgba(37, 99, 235, 0.1); color: #2563eb;">
+            <i class="bi bi-people-fill"></i>
+          </div>
+          <h3 class="whatsapp-card-title">Registre des Groupes</h3>
+          <p class="whatsapp-card-text">
+            Gérez vos groupes de classes, parents et professeurs, vérifiez leur connectivité et synchronisez les membres.
+          </p>
+          <div class="whatsapp-card-footer">
+            <span>Gérer les groupes</span>
+            <i class="bi bi-arrow-right"></i>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <!-- 2. Group Broadcast Send -->
+    <div class="col-md-6 col-lg-4">
+      <a href="{% url 'core:whatsapp_group_send' %}" class="whatsapp-card card-link">
+        <div class="whatsapp-card-content">
+          <div class="whatsapp-card-icon-wrapper" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
+            <i class="bi bi-send-fill"></i>
+          </div>
+          <h3 class="whatsapp-card-title">Diffusion vers Groupes</h3>
+          <p class="whatsapp-card-text">
+            Diffusez des messages ciblés vers un ou plusieurs groupes WhatsApp avec aperçu et validation stricte.
+          </p>
+          <div class="whatsapp-card-footer">
+            <span>Envoyer un message</span>
+            <i class="bi bi-arrow-right"></i>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <!-- 3. Automations Engine -->
+    <div class="col-md-6 col-lg-4">
+      <a href="{% url 'core:whatsapp_automations' %}" class="whatsapp-card card-link">
+        <div class="whatsapp-card-content">
+          <div class="whatsapp-card-icon-wrapper" style="background: rgba(14, 165, 233, 0.1); color: #0ea5e9;">
+            <i class="bi bi-robot"></i>
+          </div>
+          <h3 class="whatsapp-card-title">Automatisations</h3>
+          <p class="whatsapp-card-text">
+            Configurez les déclencheurs automatiques liés aux absences, paiements et plannings de cours.
+          </p>
+          <div class="whatsapp-card-footer">
+            <span>Configurer les règles</span>
+            <i class="bi bi-arrow-right"></i>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <!-- 4. Message Templates -->
+    <div class="col-md-6 col-lg-4">
+      <a href="{% url 'core:whatsapp_templates' %}" class="whatsapp-card card-link">
+        <div class="whatsapp-card-content">
+          <div class="whatsapp-card-icon-wrapper" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+            <i class="bi bi-file-earmark-text-fill"></i>
+          </div>
+          <h3 class="whatsapp-card-title">Modèles de Messages</h3>
+          <p class="whatsapp-card-text">
+            Créez et prévisualisez des modèles de notification réutilisables avec variables dynamiques.
+          </p>
+          <div class="whatsapp-card-footer">
+            <span>Gérer les modèles</span>
+            <i class="bi bi-arrow-right"></i>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <!-- 5. Payment Reminders -->
+    <div class="col-md-6 col-lg-4">
       <a href="{% url 'core:whatsapp_payment_reminders' %}" class="whatsapp-card card-link">
         <div class="whatsapp-card-content">
           <div class="whatsapp-card-icon-wrapper payment-theme">
             <i class="bi bi-cash-coin"></i>
           </div>
-          <h3 class="whatsapp-card-title">Rappel Paiement</h3>
+          <h3 class="whatsapp-card-title">Rappels de Paiement</h3>
           <p class="whatsapp-card-text">
-            Notifiez les parents des élèves n'ayant pas encore réglé leurs frais pour le mois en cours.
+            Notifiez individuellement les parents des élèves ayant des mensualités impayées.
           </p>
           <div class="whatsapp-card-footer">
             <span>Accéder aux rappels</span>
@@ -164,8 +240,8 @@
       </a>
     </div>
 
-    <!-- 2. Absence Card -->
-    <div class="col-md-4">
+    <!-- 6. Absence Notifications -->
+    <div class="col-md-6 col-lg-4">
       <a href="{% url 'core:whatsapp_absence_notifications' %}" class="whatsapp-card card-link">
         <div class="whatsapp-card-content">
           <div class="whatsapp-card-icon-wrapper absence-theme">
@@ -183,19 +259,38 @@
       </a>
     </div>
 
-    <!-- 3. Bulk Announcements Card -->
-    <div class="col-md-4">
-      <a href="{% url 'core:whatsapp_bulk_announcements' %}" class="whatsapp-card card-link">
+    <!-- 7. Scanner & Discovery -->
+    <div class="col-md-6 col-lg-4">
+      <a href="{% url 'core:whatsapp_group_discover' %}" class="whatsapp-card card-link">
         <div class="whatsapp-card-content">
-          <div class="whatsapp-card-icon-wrapper bulk-theme">
-            <i class="bi bi-chat-left-dots-fill"></i>
+          <div class="whatsapp-card-icon-wrapper" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
+            <i class="bi bi-search"></i>
           </div>
-          <h3 class="whatsapp-card-title">Messages Groupés</h3>
+          <h3 class="whatsapp-card-title">Scanner WhatsApp</h3>
           <p class="whatsapp-card-text">
-            Envoyez des annonces, rappels de congés ou événements à tous les contacts en une seule fois.
+            Découvrez tous les groupes existants sur votre compte WhatsApp et importez-les dans l'ERP.
           </p>
           <div class="whatsapp-card-footer">
-            <span>Envoyer une annonce</span>
+            <span>Scanner le compte</span>
+            <i class="bi bi-arrow-right"></i>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <!-- 8. History & Audit Trail -->
+    <div class="col-md-6 col-lg-4">
+      <a href="{% url 'core:whatsapp_history' %}" class="whatsapp-card card-link">
+        <div class="whatsapp-card-content">
+          <div class="whatsapp-card-icon-wrapper" style="background: rgba(107, 114, 128, 0.1); color: #6b7280;">
+            <i class="bi bi-journal-text"></i>
+          </div>
+          <h3 class="whatsapp-card-title">Journal d'Audit</h3>
+          <p class="whatsapp-card-text">
+            Consultez l'historique complet des diffusions, statuts d'envoi et exécutions d'automatisations.
+          </p>
+          <div class="whatsapp-card-footer">
+            <span>Consulter l'historique</span>
             <i class="bi bi-arrow-right"></i>
           </div>
         </div>

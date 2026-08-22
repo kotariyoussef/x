@@ -9,7 +9,11 @@ from django.db.models import Q, Count, Sum
 from decimal import Decimal
 from datetime import timedelta, date
 
-from .models import Student, Payment, Enrollment, Room, Teacher, WhatsAppSendLog, WhatsAppGroup, WhatsAppMessageJob
+from .models import (
+    Student, Payment, Enrollment, Room, Teacher, WhatsAppSendLog, WhatsAppGroup,
+    WhatsAppMessageJob, WhatsAppMessageDelivery, WhatsAppMessageTemplate,
+    WhatsAppAutomation, WhatsAppAutomationRun, Level, LevelCategory
+)
 from .utils import WhatsAppMessageTemplates, WhatsAppUtils, WhatsAppServiceAPI, _build_room_schedule, _build_teacher_schedule, _calculate_week_stats, get_dashboard_stats, generate_receipt_pdf, calculate_student_monthly_total, generate_sessions_from_coursegroups, _annotate_conflicts, load_message_template, SafeDict
 from .forms import SessionForm, StudentForm, EnrollmentForm
 from django.core.paginator import Paginator
@@ -934,6 +938,10 @@ def group_detail(request, group_id):
 
     schedules = group.schedules.all()
 
+    # WhatsApp group linked to this course group (if any)
+    from .models import WhatsAppGroup
+    whatsapp_group = WhatsAppGroup.objects.filter(course_group=group, is_active=True).first()
+
     return render(request, 'core/course_group_detail.html', {
         'group': group,
         'students': students,
@@ -947,6 +955,7 @@ def group_detail(request, group_id):
         'recent_sessions': recent_sessions,
         'current_month_payments': current_month_payments,
         'current_month_total': current_month_total,
+        'whatsapp_group': whatsapp_group,
     })
 
 
@@ -2656,38 +2665,293 @@ def whatsapp_dashboard(request):
     return render(request, 'core/whatsapp_dashboard.html', context)
 
 
+# ==============================================================================
+# WHATSAPP GROUPS & AUTOMATION VIEWS
+# ==============================================================================
+
 @staff_member_required
 @require_GET
 def whatsapp_groups(request):
-    """List explicitly registered and authorized WhatsApp groups."""
-    groups = WhatsAppGroup.objects.select_related('course_group').all()
+    """List explicitly registered and authorized WhatsApp groups with filters and health status."""
+    groups = WhatsAppGroup.objects.select_related('course_group', 'course_group__level', 'course_group__teacher').all()
+    
+    # Filter by group_type
     group_type = request.GET.get('group_type')
     if group_type:
         groups = groups.filter(group_type=group_type)
-    if request.GET.get('active') == '1':
+
+    # Filter by active
+    active = request.GET.get('active')
+    if active == '1':
         groups = groups.filter(is_active=True)
+    elif active == '0':
+        groups = groups.filter(is_active=False)
+
+    # Filter by automation enabled
     if request.GET.get('automation') == '1':
         groups = groups.filter(automation_enabled=True, blocked=False)
-    if request.GET.get('health') == 'error':
+
+    # Filter by sync enabled
+    if request.GET.get('sync') == '1':
+        groups = groups.filter(sync_enabled=True)
+
+    # Filter by health status
+    health = request.GET.get('health')
+    if health == 'healthy':
+        groups = groups.filter(health_status='HEALTHY')
+    elif health == 'error':
+        groups = groups.filter(health_status='ERROR')
+    elif health == 'stale':
+        groups = groups.filter(health_status='STALE')
+    elif health == 'unavailable':
         groups = groups.exclude(health_status='HEALTHY')
+
+    # Search query
+    q = request.GET.get('q', '').strip()
+    if q:
+        groups = groups.filter(
+            Q(display_name__icontains=q) |
+            Q(whatsapp_group_id__icontains=q) |
+            Q(course_group__name__icontains=q)
+        )
+
+    all_groups_qs = WhatsAppGroup.objects.all()
+    total_count = all_groups_qs.count()
+    active_count = all_groups_qs.filter(is_active=True).count()
+    healthy_count = all_groups_qs.filter(health_status='HEALTHY').count()
+    error_count = all_groups_qs.filter(health_status='ERROR').count()
+    automation_count = all_groups_qs.filter(automation_enabled=True, is_active=True).count()
+
+    status_data = WhatsAppServiceAPI.get_status()
+
     return render(request, 'core/whatsapp_groups.html', {
         'groups': groups,
         'group_types': WhatsAppGroup.TYPE_CHOICES,
         'selected_type': group_type or '',
+        'selected_health': health or '',
+        'selected_active': active or '',
+        'search_query': q,
+        'total_count': total_count,
+        'active_count': active_count,
+        'healthy_count': healthy_count,
+        'error_count': error_count,
+        'automation_count': automation_count,
+        'status_data': status_data,
+    })
+
+
+@staff_member_required
+@require_GET
+def whatsapp_group_detail(request, group_id):
+    """Detailed view of a registered WhatsApp group."""
+    group = get_object_or_404(
+        WhatsAppGroup.objects.select_related('course_group', 'course_group__level', 'course_group__teacher'),
+        pk=group_id
+    )
+    
+    # Recent deliveries for this group
+    recent_deliveries = WhatsAppMessageDelivery.objects.filter(group=group).select_related('job').order_by('-created_at')[:15]
+    
+    # Live WhatsApp Info & Participants if available
+    whatsapp_info = None
+    if group.whatsapp_group_id:
+        try:
+            info_res = WhatsAppServiceAPI.get_group_info(group.whatsapp_group_id)
+            if info_res.get('success'):
+                whatsapp_info = info_res
+        except Exception:
+            pass
+
+    # Linked CourseGroup expected participants
+    sync_preview = None
+    if group.course_group:
+        from core.services.whatsapp import WhatsAppGroupService
+        try:
+            sync_preview = WhatsAppGroupService.preview_sync(group.course_group)
+        except Exception:
+            pass
+
+    return render(request, 'core/whatsapp_group_detail.html', {
+        'group': group,
+        'recent_deliveries': recent_deliveries,
+        'whatsapp_info': whatsapp_info,
+        'sync_preview': sync_preview,
+        'status_data': WhatsAppServiceAPI.get_status(),
     })
 
 
 @staff_member_required
 @require_http_methods(['GET', 'POST'])
+def whatsapp_group_edit(request, group_id):
+    """Edit metadata and configuration of a registered WhatsApp group."""
+    group = get_object_or_404(WhatsAppGroup, pk=group_id)
+
+    if request.method == 'POST':
+        group.display_name = request.POST.get('display_name', group.display_name).strip()
+        group.group_type = request.POST.get('group_type', group.group_type)
+        group.is_active = request.POST.get('is_active') == 'on'
+        group.sync_enabled = request.POST.get('sync_enabled') == 'on'
+        group.automation_enabled = request.POST.get('automation_enabled') == 'on'
+        group.blocked = request.POST.get('blocked') == 'on'
+        group.archived = request.POST.get('archived') == 'on'
+
+        course_group_id = request.POST.get('course_group_id')
+        if course_group_id and course_group_id.isdigit():
+            group.course_group_id = int(course_group_id)
+        else:
+            group.course_group = None
+
+        group.save()
+        messages.success(request, f"Le groupe '{group.display_name}' a été mis à jour avec succès.")
+        return redirect('core:whatsapp_group_detail', group_id=group.pk)
+
+    return render(request, 'core/whatsapp_group_edit.html', {
+        'group': group,
+        'group_types': WhatsAppGroup.TYPE_CHOICES,
+        'course_groups': CourseGroup.objects.filter(is_active=True).order_by('name'),
+    })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_group_health_check_ajax(request, group_id):
+    """AJAX endpoint to verify single group accessibility on WhatsApp."""
+    group = get_object_or_404(WhatsAppGroup, pk=group_id)
+    from core.services.group_automation import verify_group_health
+    res = verify_group_health(group)
+    group.refresh_from_db()
+    return JsonResponse({
+        'success': res.get('success', False),
+        'health_status': group.health_status,
+        'participant_count': group.participant_count,
+        'last_error': group.last_error,
+        'last_verified_at': group.last_verified_at.strftime('%d/%m/%Y %H:%M') if group.last_verified_at else None,
+    })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_group_health_check_all_ajax(request):
+    """AJAX endpoint to verify all active groups accessibility on WhatsApp."""
+    from core.services.group_automation import verify_all_groups_health
+    res = verify_all_groups_health()
+    return JsonResponse({'success': True, 'stats': res})
+
+
+@staff_member_required
+@require_GET
+def whatsapp_group_discover(request):
+    """Scans WhatsApp for all groups and presents an import interface."""
+    from core.services.group_automation import discover_whatsapp_groups
+    discovery_res = discover_whatsapp_groups()
+    course_groups = CourseGroup.objects.filter(is_active=True).order_by('name')
+
+    return render(request, 'core/whatsapp_discover.html', {
+        'discovery': discovery_res,
+        'course_groups': course_groups,
+        'group_types': WhatsAppGroup.TYPE_CHOICES,
+        'status_data': WhatsAppServiceAPI.get_status(),
+    })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_group_import_ajax(request):
+    """AJAX endpoint to import a WhatsApp group into the Django registry."""
+    gid = request.POST.get('whatsapp_group_id')
+    name = request.POST.get('display_name', '').strip() or gid
+    group_type = request.POST.get('group_type', 'CUSTOM')
+    course_id = request.POST.get('course_group_id')
+    course_group_id = int(course_id) if course_id and course_id.isdigit() else None
+
+    if not gid:
+        return JsonResponse({'success': False, 'error': 'ID WhatsApp manquant'}, status=400)
+
+    from core.services.group_automation import import_whatsapp_group
+    group, created = import_whatsapp_group(
+        whatsapp_group_id=gid,
+        display_name=name,
+        group_type=group_type,
+        course_group_id=course_group_id,
+    )
+    return JsonResponse({
+        'success': True,
+        'created': created,
+        'group_id': group.pk,
+        'display_name': group.display_name,
+        'group_type': group.get_group_type_display(),
+    })
+
+
+@staff_member_required
+@require_GET
+def whatsapp_group_sync_preview_ajax(request, group_id):
+    """AJAX endpoint to preview synchronization diff for a group."""
+    group = get_object_or_404(WhatsAppGroup, pk=group_id)
+    if not group.course_group:
+        return JsonResponse({'success': False, 'error': 'Aucun groupe de cours associé'}, status=400)
+
+    from core.services.whatsapp import WhatsAppGroupService
+    preview = WhatsAppGroupService.preview_sync(group.course_group)
+    return JsonResponse({'success': True, 'preview': preview})
+
+
+# ── Send to Group(s) ─────────────────────────────────────────────────────────
+
+@staff_member_required
+@require_http_methods(['GET', 'POST'])
 def whatsapp_group_send(request):
-    """Preview or enqueue a message to explicitly registered groups."""
-    from core.services.group_automation import enqueue_group_message
+    """Unified group sending view supporting single, multiple, category, and all eligible groups."""
+    from core.services.group_automation import enqueue_group_message, resolve_groups, process_next_job
 
     if request.method == 'POST':
         target_type = request.POST.get('target_type', 'GROUP_IDS')
-        target_value = request.POST.get('target_value', '')
+        
+        # Handle multiple group selection checkboxes
+        if target_type == 'GROUP_IDS':
+            selected_ids = request.POST.getlist('group_ids')
+            if selected_ids:
+                target_value = ','.join(str(i) for i in selected_ids)
+            else:
+                target_value = request.POST.get('target_value', '')
+        elif target_type == 'GROUP_TYPE':
+            target_value = request.POST.get('group_type_value', request.POST.get('target_value', ''))
+        elif target_type == 'LEVEL':
+            target_value = request.POST.get('level_value', request.POST.get('target_value', ''))
+        elif target_type == 'COURSE':
+            target_value = request.POST.get('course_value', request.POST.get('target_value', ''))
+        else:
+            target_value = request.POST.get('target_value', '')
+
         message = request.POST.get('message', '').strip()
+        template_id = request.POST.get('template_id')
+        if template_id and template_id.isdigit():
+            tpl = WhatsAppMessageTemplate.objects.filter(pk=template_id).first()
+            if tpl and not message:
+                message = tpl.body
+
+        is_confirmed = request.POST.get('confirmed') == '1'
         dry_run = request.POST.get('dry_run') == '1'
+
+        # If not confirmed yet, calculate preview and target list
+        if not is_confirmed and not dry_run:
+            targeted_groups = list(resolve_groups(target_type, target_value))
+            if not targeted_groups:
+                messages.error(request, "Aucun groupe WhatsApp éligible ne correspond aux critères sélectionnés.")
+                return redirect('core:whatsapp_group_send')
+
+            total_recipients_est = sum(g.participant_count for g in targeted_groups)
+
+            return render(request, 'core/whatsapp_group_send_confirm.html', {
+                'target_type': target_type,
+                'target_value': target_value,
+                'message': message,
+                'groups': targeted_groups,
+                'group_count': len(targeted_groups),
+                'estimated_recipients': total_recipients_est,
+                'form_data': request.POST,
+            })
+
         try:
             result = enqueue_group_message(
                 target_type=target_type,
@@ -2699,29 +2963,442 @@ def whatsapp_group_send(request):
             )
         except ValueError as error:
             messages.error(request, str(error))
-        else:
-            if dry_run:
-                return render(request, 'core/whatsapp_group_send.html', {
-                    'groups': result['groups'],
-                    'preview': True,
-                    'form_data': request.POST,
-                    'group_types': WhatsAppGroup.TYPE_CHOICES,
-                })
-            messages.success(request, f"Job créé pour {result['group_count']} groupe(s). Il doit être traité par le worker WhatsApp.")
-            return redirect('core:whatsapp_group_job', job_id=result['job'].pk)
+            return redirect('core:whatsapp_group_send')
 
+        if dry_run:
+            return render(request, 'core/whatsapp_group_send.html', {
+                'groups': WhatsAppGroup.objects.filter(is_active=True).order_by('display_name'),
+                'group_types': WhatsAppGroup.TYPE_CHOICES,
+                'levels': Level.objects.all().order_by('name'),
+                'course_groups': CourseGroup.objects.filter(is_active=True).order_by('name'),
+                'templates': WhatsAppMessageTemplate.objects.filter(enabled=True).order_by('name'),
+                'dry_run_result': result,
+                'form_data': request.POST,
+            })
+
+        job = result['job']
+        # Process first item or kick off worker synchronously for instant feedback
+        if request.POST.get('process_now') == '1':
+            process_next_job()
+
+        messages.success(request, f"Campagne créée avec succès pour {result['group_count']} groupe(s).")
+        return redirect('core:whatsapp_group_job', job_id=job.pk)
+
+    # GET Request
+    preselected_group_id = request.GET.get('group_id')
     return render(request, 'core/whatsapp_group_send.html', {
         'groups': WhatsAppGroup.objects.filter(is_active=True).order_by('display_name'),
         'group_types': WhatsAppGroup.TYPE_CHOICES,
-        'form_data': {},
+        'levels': Level.objects.all().order_by('name'),
+        'course_groups': CourseGroup.objects.filter(is_active=True).order_by('name'),
+        'templates': WhatsAppMessageTemplate.objects.filter(enabled=True).order_by('name'),
+        'preselected_group_id': preselected_group_id,
+        'status_data': WhatsAppServiceAPI.get_status(),
     })
 
 
 @staff_member_required
 @require_GET
 def whatsapp_group_job(request, job_id):
-    job = get_object_or_404(WhatsAppMessageJob.objects.prefetch_related('deliveries__group'), pk=job_id)
-    return render(request, 'core/whatsapp_group_job.html', {'job': job})
+    """Job tracking and real-time delivery progress page."""
+    job = get_object_or_404(
+        WhatsAppMessageJob.objects.prefetch_related('deliveries__group'),
+        pk=job_id
+    )
+    from core.services.group_automation import get_job_progress
+    progress = get_job_progress(job_id)
+
+    return render(request, 'core/whatsapp_group_job.html', {
+        'job': job,
+        'progress': progress,
+        'status_data': WhatsAppServiceAPI.get_status(),
+    })
+
+
+@staff_member_required
+@require_GET
+def whatsapp_group_job_progress_ajax(request, job_id):
+    """AJAX endpoint for polling job progress."""
+    from core.services.group_automation import get_job_progress, process_next_job
+    
+    # Process one step if requested and job is pending/running
+    if request.GET.get('step') == '1':
+        process_next_job(delay_between_sends=0.5)
+
+    progress = get_job_progress(job_id)
+    return JsonResponse(progress)
+
+
+@staff_member_required
+@require_POST
+def whatsapp_group_job_cancel_ajax(request, job_id):
+    """AJAX endpoint to cancel a pending job."""
+    from core.services.group_automation import cancel_job
+    success = cancel_job(job_id)
+    return JsonResponse({'success': success})
+
+
+# ── Templates Management ─────────────────────────────────────────────────────
+
+@staff_member_required
+@require_GET
+def whatsapp_templates(request):
+    """Lists message templates with search and category filters."""
+    templates = WhatsAppMessageTemplate.objects.all()
+    cat = request.GET.get('category')
+    if cat:
+        templates = templates.filter(category=cat)
+
+    q = request.GET.get('q', '').strip()
+    if q:
+        templates = templates.filter(Q(name__icontains=q) | Q(body__icontains=q) | Q(description__icontains=q))
+
+    return render(request, 'core/whatsapp_templates.html', {
+        'templates': templates,
+        'categories': WhatsAppMessageTemplate._meta.get_field('category').choices,
+        'selected_category': cat or '',
+        'search_query': q,
+    })
+
+
+@staff_member_required
+@require_http_methods(['GET', 'POST'])
+def whatsapp_template_create(request):
+    """Create a new WhatsApp message template."""
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        category = request.POST.get('category', 'GENERAL')
+        body = request.POST.get('body', '').strip()
+        description = request.POST.get('description', '').strip()
+        enabled = request.POST.get('enabled') == 'on'
+
+        if not name or not body:
+            messages.error(request, "Le nom et le contenu du modèle sont obligatoires.")
+        else:
+            tpl = WhatsAppMessageTemplate.objects.create(
+                name=name,
+                category=category,
+                body=body,
+                description=description,
+                enabled=enabled,
+                created_by=request.user,
+            )
+            messages.success(request, f"Le modèle '{tpl.name}' a été créé avec succès.")
+            return redirect('core:whatsapp_templates')
+
+    return render(request, 'core/whatsapp_template_form.html', {
+        'categories': WhatsAppMessageTemplate._meta.get_field('category').choices,
+        'title': 'Nouveau modèle de message',
+        'button_text': 'Créer le modèle',
+    })
+
+
+@staff_member_required
+@require_http_methods(['GET', 'POST'])
+def whatsapp_template_edit(request, template_id):
+    """Edit an existing WhatsApp message template."""
+    tpl = get_object_or_404(WhatsAppMessageTemplate, pk=template_id)
+
+    if request.method == 'POST':
+        tpl.name = request.POST.get('name', tpl.name).strip()
+        tpl.category = request.POST.get('category', tpl.category)
+        tpl.body = request.POST.get('body', tpl.body).strip()
+        tpl.description = request.POST.get('description', tpl.description).strip()
+        tpl.enabled = request.POST.get('enabled') == 'on'
+
+        if not tpl.name or not tpl.body:
+            messages.error(request, "Le nom et le contenu du modèle sont obligatoires.")
+        else:
+            tpl.save()
+            messages.success(request, f"Le modèle '{tpl.name}' a été mis à jour avec succès.")
+            return redirect('core:whatsapp_templates')
+
+    return render(request, 'core/whatsapp_template_form.html', {
+        'template': tpl,
+        'categories': WhatsAppMessageTemplate._meta.get_field('category').choices,
+        'title': f"Modifier le modèle : {tpl.name}",
+        'button_text': 'Enregistrer les modifications',
+    })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_template_delete(request, template_id):
+    """Delete a WhatsApp message template."""
+    tpl = get_object_or_404(WhatsAppMessageTemplate, pk=template_id)
+    name = tpl.name
+    tpl.delete()
+    messages.success(request, f"Le modèle '{name}' a été supprimé.")
+    return redirect('core:whatsapp_templates')
+
+
+@staff_member_required
+@require_POST
+def whatsapp_template_preview_ajax(request):
+    """AJAX endpoint to render a template preview with context variables."""
+    body = request.POST.get('body', '')
+    template_id = request.POST.get('template_id')
+    
+    if template_id and template_id.isdigit():
+        tpl = WhatsAppMessageTemplate.objects.filter(pk=template_id).first()
+        if tpl and not body:
+            body = tpl.body
+
+    context_json = request.POST.get('context', '{}')
+    try:
+        context = json.loads(context_json)
+    except Exception:
+        context = {}
+
+    # Sample mock context for preview if not provided
+    sample_context = {
+        'student_name': 'Youssef Alami',
+        'parent_name': 'M. Alami',
+        'course_name': 'Mathématiques 3AC',
+        'class_name': '3AC Groupe A',
+        'amount': '450 DH',
+        'receipt_number': 'REC2026-0042',
+        'date': timezone.now().strftime('%d/%m/%Y'),
+        'time': '10:00',
+        'date_debut': timezone.now().strftime('%d/%m/%Y'),
+        'date_fin': (timezone.now() + timedelta(days=7)).strftime('%d/%m/%Y'),
+        'mois': 'Mars 2026',
+        'time_info': ' à 10:00',
+    }
+    sample_context.update(context)
+
+    # Use template render method
+    dummy_tpl = WhatsAppMessageTemplate(body=body)
+    variables = dummy_tpl.extract_variables()
+    rendered, missing = dummy_tpl.render(sample_context)
+
+    return JsonResponse({
+        'success': True,
+        'rendered': rendered,
+        'variables': variables,
+        'missing_variables': missing,
+    })
+
+
+# ── Automations Management ───────────────────────────────────────────────────
+
+@staff_member_required
+@require_GET
+def whatsapp_automations(request):
+    """List all configured automations."""
+    automations = WhatsAppAutomation.objects.select_related('template').annotate(
+        runs_count=Count('runs')
+    ).order_by('name')
+
+    return render(request, 'core/whatsapp_automations.html', {
+        'automations': automations,
+        'triggers': WhatsAppAutomation.TRIGGER_CHOICES,
+        'status_data': WhatsAppServiceAPI.get_status(),
+    })
+
+
+@staff_member_required
+@require_http_methods(['GET', 'POST'])
+def whatsapp_automation_create(request):
+    """Create a new WhatsApp automation."""
+    templates = WhatsAppMessageTemplate.objects.filter(enabled=True).order_by('name')
+    course_groups = CourseGroup.objects.filter(is_active=True).order_by('name')
+    levels = Level.objects.all().order_by('name')
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        description = request.POST.get('description', '').strip()
+        trigger = request.POST.get('trigger')
+        target_type = request.POST.get('target_type')
+        target_value = request.POST.get('target_value', '').strip()
+        template_id = request.POST.get('template_id')
+        enabled = request.POST.get('enabled') == 'on'
+        dry_run_only = request.POST.get('dry_run_only') == 'on'
+        cooldown = int(request.POST.get('cooldown_seconds', 0) or 0)
+        schedule_cron = request.POST.get('schedule_cron', '').strip()
+
+        # Parse conditions JSON safely
+        conditions_str = request.POST.get('conditions', '{}').strip() or '{}'
+        try:
+            conditions = json.loads(conditions_str)
+        except Exception:
+            conditions = {}
+
+        if not name or not trigger or not target_type or not template_id:
+            messages.error(request, "Veuillez remplir tous les champs obligatoires.")
+        else:
+            tpl = get_object_or_404(WhatsAppMessageTemplate, pk=template_id)
+            auto = WhatsAppAutomation.objects.create(
+                name=name,
+                description=description,
+                trigger=trigger,
+                target_type=target_type,
+                target_value=target_value,
+                template=tpl,
+                conditions=conditions,
+                cooldown_seconds=cooldown,
+                schedule_cron=schedule_cron,
+                enabled=enabled,
+                dry_run_only=dry_run_only,
+                created_by=request.user,
+            )
+            messages.success(request, f"L'automatisation '{auto.name}' a été créée avec succès.")
+            return redirect('core:whatsapp_automations')
+
+    return render(request, 'core/whatsapp_automation_form.html', {
+        'triggers': WhatsAppAutomation.TRIGGER_CHOICES,
+        'target_types': WhatsAppMessageJob.TARGET_CHOICES,
+        'templates': templates,
+        'course_groups': course_groups,
+        'levels': levels,
+        'title': 'Nouvelle automatisation WhatsApp',
+        'button_text': "Créer l'automatisation",
+    })
+
+
+@staff_member_required
+@require_http_methods(['GET', 'POST'])
+def whatsapp_automation_edit(request, automation_id):
+    """Edit an existing WhatsApp automation."""
+    auto = get_object_or_404(WhatsAppAutomation, pk=automation_id)
+    templates = WhatsAppMessageTemplate.objects.filter(enabled=True).order_by('name')
+    course_groups = CourseGroup.objects.filter(is_active=True).order_by('name')
+    levels = Level.objects.all().order_by('name')
+
+    if request.method == 'POST':
+        auto.name = request.POST.get('name', auto.name).strip()
+        auto.description = request.POST.get('description', auto.description).strip()
+        auto.trigger = request.POST.get('trigger', auto.trigger)
+        auto.target_type = request.POST.get('target_type', auto.target_type)
+        auto.target_value = request.POST.get('target_value', auto.target_value).strip()
+        auto.enabled = request.POST.get('enabled') == 'on'
+        auto.dry_run_only = request.POST.get('dry_run_only') == 'on'
+        auto.cooldown_seconds = int(request.POST.get('cooldown_seconds', auto.cooldown_seconds) or 0)
+        auto.schedule_cron = request.POST.get('schedule_cron', auto.schedule_cron).strip()
+
+        template_id = request.POST.get('template_id')
+        if template_id:
+            auto.template = get_object_or_404(WhatsAppMessageTemplate, pk=template_id)
+
+        conditions_str = request.POST.get('conditions', '{}').strip() or '{}'
+        try:
+            auto.conditions = json.loads(conditions_str)
+        except Exception:
+            pass
+
+        auto.save()
+        messages.success(request, f"L'automatisation '{auto.name}' a été mise à jour avec succès.")
+        return redirect('core:whatsapp_automations')
+
+    return render(request, 'core/whatsapp_automation_form.html', {
+        'automation': auto,
+        'triggers': WhatsAppAutomation.TRIGGER_CHOICES,
+        'target_types': WhatsAppMessageJob.TARGET_CHOICES,
+        'templates': templates,
+        'course_groups': course_groups,
+        'levels': levels,
+        'conditions_json': json.dumps(auto.conditions, indent=2),
+        'title': f"Modifier l'automatisation : {auto.name}",
+        'button_text': "Enregistrer",
+    })
+
+
+@staff_member_required
+@require_POST
+def whatsapp_automation_toggle_ajax(request, automation_id):
+    """AJAX endpoint to enable/disable an automation."""
+    auto = get_object_or_404(WhatsAppAutomation, pk=automation_id)
+    auto.enabled = not auto.enabled
+    auto.save(update_fields=['enabled'])
+    return JsonResponse({'success': True, 'enabled': auto.enabled})
+
+
+@staff_member_required
+@require_http_methods(['GET', 'POST'])
+def whatsapp_automation_run_now(request, automation_id):
+    """Manually trigger an automation immediately."""
+    auto = get_object_or_404(WhatsAppAutomation.objects.select_related('template'), pk=automation_id)
+    from core.services.group_automation import trigger_automation
+
+    dry_run = request.POST.get('dry_run') == '1' if request.method == 'POST' else (request.GET.get('dry_run') == '1')
+
+    sample_context = {
+        'student_name': 'Élève Exemple',
+        'parent_name': 'Parent',
+        'course_name': 'Groupe de cours',
+        'date': timezone.now().strftime('%d/%m/%Y'),
+        'time': timezone.now().strftime('%H:%M'),
+        'amount': '500 DH',
+    }
+
+    results = trigger_automation(
+        trigger_name=auto.trigger,
+        context=sample_context,
+        user=request.user,
+        source_event_id=f"manual_run_{timezone.now().timestamp()}",
+        dry_run=dry_run,
+    )
+
+    if dry_run:
+        messages.info(request, f"Simulation d'exécution terminée : {results}")
+    else:
+        messages.success(request, f"Automatisation '{auto.name}' exécutée avec succès.")
+
+    return redirect('core:whatsapp_automation_runs', automation_id=auto.pk)
+
+
+@staff_member_required
+@require_GET
+def whatsapp_automation_runs(request, automation_id):
+    """Audit trail of execution history for a specific automation."""
+    auto = get_object_or_404(WhatsAppAutomation, pk=automation_id)
+    runs = auto.runs.select_related('job').order_by('-started_at')[:50]
+
+    return render(request, 'core/whatsapp_automation_runs.html', {
+        'automation': auto,
+        'runs': runs,
+    })
+
+
+# ── Unified WhatsApp History & Audit Trail ───────────────────────────────────
+
+@staff_member_required
+@require_GET
+def whatsapp_history(request):
+    """Unified audit trail of all outgoing WhatsApp communications."""
+    # 1. Group jobs
+    jobs = WhatsAppMessageJob.objects.select_related('created_by').prefetch_related('deliveries__group').order_by('-created_at')
+    
+    # 2. Individual send logs
+    logs = WhatsAppSendLog.objects.select_related('student').order_by('-sent_at')
+
+    # 3. Automation runs
+    runs = WhatsAppAutomationRun.objects.select_related('automation', 'job').order_by('-started_at')
+
+    # Filter by status
+    status_filter = request.GET.get('status')
+    if status_filter:
+        jobs = jobs.filter(status=status_filter)
+        logs = logs.filter(status=status_filter)
+        runs = runs.filter(status=status_filter)
+
+    # Filter by search
+    q = request.GET.get('q', '').strip()
+    if q:
+        jobs = jobs.filter(Q(message__icontains=q) | Q(target_value__icontains=q))
+        logs = logs.filter(Q(phone__icontains=q) | Q(message_preview__icontains=q) | Q(student__name__icontains=q))
+
+    tab = request.GET.get('tab', 'jobs')
+
+    return render(request, 'core/whatsapp_history.html', {
+        'jobs': jobs[:50],
+        'logs': logs[:50],
+        'runs': runs[:50],
+        'current_tab': tab,
+        'status_filter': status_filter or '',
+        'search_query': q,
+    })
+
 
 
 @require_POST

@@ -79,6 +79,15 @@
         <a href="{% url 'core:payment_create' %}" class="btn btn-success">
           <i class="bi bi-cash-coin"></i> Paiement élève
         </a>
+        {% if whatsapp_group %}
+        <a href="{% url 'core:whatsapp_group_detail' whatsapp_group.pk %}" class="btn btn-outline-success">
+          <i class="bi bi-whatsapp"></i> Groupe WhatsApp
+        </a>
+        {% else %}
+        <a href="{% url 'core:whatsapp_group_send' %}?course_group={{ group.id }}" class="btn btn-outline-secondary">
+          <i class="bi bi-send"></i> Envoyer via WhatsApp
+        </a>
+        {% endif %}
       </div>
     </div>
   </div>

@@ -1,0 +1,226 @@
+{% extends 'core/base.html' %}
+{% block title %}Scanner les groupes WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_groups' %}" class="text-decoration-none text-secondary">Groupes</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Scanner et Importer</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <h1 class="h3 fw-bold text-dark mb-1">
+        <i class="bi bi-search text-success me-2"></i>Découverte et Importation de Groupes
+      </h1>
+      <p class="text-secondary mb-0">Scannez les groupes existants sur le compte WhatsApp connecté et importez-les dans le registre officiel.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'core:whatsapp_group_discover' %}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-clockwise"></i> Rafraîchir le scan
+      </a>
+      <a href="{% url 'core:whatsapp_groups' %}" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-arrow-left"></i> Registre des groupes
+      </a>
+    </div>
+  </div>
+
+  {% if discovery.error %}
+    <div class="alert alert-danger border-0 shadow-sm d-flex gap-3 align-items-center p-3 mb-4">
+      <i class="bi bi-exclamation-triangle-fill fs-3 text-danger"></i>
+      <div>
+        <h6 class="fw-bold mb-1">Erreur de scan WhatsApp</h6>
+        <p class="mb-0 small">{{ discovery.error }}. Assurez-vous que le service WhatsApp est démarré et connecté.</p>
+      </div>
+    </div>
+  {% else %}
+
+    <!-- Discovery Summary Card -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="rounded-3 bg-primary bg-opacity-10 text-primary p-3 fs-4"><i class="bi bi-whatsapp"></i></div>
+            <div>
+              <div class="text-muted small">Total groupes détectés</div>
+              <div class="fw-bold fs-4">{{ discovery.total_found }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="rounded-3 bg-success bg-opacity-10 text-success p-3 fs-4"><i class="bi bi-check-circle-fill"></i></div>
+            <div>
+              <div class="text-muted small">Déjà enregistrés</div>
+              <div class="fw-bold fs-4 text-success">{{ discovery.registered_count }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="rounded-3 bg-warning bg-opacity-10 text-warning-emphasis p-3 fs-4"><i class="bi bi-box-arrow-in-down"></i></div>
+            <div>
+              <div class="text-muted small">Prêts à importer</div>
+              <div class="fw-bold fs-4 text-warning-emphasis">{{ discovery.unregistered_count }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Discovered Groups Table -->
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-white py-3 border-0">
+        <h6 class="fw-bold mb-0 text-dark">Groupes WhatsApp disponibles</h6>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light small text-uppercase text-secondary">
+            <tr>
+              <th>Nom du groupe</th>
+              <th>Membres</th>
+              <th>Statut Registre</th>
+              <th>Type suggéré</th>
+              <th>Associer à un cours</th>
+              <th class="text-end">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in discovery.groups %}
+              <tr id="row-{{ forloop.counter }}">
+                <td>
+                  <div class="fw-bold text-dark">{{ g.name }}</div>
+                  <div class="text-muted small font-monospace" style="font-size:0.72rem;">{{ g.whatsapp_group_id }}</div>
+                </td>
+                <td>
+                  <span class="badge bg-light text-dark border">
+                    <i class="bi bi-people"></i> {{ g.participant_count }}
+                  </span>
+                </td>
+                <td>
+                  {% if g.is_registered %}
+                    <span class="badge bg-success"><i class="bi bi-check2"></i> Enregistré</span>
+                    <div class="small text-muted">{{ g.registry_group.get_group_type_display }}</div>
+                  {% else %}
+                    <span class="badge bg-warning text-dark"><i class="bi bi-stars"></i> Non importé</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if not g.is_registered %}
+                    <select class="form-select form-select-sm" id="type-{{ forloop.counter }}" style="width: 140px;">
+                      {% for code, label in group_types %}
+                        <option value="{{ code }}" {% if code == 'CLASS' %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  {% else %}
+                    <span class="small text-muted">{{ g.registry_group.get_group_type_display }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if not g.is_registered %}
+                    <select class="form-select form-select-sm" id="course-{{ forloop.counter }}" style="width: 180px;">
+                      <option value="">-- Aucun cours --</option>
+                      {% for cg in course_groups %}
+                        <option value="{{ cg.pk }}">{{ cg.name }}</option>
+                      {% endfor %}
+                    </select>
+                  {% else %}
+                    <span class="small">{{ g.registry_group.course_group.name|default:"—" }}</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  {% if g.is_registered %}
+                    <a href="{% url 'core:whatsapp_group_detail' g.registry_group.pk %}" class="btn btn-outline-secondary btn-sm">
+                      <i class="bi bi-eye"></i> Voir
+                    </a>
+                  {% else %}
+                    <button class="btn btn-success btn-sm btn-import"
+                            data-index="{{ forloop.counter }}"
+                            data-gid="{{ g.whatsapp_group_id }}"
+                            data-name="{{ g.name }}">
+                      <i class="bi bi-box-arrow-in-down me-1"></i> Importer
+                    </button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6" class="text-center py-5 text-muted">
+                  <i class="bi bi-inbox fs-2 mb-2 d-block text-secondary"></i>
+                  Aucun groupe trouvé sur ce compte WhatsApp.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  {% endif %}
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.btn-import').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const idx = this.dataset.index;
+      const gid = this.dataset.gid;
+      const name = this.dataset.name;
+      const typeSelect = document.getElementById(`type-${idx}`);
+      const courseSelect = document.getElementById(`course-${idx}`);
+      
+      const groupType = typeSelect ? typeSelect.value : 'CUSTOM';
+      const courseId = courseSelect ? courseSelect.value : '';
+
+      const originalHtml = this.innerHTML;
+      this.disabled = true;
+      this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+      const formData = new FormData();
+      formData.append('whatsapp_group_id', gid);
+      formData.append('display_name', name);
+      formData.append('group_type', groupType);
+      if (courseId) formData.append('course_group_id', courseId);
+
+      fetch('/whatsapp/groups/import/', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          this.className = 'btn btn-outline-success btn-sm';
+          this.innerHTML = '<i class="bi bi-check-lg"></i> Importé';
+          const row = document.getElementById(`row-${idx}`);
+          if (row) {
+            row.classList.add('table-success');
+          }
+        } else {
+          alert('Erreur lors de l\'import: ' + (data.error || 'Erreur inconnue'));
+          this.disabled = false;
+          this.innerHTML = originalHtml;
+        }
+      })
+      .catch(err => {
+        alert('Erreur réseau');
+        this.disabled = false;
+        this.innerHTML = originalHtml;
+      });
+    });
+  });
+});
+</script>
+{% endblock %}

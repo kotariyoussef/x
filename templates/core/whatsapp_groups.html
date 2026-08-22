@@ -1,0 +1,316 @@
+{% extends 'core/base.html' %}
+{% block title %}Groupes WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Groupes</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <div>
+      <h1 class="h3 fw-bold text-dark mb-1">
+        <i class="bi bi-people-fill text-success me-2"></i>Registre des Groupes WhatsApp
+      </h1>
+      <p class="text-secondary mb-0">Gestion, synchronisation et santé des groupes WhatsApp autorisés de l'établissement.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button class="btn btn-outline-secondary btn-sm" id="btn-health-check-all" title="Vérifier la connectivité de tous les groupes">
+        <i class="bi bi-heart-pulse text-danger"></i> Vérifier l'état de tous les groupes
+      </button>
+      <a href="{% url 'core:whatsapp_group_discover' %}" class="btn btn-outline-success btn-sm">
+        <i class="bi bi-search"></i> Scanner WhatsApp
+      </a>
+      <a href="{% url 'core:whatsapp_group_send' %}" class="btn btn-primary btn-sm">
+        <i class="bi bi-send-fill"></i> Envoyer un message
+      </a>
+    </div>
+  </div>
+
+  <!-- KPI Badges -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="rounded-3 bg-primary bg-opacity-10 p-3 text-primary fs-4">
+            <i class="bi bi-collection"></i>
+          </div>
+          <div>
+            <div class="text-muted small">Total configurés</div>
+            <div class="fs-4 fw-bold text-dark">{{ total_count }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="rounded-3 bg-success bg-opacity-10 p-3 text-success fs-4">
+            <i class="bi bi-check-circle-fill"></i>
+          </div>
+          <div>
+            <div class="text-muted small">Actifs & Accessibles</div>
+            <div class="fs-4 fw-bold text-success">{{ healthy_count }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="rounded-3 bg-info bg-opacity-10 p-3 text-info fs-4">
+            <i class="bi bi-robot"></i>
+          </div>
+          <div>
+            <div class="text-muted small">Automatisation active</div>
+            <div class="fs-4 fw-bold text-info">{{ automation_count }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="rounded-3 bg-danger bg-opacity-10 p-3 text-danger fs-4">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+          </div>
+          <div>
+            <div class="text-muted small">En erreur / Inaccessibles</div>
+            <div class="fs-4 fw-bold text-danger">{{ error_count }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters & Search -->
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-3">
+      <form method="get" class="row g-2 align-items-center">
+        <div class="col-12 col-md-4">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-light"><i class="bi bi-search"></i></span>
+            <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="Rechercher par nom, ID, classe...">
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <select name="group_type" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Tous les types</option>
+            {% for code, label in group_types %}
+              <option value="{{ code }}" {% if selected_type == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <select name="health" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Tous les états santé</option>
+            <option value="healthy" {% if selected_health == 'healthy' %}selected{% endif %}>Accessible (OK)</option>
+            <option value="error" {% if selected_health == 'error' %}selected{% endif %}>Erreur</option>
+            <option value="unavailable" {% if selected_health == 'unavailable' %}selected{% endif %}>Inaccessible</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <select name="active" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Tous statuts</option>
+            <option value="1" {% if selected_active == '1' %}selected{% endif %}>Actif uniquement</option>
+            <option value="0" {% if selected_active == '0' %}selected{% endif %}>Inactif uniquement</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2 d-flex gap-2">
+          <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-filter"></i> Filtrer</button>
+          {% if search_query or selected_type or selected_health or selected_active %}
+            <a href="{% url 'core:whatsapp_groups' %}" class="btn btn-light btn-sm text-secondary" title="Réinitialiser"><i class="bi bi-x-circle"></i></a>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Groups Table -->
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+      <h6 class="fw-bold mb-0 text-dark">Liste des groupes enregistrés ({{ groups.count }})</h6>
+      <div class="small text-muted">Mis à jour automatiquement via WhatsApp</div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light small text-uppercase text-secondary">
+          <tr>
+            <th style="width: 25%;">Nom du groupe</th>
+            <th>Type</th>
+            <th>Classe / Cours associé</th>
+            <th>Membres</th>
+            <th>Santé WhatsApp</th>
+            <th>Automatisation</th>
+            <th>Dernière activité</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for group in groups %}
+            <tr>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="rounded-circle p-2 bg-success bg-opacity-10 text-success d-inline-flex">
+                    <i class="bi bi-whatsapp"></i>
+                  </div>
+                  <div>
+                    <a href="{% url 'core:whatsapp_group_detail' group.pk %}" class="fw-bold text-dark text-decoration-none">
+                      {{ group.display_name }}
+                    </a>
+                    <div class="text-muted small font-monospace" style="font-size: 0.72rem;">{{ group.whatsapp_group_id|truncatechars:28 }}</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <span class="badge bg-secondary bg-opacity-10 text-secondary border">
+                  {{ group.get_group_type_display }}
+                </span>
+              </td>
+              <td>
+                {% if group.course_group %}
+                  <a href="{% url 'core:course_group_detail' group.course_group.pk %}" class="badge bg-info bg-opacity-10 text-primary text-decoration-none">
+                    <i class="bi bi-book"></i> {{ group.course_group.name }}
+                  </a>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border">
+                  <i class="bi bi-person"></i> {{ group.participant_count }}
+                </span>
+              </td>
+              <td id="health-cell-{{ group.pk }}">
+                {% if group.health_status == 'HEALTHY' %}
+                  <span class="badge bg-success"><i class="bi bi-check-circle"></i> Accessible</span>
+                {% elif group.health_status == 'ERROR' %}
+                  <span class="badge bg-danger" title="{{ group.last_error }}"><i class="bi bi-exclamation-octagon"></i> Erreur</span>
+                {% elif group.health_status == 'STALE' %}
+                  <span class="badge bg-warning text-dark"><i class="bi bi-clock-history"></i> Obsolète</span>
+                {% else %}
+                  <span class="badge bg-secondary">Inconnu</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if group.automation_enabled and not group.blocked %}
+                  <span class="badge bg-success bg-opacity-10 text-success"><i class="bi bi-check"></i> Activée</span>
+                {% else %}
+                  <span class="badge bg-light text-muted border">Désactivée</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="small text-muted">
+                  {% if group.last_message_at %}
+                    Msg: {{ group.last_message_at|date:"d/m H:i" }}
+                  {% elif group.last_synced_at %}
+                    Sync: {{ group.last_synced_at|date:"d/m H:i" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-secondary btn-check-health" data-group-id="{{ group.pk }}" title="Tester l'accessibilité">
+                    <i class="bi bi-arrow-clockwise"></i>
+                  </button>
+                  <a href="{% url 'core:whatsapp_group_send' %}?group_id={{ group.pk }}" class="btn btn-outline-primary" title="Envoyer à ce groupe">
+                    <i class="bi bi-send"></i>
+                  </a>
+                  <a href="{% url 'core:whatsapp_group_detail' group.pk %}" class="btn btn-outline-secondary" title="Détails">
+                    <i class="bi bi-eye"></i>
+                  </a>
+                  <a href="{% url 'core:whatsapp_group_edit' group.pk %}" class="btn btn-outline-secondary" title="Modifier">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="text-center py-5 text-muted">
+                <div class="fs-1 mb-2"><i class="bi bi-inbox text-secondary"></i></div>
+                <h6>Aucun groupe WhatsApp trouvé</h6>
+                <p class="small mb-3">Scannez WhatsApp pour importer vos groupes existants ou liez des groupes de cours.</p>
+                <a href="{% url 'core:whatsapp_group_discover' %}" class="btn btn-success btn-sm">
+                  <i class="bi bi-search"></i> Scanner les groupes WhatsApp
+                </a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Single health check
+  document.querySelectorAll('.btn-check-health').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const gid = this.dataset.groupId;
+      const originalHtml = this.innerHTML;
+      this.disabled = true;
+      this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+      fetch(`/whatsapp/groups/${gid}/health-check/`, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        const cell = document.getElementById(`health-cell-${gid}`);
+        if (cell) {
+          if (data.health_status === 'HEALTHY') {
+            cell.innerHTML = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Accessible</span>';
+          } else {
+            cell.innerHTML = `<span class="badge bg-danger" title="${data.last_error || ''}"><i class="bi bi-exclamation-octagon"></i> Erreur</span>`;
+          }
+        }
+      })
+      .finally(() => {
+        this.disabled = false;
+        this.innerHTML = originalHtml;
+      });
+    });
+  });
+
+  // Check all health
+  const checkAllBtn = document.getElementById('btn-health-check-all');
+  if (checkAllBtn) {
+    checkAllBtn.addEventListener('click', function() {
+      const originalHtml = this.innerHTML;
+      this.disabled = true;
+      this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Vérification en cours...';
+
+      fetch('/whatsapp/groups/health-check-all/', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        window.location.reload();
+      })
+      .catch(() => {
+        this.disabled = false;
+        this.innerHTML = originalHtml;
+      });
+    });
+  }
+});
+</script>
+{% endblock %}

@@ -1330,32 +1330,131 @@ class WhatsAppMessageDelivery(models.Model):
 
 
 class WhatsAppMessageTemplate(models.Model):
-    name = models.CharField(max_length=150, unique=True)
-    description = models.TextField(blank=True)
-    body = models.TextField()
-    enabled = models.BooleanField(default=True)
+    name = models.CharField(max_length=150, unique=True, verbose_name="Nom du modèle")
+    description = models.TextField(blank=True, verbose_name="Description")
+    body = models.TextField(verbose_name="Contenu du modèle")
+    category = models.CharField(
+        max_length=50,
+        default='GENERAL',
+        choices=[
+            ('GENERAL', 'Général'),
+            ('ABSENCE', 'Absence'),
+            ('PAYMENT', 'Paiement'),
+            ('SESSION', 'Séance'),
+            ('EVENT', 'Événement'),
+            ('EXAM', 'Examen / Test'),
+        ],
+        verbose_name="Catégorie"
+    )
+    enabled = models.BooleanField(default=True, verbose_name="Actif")
     created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Modèle de message WhatsApp"
+        verbose_name_plural = "Modèles de message WhatsApp"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def extract_variables(self) -> list[str]:
+        """Finds all {variable} or {{variable}} placeholders in the body."""
+        import re
+        # Find single or double curly brace variables
+        vars_found = set(re.findall(r'\{\{?([a-zA-Z0-9_]+)\}?\}', self.body))
+        return sorted(list(vars_found))
+
+    def render(self, context: dict) -> tuple[str, list[str]]:
+        """
+        Renders the template with context.
+        Returns (rendered_text, missing_variables_list).
+        """
+        import re
+        required_vars = self.extract_variables()
+        missing = [v for v in required_vars if v not in context or context[v] is None]
+
+        rendered = self.body
+        for var in required_vars:
+            val = str(context.get(var, ''))
+            # replace both {{var}} and {var}
+            rendered = re.sub(r'\{\{?\s*' + re.escape(var) + r'\s*\}?\}', val, rendered)
+
+        return rendered, missing
 
 
 class WhatsAppAutomation(models.Model):
-    """Typed automation definition; conditions are validated JSON, never code."""
-    TRIGGER_CHOICES = [('MANUAL', 'Manuel'), ('ANNOUNCEMENT_PUBLISHED', 'Annonce publiée'), ('SCHEDULED', 'Planifié')]
-    name = models.CharField(max_length=150, unique=True)
-    description = models.TextField(blank=True)
-    enabled = models.BooleanField(default=False)
-    trigger = models.CharField(max_length=30, choices=TRIGGER_CHOICES)
-    target_type = models.CharField(max_length=20, choices=WhatsAppMessageJob.TARGET_CHOICES)
-    target_value = models.CharField(max_length=255, blank=True)
-    template = models.ForeignKey(WhatsAppMessageTemplate, on_delete=models.PROTECT)
-    conditions = models.JSONField(default=dict, blank=True)
-    cooldown_seconds = models.PositiveIntegerField(default=0)
-    last_run_at = models.DateTimeField(null=True, blank=True)
-    last_result = models.CharField(max_length=20, blank=True)
+    """Typed automation definition; conditions are validated JSON, never arbitrary code."""
+    TRIGGER_CHOICES = [
+        ('MANUAL', 'Manuel / À la demande'),
+        ('ANNOUNCEMENT_PUBLISHED', 'Annonce publiée'),
+        ('STUDENT_ABSENT', 'Élève marqué absent'),
+        ('PAYMENT_OVERDUE', 'Rappel paiement en retard'),
+        ('PAYMENT_RECEIVED', 'Paiement reçu / Reçu émis'),
+        ('SESSION_CANCELLED', 'Séance de cours annulée'),
+        ('SESSION_CHANGED', 'Séance de cours modifiée (date/heure/salle)'),
+        ('SCHEDULED', 'Planifié / Récurrent'),
+    ]
+    name = models.CharField(max_length=150, unique=True, verbose_name="Nom de l'automatisation")
+    description = models.TextField(blank=True, verbose_name="Description")
+    enabled = models.BooleanField(default=False, verbose_name="Active")
+    trigger = models.CharField(max_length=30, choices=TRIGGER_CHOICES, verbose_name="Déclencheur")
+    target_type = models.CharField(max_length=20, choices=WhatsAppMessageJob.TARGET_CHOICES, verbose_name="Type de cible")
+    target_value = models.CharField(max_length=255, blank=True, verbose_name="Valeur de la cible")
+    template = models.ForeignKey(WhatsAppMessageTemplate, on_delete=models.PROTECT, verbose_name="Modèle de message")
+    conditions = models.JSONField(default=dict, blank=True, verbose_name="Conditions d'exécution (JSON)")
+    cooldown_seconds = models.PositiveIntegerField(default=0, verbose_name="Temps de recharge (secondes)")
+    schedule_cron = models.CharField(max_length=100, blank=True, verbose_name="Expression de planification (ex: 0 8 * * 1)")
+    next_run_at = models.DateTimeField(null=True, blank=True, verbose_name="Prochaine exécution")
+    dry_run_only = models.BooleanField(default=False, verbose_name="Mode simulation uniquement")
+    last_run_at = models.DateTimeField(null=True, blank=True, verbose_name="Dernière exécution")
+    last_result = models.CharField(max_length=20, blank=True, verbose_name="Dernier résultat")
     created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Automatisation WhatsApp"
+        verbose_name_plural = "Automatisations WhatsApp"
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} ({self.get_trigger_display()})"
+
+    def is_in_cooldown(self) -> bool:
+        if not self.cooldown_seconds or not self.last_run_at:
+            return False
+        delta = (timezone.now() - self.last_run_at).total_seconds()
+        return delta < self.cooldown_seconds
+
+
+class WhatsAppAutomationRun(models.Model):
+    """Audit trail record for each automation trigger attempt."""
+    STATUS_CHOICES = [
+        ('SUCCESS', 'Succès'),
+        ('PARTIAL', 'Partiel'),
+        ('FAILED', 'Échec'),
+        ('SKIPPED', 'Ignoré (condition/cooldown)'),
+        ('DRY_RUN', 'Simulation'),
+    ]
+    automation = models.ForeignKey(WhatsAppAutomation, on_delete=models.CASCADE, related_name='runs')
+    job = models.ForeignKey(WhatsAppMessageJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='automation_runs')
+    trigger_event = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='SUCCESS')
+    groups_targeted = models.PositiveIntegerField(default=0)
+    groups_successful = models.PositiveIntegerField(default=0)
+    groups_failed = models.PositiveIntegerField(default=0)
+    correlation_id = models.CharField(max_length=64, blank=True)
+    details = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Exécution d'automatisation WhatsApp"
+        verbose_name_plural = "Exécutions d'automatisations WhatsApp"
+        ordering = ['-started_at']
 
 
 class MakeupSession(models.Model):

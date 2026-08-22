@@ -1,0 +1,141 @@
+{% extends 'core/base.html' %}
+{% block title %}Automatisations WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Automatisations</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <h1 class="h3 fw-bold text-dark mb-1">
+        <i class="bi bi-robot text-info me-2"></i>Moteur d'Automatisations WhatsApp
+      </h1>
+      <p class="text-secondary mb-0">Règles d'envoi automatique déclenchées par les événements scolaires (absences, paiements, plannings, alertes).</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'core:whatsapp_automation_create' %}" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-lg me-1"></i> Nouvelle automatisation
+      </a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+      <h6 class="fw-bold mb-0 text-dark">Règles configurées ({{ automations.count }})</h6>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light small text-uppercase text-secondary">
+          <tr>
+            <th>Nom de la règle</th>
+            <th>Déclencheur</th>
+            <th>Cible</th>
+            <th>Modèle</th>
+            <th>Statut</th>
+            <th>Temps recharge</th>
+            <th>Dernière exécution</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in automations %}
+            <tr>
+              <td>
+                <div class="fw-bold text-dark">{{ a.name }}</div>
+                <div class="text-muted small">{{ a.description|default:"—" }}</div>
+              </td>
+              <td>
+                <span class="badge bg-primary bg-opacity-10 text-primary">
+                  <i class="bi bi-lightning-fill"></i> {{ a.get_trigger_display }}
+                </span>
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border">
+                  {{ a.get_target_type_display }}
+                </span>
+              </td>
+              <td>
+                <span class="small font-monospace">{{ a.template.name }}</span>
+              </td>
+              <td>
+                <div class="form-check form-switch">
+                  <input class="form-check-input toggle-auto-switch" type="checkbox" role="switch"
+                         data-auto-id="{{ a.pk }}" {% if a.enabled %}checked{% endif %}>
+                  <label class="form-check-label small">
+                    {% if a.enabled %}<span class="text-success fw-semibold">Active</span>{% else %}<span class="text-muted">Désactivée</span>{% endif %}
+                  </label>
+                </div>
+              </td>
+              <td>
+                <span class="small text-muted font-monospace">{{ a.cooldown_seconds }}s</span>
+              </td>
+              <td>
+                <div class="small">
+                  {% if a.last_run_at %}
+                    <div>{{ a.last_run_at|date:"d/m/Y H:i" }}</div>
+                    <span class="badge bg-light text-secondary border font-monospace" style="font-size:0.7rem;">{{ a.last_result }}</span>
+                  {% else %}
+                    <span class="text-muted">Jamais exécuté</span>
+                  {% endif %}
+                </div>
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <a href="{% url 'core:whatsapp_automation_runs' a.pk %}" class="btn btn-outline-info" title="Historique des exécutions">
+                    <i class="bi bi-clock-history"></i> <span class="badge bg-info text-dark ms-1">{{ a.runs_count }}</span>
+                  </a>
+                  <a href="{% url 'core:whatsapp_automation_run_now' a.pk %}?dry_run=1" class="btn btn-outline-secondary" title="Tester en simulation (Dry-Run)">
+                    <i class="bi bi-play"></i> Test
+                  </a>
+                  <a href="{% url 'core:whatsapp_automation_edit' a.pk %}" class="btn btn-outline-secondary" title="Modifier">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="text-center py-5 text-muted">
+                <i class="bi bi-robot fs-1 mb-2 d-block text-secondary"></i>
+                <h6>Aucune automatisation WhatsApp configurée</h6>
+                <p class="small">Créez des règles d'automatisation pour envoyer des messages aux absences, paiements et changements d'horaires.</p>
+                <a href="{% url 'core:whatsapp_automation_create' %}" class="btn btn-primary btn-sm">
+                  <i class="bi bi-plus-lg me-1"></i> Créer une règle
+                </a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.toggle-auto-switch').forEach(sw => {
+    sw.addEventListener('change', function() {
+      const autoId = this.dataset.autoId;
+      fetch(`/whatsapp/automations/${autoId}/toggle/`, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        window.location.reload();
+      });
+    });
+  });
+});
+</script>
+{% endblock %}

@@ -672,6 +672,47 @@ app.get('/group-info', requireApiKey, async (req, res) => {
     }
 });
 
+// GET /groups — List all accessible WhatsApp groups
+app.get('/groups', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    const operation = 'list_groups';
+    log('INFO', { component: 'group', event: 'group_list_requested', operation, correlation_id: req.correlationId });
+    if (clientStatus !== 'READY') {
+        return res.status(503).json({ success: false, error: 'WhatsApp client is not ready' });
+    }
+
+    try {
+        const chats = await client.getChats();
+        const groupChats = chats.filter(c => c.isGroup);
+        const groups = groupChats.map(g => ({
+            id: g.id._serialized,
+            name: g.name || 'Unnamed Group',
+            isReadOnly: Boolean(g.isReadOnly),
+            unreadCount: g.unreadCount || 0,
+            timestamp: g.timestamp || null,
+            participantCount: Array.isArray(g.participants) ? g.participants.length : (g.groupMetadata?.participants?.length || 0),
+        }));
+
+        operationLog('INFO', 'group_list_success', operation, operationStartedAt, {
+            correlation_id: req.correlationId,
+            result: 'success',
+            group_count: groups.length
+        });
+        return res.json({
+            success: true,
+            groups: groups,
+            count: groups.length
+        });
+    } catch (error) {
+        operationLog('ERROR', 'group_list_failed', operation, operationStartedAt, {
+            correlation_id: req.correlationId,
+            result: 'failure',
+            ...errorFields(error)
+        });
+        return res.status(500).json({ success: false, error: error.message || String(error) });
+    }
+});
+
 // POST /logout — Logout session
 app.post('/logout', requireApiKey, async (req, res) => {
     const operationStartedAt = Date.now();

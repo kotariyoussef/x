@@ -351,6 +351,22 @@ class WhatsAppGroupService:
         course_group.whatsapp_last_synced_at = timezone.now()
         course_group.save(update_fields=['whatsapp_group_name', 'whatsapp_group_link', 'whatsapp_group_status', 'whatsapp_last_synced_at'])
 
+        # Also keep WhatsAppGroup registry synchronized
+        from core.models import WhatsAppGroup
+        WhatsAppGroup.objects.update_or_create(
+            whatsapp_group_id=course_group.whatsapp_group_id,
+            defaults={
+                'display_name': expected_name,
+                'group_type': 'CLASS',
+                'course_group': course_group,
+                'is_active': True,
+                'health_status': 'HEALTHY',
+                'participant_count': len(already_members) + len(added),
+                'last_synced_at': timezone.now(),
+                'last_verified_at': timezone.now(),
+            }
+        )
+
         all_already = list(set(already_members) & set(target_participants)) if already_members else list(set(target_participants) - set(missing_participants) - set(added))
 
         log_event(event='group_sync_database_updated', operation='sync_group', correlation_id=correlation_id, result='success' if not failed else 'failure', added_count=len(added), removed_count=0, failed_count=len(failed))
@@ -365,3 +381,73 @@ class WhatsAppGroupService:
             'failed': failed,
             'warnings': warnings
         }
+
+    @classmethod
+    def preview_sync(cls, course_group) -> Dict[str, Any]:
+        """
+        Dry-run calculation for group synchronization.
+        Compares expected members against actual WhatsApp members and categorizes:
+        - to_add: expected numbers missing from group
+        - to_remove: actual group members not in expected list (excluding protected members)
+        - unchanged: already correctly present
+        - protected: protected numbers (teachers, admins) that will NOT be removed
+        """
+        expected = cls.get_course_group_participants(course_group)
+        teacher_phone = WhatsAppUtils.clean_phone_number(course_group.teacher.phone) if course_group.teacher and course_group.teacher.phone else None
+
+        if not course_group.whatsapp_group_id:
+            return {
+                'exists_on_whatsapp': False,
+                'expected_count': len(expected),
+                'to_add': expected,
+                'to_remove': [],
+                'unchanged': [],
+                'protected': [teacher_phone] if teacher_phone else [],
+                'status': 'NOT_CREATED',
+            }
+
+        info_res = WhatsAppServiceAPI.get_group_info(course_group.whatsapp_group_id)
+        if not info_res.get('success'):
+            return {
+                'exists_on_whatsapp': False,
+                'error': info_res.get('error', 'Impossible de récupérer les membres du groupe WhatsApp'),
+                'expected_count': len(expected),
+                'to_add': expected,
+                'to_remove': [],
+                'unchanged': [],
+                'protected': [teacher_phone] if teacher_phone else [],
+                'status': 'ERROR',
+            }
+
+        actual_participants = []
+        admin_phones = []
+        for p in info_res.get('participants', []):
+            if isinstance(p, dict) and 'user' in p:
+                u = p['user']
+                actual_participants.append(u)
+                if p.get('isAdmin') or p.get('isSuperAdmin'):
+                    admin_phones.append(u)
+
+        protected_set = set(admin_phones)
+        if teacher_phone:
+            protected_set.add(teacher_phone)
+
+        to_add = [p for p in expected if p not in actual_participants]
+        unchanged = [p for p in expected if p in actual_participants]
+        # Any actual member not expected and not in protected set
+        to_remove = [p for p in actual_participants if p not in expected and p not in protected_set]
+        protected_in_group = [p for p in actual_participants if p in protected_set]
+
+        return {
+            'exists_on_whatsapp': True,
+            'group_id': course_group.whatsapp_group_id,
+            'group_name': info_res.get('name', course_group.name),
+            'expected_count': len(expected),
+            'actual_count': len(actual_participants),
+            'to_add': to_add,
+            'to_remove': to_remove,
+            'unchanged': unchanged,
+            'protected': protected_in_group,
+            'status': 'ACTIVE',
+        }
+

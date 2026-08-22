@@ -1,0 +1,122 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ title }} — Modèles WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_templates' %}" class="text-decoration-none text-secondary">Modèles</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">{{ title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+          <h5 class="fw-bold mb-0 text-dark">
+            <i class="bi bi-file-earmark-text text-primary me-2"></i>{{ title }}
+          </h5>
+          <a href="{% url 'core:whatsapp_templates' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Retour
+          </a>
+        </div>
+        <div class="card-body p-4">
+          <form method="post">
+            {% csrf_token %}
+
+            <div class="row g-3 mb-3">
+              <div class="col-md-8">
+                <label class="form-label fw-semibold">Nom du modèle <span class="text-danger">*</span></label>
+                <input type="text" name="name" class="form-control" value="{{ template.name|default:'' }}" placeholder="Ex: Notification absence élève" required>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Catégorie</label>
+                <select name="category" class="form-select">
+                  {% for code, label in categories %}
+                    <option value="{{ code }}" {% if template.category == code %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Description / Usage</label>
+              <input type="text" name="description" class="form-control" value="{{ template.description|default:'' }}" placeholder="Ex: Utilisé pour alerter les parents lors d'une absence">
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Contenu du modèle <span class="text-danger">*</span></label>
+              <textarea name="body" id="tplBody" rows="7" class="form-control font-monospace" placeholder="Bonjour {{parent_name}}, {{student_name}} était absent le {{date}}..." required oninput="updateLivePreview()">{{ template.body|default:'' }}</textarea>
+              <div class="form-text small">
+                Insérez des variables dynamiques en utilisant les accolades : <code>&#123;&#123;student_name&#125;&#125;</code>, <code>&#123;&#123;parent_name&#125;&#125;</code>, <code>&#123;&#123;course_name&#125;&#125;</code>, <code>&#123;&#123;date&#125;&#125;</code>, <code>&#123;&#123;amount&#125;&#125;</code>, <code>&#123;&#123;receipt_number&#125;&#125;</code>.
+              </div>
+            </div>
+
+            <!-- Variables Quick Insert Chips -->
+            <div class="mb-4">
+              <label class="form-label fw-semibold small text-secondary">Variables suggérées (cliquez pour insérer) :</label>
+              <div class="d-flex flex-wrap gap-1">
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('student_name')">&#123;&#123;student_name&#125;&#125;</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('parent_name')">&#123;&#123;parent_name&#125;&#125;</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('course_name')">&#123;&#123;course_name&#125;&#125;</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('class_name')">&#123;&#123;class_name&#125;&#125;</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('date')">&#123;&#123;date&#125;&#125;</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('time')">&#123;&#123;time&#125;&#125;</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('amount')">&#123;&#123;amount&#125;&#125;</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm font-monospace" onclick="insertVar('receipt_number')">&#123;&#123;receipt_number&#125;&#125;</button>
+              </div>
+            </div>
+
+            <!-- Live Preview -->
+            <div class="card bg-light border-0 mb-4">
+              <div class="card-body p-3">
+                <div class="text-success small fw-bold mb-2"><i class="bi bi-whatsapp"></i> Rendu simulé en direct :</div>
+                <div class="p-3 bg-white rounded shadow-sm border small font-monospace" id="previewBox" style="white-space: pre-wrap; color: #111b21;">
+                  {{ template.body|default:"Saisissez du texte pour voir l'aperçu..." }}
+                </div>
+              </div>
+            </div>
+
+            <div class="form-check form-switch mb-4">
+              <input class="form-check-input" type="checkbox" name="enabled" id="tplEnabled" {% if template.enabled|default:True %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="tplEnabled">Modèle actif et utilisable dans les envois</label>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center">
+              <a href="{% url 'core:whatsapp_templates' %}" class="btn btn-light">Annuler</a>
+              <button type="submit" class="btn btn-primary px-4">
+                <i class="bi bi-check-lg me-1"></i> {{ button_text }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function insertVar(varName) {
+  const textarea = document.getElementById('tplBody');
+  const token = `{{${varName}}}`;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = textarea.value;
+  textarea.value = text.substring(0, start) + token + text.substring(end);
+  textarea.focus();
+  textarea.selectionStart = textarea.selectionEnd = start + token.length;
+  updateLivePreview();
+}
+
+function updateLivePreview() {
+  const val = document.getElementById('tplBody').value;
+  const preview = document.getElementById('previewBox');
+  preview.textContent = val || "Saisissez du texte pour voir l'aperçu...";
+}
+</script>
+{% endblock %}

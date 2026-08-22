@@ -1,0 +1,254 @@
+{% extends 'core/base.html' %}
+{% block title %}Campagne WhatsApp #{{ job.pk }} — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_history' %}" class="text-decoration-none text-secondary">Historique</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Campagne #{{ job.pk }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <h1 class="h3 fw-bold text-dark mb-0">Campagne de groupe #{{ job.pk }}</h1>
+        <span id="job-status-badge" class="badge {% if job.status == 'SUCCESS' %}bg-success{% elif job.status == 'PARTIAL' %}bg-warning text-dark{% elif job.status == 'RUNNING' %}bg-primary{% elif job.status == 'FAILED' %}bg-danger{% else %}bg-secondary{% endif %} fs-6">
+          {{ job.get_status_display }}
+        </span>
+      </div>
+      <p class="text-secondary small mb-0">
+        Créée le {{ job.created_at|date:"d/m/Y à H:i" }} par {{ job.created_by.username|default:"Système" }}
+      </p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'core:whatsapp_group_send' %}" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-plus-lg"></i> Nouvelle diffusion
+      </a>
+      {% if job.status == 'PENDING' or job.status == 'RUNNING' %}
+        <button class="btn btn-outline-danger btn-sm" id="btn-cancel-job" data-job-id="{{ job.pk }}">
+          <i class="bi bi-x-octagon"></i> Annuler le job
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <!-- Left Column: Metrics & Message -->
+    <div class="col-lg-5">
+      
+      <!-- Progress Card -->
+      <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white py-3 border-0">
+          <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-speedometer2 me-2"></i>Progression de la diffusion</h6>
+        </div>
+        <div class="card-body p-4">
+          <div class="d-flex justify-content-between align-items-center mb-2 small fw-semibold">
+            <span>Avancement global</span>
+            <span id="progress-percent-text">{{ progress.percent_completed }}%</span>
+          </div>
+          <div class="progress mb-4" style="height: 12px;">
+            <div id="progress-bar-el" class="progress-bar progress-bar-striped {% if job.status == 'RUNNING' %}progress-bar-animated bg-primary{% elif job.status == 'SUCCESS' %}bg-success{% elif job.status == 'FAILED' %}bg-danger{% else %}bg-info{% endif %}"
+                 role="progressbar" style="width: {{ progress.percent_completed }}%;"></div>
+          </div>
+
+          <div class="row g-2 text-center">
+            <div class="col-3">
+              <div class="p-2 border rounded bg-light">
+                <div class="text-muted small" style="font-size:0.7rem;">TOTAL</div>
+                <div class="fw-bold fs-5" id="stat-total">{{ progress.total }}</div>
+              </div>
+            </div>
+            <div class="col-3">
+              <div class="p-2 border rounded bg-success bg-opacity-10 text-success">
+                <div class="small" style="font-size:0.7rem;">RÉUSSIS</div>
+                <div class="fw-bold fs-5" id="stat-success">{{ progress.success_count }}</div>
+              </div>
+            </div>
+            <div class="col-3">
+              <div class="p-2 border rounded bg-danger bg-opacity-10 text-danger">
+                <div class="small" style="font-size:0.7rem;">ÉCHECS</div>
+                <div class="fw-bold fs-5" id="stat-failed">{{ progress.failed_count }}</div>
+              </div>
+            </div>
+            <div class="col-3">
+              <div class="p-2 border rounded bg-warning bg-opacity-10 text-warning-emphasis">
+                <div class="small" style="font-size:0.7rem;">EN ATTENTE</div>
+                <div class="fw-bold fs-5" id="stat-pending">{{ progress.pending_count }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Message Content Card -->
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-0">
+          <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-chat-left-text me-2"></i>Contenu du message envoyé</h6>
+        </div>
+        <div class="card-body p-3">
+          <div class="p-3 bg-light rounded font-monospace small" style="white-space: pre-wrap; color: #111b21;">
+            {{ job.message }}
+          </div>
+          <div class="mt-2 text-muted small font-monospace">
+            Clé d'idempotence : {{ job.idempotency_key|truncatechars:32 }}
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Deliveries Table -->
+    <div class="col-lg-7">
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+          <h6 class="fw-bold mb-0 text-dark">Détail par groupe (<span id="deliveries-count">{{ progress.total }}</span>)</h6>
+          <div class="small text-muted" id="poll-indicator">
+            <span class="spinner-border spinner-border-sm text-primary me-1"></span> Actualisation en direct...
+          </div>
+        </div>
+        <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+          <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+              <tr>
+                <th>Groupe</th>
+                <th>Statut</th>
+                <th>Message ID</th>
+                <th>Détails / Erreur</th>
+              </tr>
+            </thead>
+            <tbody id="deliveries-tbody">
+              {% for d in progress.deliveries %}
+                <tr>
+                  <td>
+                    <div class="fw-semibold text-dark">{{ d.group_name }}</div>
+                    <span class="badge bg-light text-secondary border">{{ d.group_type }}</span>
+                  </td>
+                  <td>
+                    {% if d.status == 'SUCCESS' %}
+                      <span class="badge bg-success"><i class="bi bi-check-circle"></i> Réussi</span>
+                    {% elif d.status == 'FAILED' %}
+                      <span class="badge bg-danger"><i class="bi bi-x-circle"></i> Échec</span>
+                    {% elif d.status == 'RUNNING' %}
+                      <span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1"></span> Envoi...</span>
+                    {% elif d.status == 'SKIPPED' %}
+                      <span class="badge bg-secondary">Ignoré</span>
+                    {% elif d.status == 'CANCELLED' %}
+                      <span class="badge bg-secondary">Annulé</span>
+                    {% else %}
+                      <span class="badge bg-warning text-dark"><i class="bi bi-hourglass"></i> En attente</span>
+                    {% endif %}
+                  </td>
+                  <td class="font-monospace text-muted" style="font-size:0.72rem;">
+                    {{ d.provider_message_id|truncatechars:18|default:"—" }}
+                  </td>
+                  <td class="text-danger small">
+                    {{ d.error_message|default:"—" }}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const jobId = {{ job.pk }};
+  let pollInterval = null;
+
+  function updateJobProgress() {
+    fetch(`/whatsapp/groups/job/${jobId}/progress/?step=1`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) return;
+
+        // Update counts
+        document.getElementById('stat-total').textContent = data.total;
+        document.getElementById('stat-success').textContent = data.success_count;
+        document.getElementById('stat-failed').textContent = data.failed_count;
+        document.getElementById('stat-pending').textContent = data.pending_count;
+        document.getElementById('progress-percent-text').textContent = data.percent_completed + '%';
+        
+        const bar = document.getElementById('progress-bar-el');
+        bar.style.width = data.percent_completed + '%';
+
+        // Update badge
+        const badge = document.getElementById('job-status-badge');
+        badge.textContent = data.status_display;
+        if (data.status === 'SUCCESS') {
+          badge.className = 'badge bg-success fs-6';
+          bar.className = 'progress-bar bg-success';
+        } else if (data.status === 'PARTIAL') {
+          badge.className = 'badge bg-warning text-dark fs-6';
+          bar.className = 'progress-bar bg-warning';
+        } else if (data.status === 'FAILED') {
+          badge.className = 'badge bg-danger fs-6';
+          bar.className = 'progress-bar bg-danger';
+        }
+
+        // Render deliveries
+        const tbody = document.getElementById('deliveries-tbody');
+        tbody.innerHTML = '';
+        data.deliveries.forEach(d => {
+          let statusBadge = '';
+          if (d.status === 'SUCCESS') statusBadge = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Réussi</span>';
+          else if (d.status === 'FAILED') statusBadge = '<span class="badge bg-danger"><i class="bi bi-x-circle"></i> Échec</span>';
+          else if (d.status === 'RUNNING') statusBadge = '<span class="badge bg-primary"><span class="spinner-border spinner-border-sm me-1"></span> Envoi...</span>';
+          else if (d.status === 'SKIPPED') statusBadge = '<span class="badge bg-secondary">Ignoré</span>';
+          else if (d.status === 'CANCELLED') statusBadge = '<span class="badge bg-secondary">Annulé</span>';
+          else statusBadge = '<span class="badge bg-warning text-dark"><i class="bi bi-hourglass"></i> En attente</span>';
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>
+              <div class="fw-semibold text-dark">${d.group_name}</div>
+              <span class="badge bg-light text-secondary border">${d.group_type}</span>
+            </td>
+            <td>${statusBadge}</td>
+            <td class="font-monospace text-muted" style="font-size:0.72rem;">${d.provider_message_id ? d.provider_message_id.slice(0, 18) : '—'}</td>
+            <td class="text-danger small">${d.error_message || '—'}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // Stop polling if complete
+        if (data.pending_count === 0 || ['SUCCESS', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(data.status)) {
+          clearInterval(pollInterval);
+          document.getElementById('poll-indicator').innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> Terminé';
+        }
+      })
+      .catch(() => {});
+  }
+
+  // Poll every 2 seconds while running
+  pollInterval = setInterval(updateJobProgress, 2000);
+
+  // Cancel Button
+  const cancelBtn = document.getElementById('btn-cancel-job');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', function() {
+      if (confirm("Voulez-vous vraiment annuler cette campagne d'envoi ?")) {
+        fetch(`/whatsapp/groups/job/${jobId}/cancel/`, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json'
+          }
+        })
+        .then(res => res.json())
+        .then(() => window.location.reload());
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

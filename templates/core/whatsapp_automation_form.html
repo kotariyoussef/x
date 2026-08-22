@@ -1,0 +1,127 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ title }} — Automatisations WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_automations' %}" class="text-decoration-none text-secondary">Automatisations</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">{{ title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+          <h5 class="fw-bold mb-0 text-dark">
+            <i class="bi bi-robot text-primary me-2"></i>{{ title }}
+          </h5>
+          <a href="{% url 'core:whatsapp_automations' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Retour
+          </a>
+        </div>
+        <div class="card-body p-4">
+          <form method="post">
+            {% csrf_token %}
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Nom de l'automatisation <span class="text-danger">*</span></label>
+              <input type="text" name="name" class="form-control" value="{{ automation.name|default:'' }}" placeholder="Ex: Alerte absence cours aux parents" required>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Description</label>
+              <input type="text" name="description" class="form-control" value="{{ automation.description|default:'' }}" placeholder="Ex: Notifie les parents dès qu'une absence est enregistrée">
+            </div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Déclencheur d'événement <span class="text-danger">*</span></label>
+                <select name="trigger" class="form-select" required>
+                  {% for code, label in triggers %}
+                    <option value="{{ code }}" {% if automation.trigger == code %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Modèle de message <span class="text-danger">*</span></label>
+                <select name="template_id" class="form-select" required>
+                  {% for tpl in templates %}
+                    <option value="{{ tpl.pk }}" {% if automation.template_id == tpl.pk %}selected{% endif %}>
+                      {{ tpl.name }} ({{ tpl.get_category_display }})
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Type de ciblage <span class="text-danger">*</span></label>
+                <select name="target_type" class="form-select" required>
+                  {% for code, label in target_types %}
+                    <option value="{{ code }}" {% if automation.target_type == code %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Valeur du ciblage (Optionnel)</label>
+                <input type="text" name="target_value" class="form-control font-monospace" value="{{ automation.target_value|default:'' }}" placeholder="Ex: PARENTS, ou ID classe 42">
+                <div class="form-text small">Laisser vide pour "Tous les groupes" ou indiquer l'ID / code.</div>
+              </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Temps de recharge (Cooldown en secondes)</label>
+                <input type="number" name="cooldown_seconds" class="form-control font-monospace" value="{{ automation.cooldown_seconds|default:0 }}" min="0">
+                <div class="form-text small">Délai minimum avant qu'un nouvel événement puisse redéclencher cette règle.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Expression de planification (si Planifié)</label>
+                <input type="text" name="schedule_cron" class="form-control font-monospace" value="{{ automation.schedule_cron|default:'' }}" placeholder="Ex: 0 8 * * 1 (Lundi 08:00)">
+                <div class="form-text small">Pour les déclencheurs planifiés récurrents.</div>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label fw-semibold">Conditions d'exécution (JSON typé)</label>
+              <textarea name="conditions" rows="4" class="form-control font-monospace small" placeholder='{"only_active_students": true, "require_whatsapp_ready": true}'>{{ conditions_json|default:'{"only_active_students": true, "require_whatsapp_ready": true}' }}</textarea>
+              <div class="form-text small">Exemples de clés supportées : <code>only_active_students</code> (bool), <code>min_amount</code> (numérique), <code>require_whatsapp_ready</code> (bool).</div>
+            </div>
+
+            <div class="row g-3 mb-4">
+              <div class="col-md-6">
+                <div class="form-check form-switch p-3 border rounded">
+                  <input class="form-check-input" type="checkbox" name="enabled" id="autoEnabled" {% if automation.enabled|default:True %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="autoEnabled">Automatisation active</label>
+                  <div class="text-muted small">Active l'écoute des événements correspondants.</div>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="form-check form-switch p-3 border rounded">
+                  <input class="form-check-input" type="checkbox" name="dry_run_only" id="autoDryRun" {% if automation.dry_run_only %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold text-warning-emphasis" for="autoDryRun">Mode simulation uniquement</label>
+                  <div class="text-muted small">Enregistre l'exécution dans l'historique sans envoyer sur WhatsApp.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center">
+              <a href="{% url 'core:whatsapp_automations' %}" class="btn btn-light">Annuler</a>
+              <button type="submit" class="btn btn-primary px-4">
+                <i class="bi bi-check-lg me-1"></i> {{ button_text }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

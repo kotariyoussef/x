@@ -1,0 +1,81 @@
+{% extends 'core/base.html' %}
+{% block title %}Confirmation d'envoi groupé — WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_group_send' %}" class="text-decoration-none text-secondary">Envoi de groupe</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Confirmation</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+
+      <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-warning bg-opacity-10 py-3 border-0">
+          <div class="d-flex align-items-center gap-2 text-warning-emphasis">
+            <i class="bi bi-shield-exclamation fs-4"></i>
+            <h5 class="fw-bold mb-0">Confirmation requise avant envoi</h5>
+          </div>
+        </div>
+        <div class="card-body p-4">
+
+          <p class="lead text-dark mb-4">
+            Vous êtes sur le point de diffuser ce message à <span class="badge bg-primary fs-6">{{ group_count }} groupe(s)</span> WhatsApp
+            représentant environ <span class="badge bg-success fs-6">{{ estimated_recipients }} destinataire(s)</span>.
+          </p>
+
+          <!-- Targeted Groups Box -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold text-secondary small text-uppercase">Groupes ciblés ({{ group_count }})</label>
+            <div class="p-3 border rounded bg-light" style="max-height: 180px; overflow-y: auto;">
+              <div class="row g-2">
+                {% for g in groups %}
+                  <div class="col-md-6">
+                    <div class="d-flex justify-content-between align-items-center p-2 bg-white rounded border small">
+                      <span class="fw-semibold text-truncate me-2">{{ g.display_name }}</span>
+                      <span class="badge bg-light text-secondary border font-monospace">{{ g.participant_count }} memb.</span>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <!-- Message Preview Box -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold text-secondary small text-uppercase">Aperçu du message qui sera diffusé</label>
+            <div class="p-3 bg-white rounded shadow-sm border font-monospace small" style="white-space: pre-wrap; color: #111b21; border-left: 4px solid #25d366 !important;">
+              {{ message }}
+            </div>
+          </div>
+
+          <form method="post" action="{% url 'core:whatsapp_group_send' %}">
+            {% csrf_token %}
+            <input type="hidden" name="target_type" value="{{ target_type }}">
+            <input type="hidden" name="target_value" value="{{ target_value }}">
+            <input type="hidden" name="message" value="{{ message }}">
+            <input type="hidden" name="confirmed" value="1">
+            <input type="hidden" name="process_now" value="1">
+
+            <div class="d-flex justify-content-between align-items-center pt-3 border-top">
+              <a href="{% url 'core:whatsapp_group_send' %}" class="btn btn-light">
+                <i class="bi bi-x-circle me-1"></i> Annuler et modifier
+              </a>
+              <button type="submit" class="btn btn-success px-4 py-2 fw-semibold">
+                <i class="bi bi-check-circle-fill me-1"></i> Confirmer et Lancer la diffusion
+              </button>
+            </div>
+          </form>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

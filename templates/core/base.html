@@ -1698,19 +1698,52 @@
         </div>
 
         <!-- WhatsApp Dropdown -->
-        <!-- WhatsApp Dashboard Button -->
-        <a class="nav-item-link {% active_if 'whatsapp_dashboard' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' 'whatsapp_bulk_announcements' %}"
-          href="{% url 'core:whatsapp_dashboard' %}" title="WhatsApp Dashboard" id="whatsappBtn">
-          <i class="bi bi-whatsapp" style="position: relative;" aria-hidden="true">
-            {% if whatsapp_connected %}
-            <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #25d366; border-radius: 50%; display: inline-block;"></span>
-            {% else %}
-            <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #9ca3af; border-radius: 50%; display: inline-block;"></span>
-            {% endif %}
-          </i>
-          <span class="nav-label-text">WhatsApp</span>
-          <span class="visually-hidden">{% if whatsapp_connected %}(connecté){% else %}(déconnecté){% endif %}</span>
-        </a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-item-link {% active_if 'whatsapp_dashboard' 'whatsapp_groups' 'whatsapp_group_detail' 'whatsapp_group_edit' 'whatsapp_group_send' 'whatsapp_group_job' 'whatsapp_group_discover' 'whatsapp_templates' 'whatsapp_template_create' 'whatsapp_template_edit' 'whatsapp_automations' 'whatsapp_automation_create' 'whatsapp_automation_edit' 'whatsapp_automation_runs' 'whatsapp_history' 'whatsapp_payment_reminders' 'whatsapp_absence_notifications' 'whatsapp_bulk_announcements' %}"
+            title="WhatsApp Hub" aria-haspopup="true" aria-expanded="false" aria-controls="whatsapp-menu" id="whatsappBtn">
+            <i class="bi bi-whatsapp" style="position: relative;" aria-hidden="true">
+              {% if whatsapp_connected %}
+              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #25d366; border-radius: 50%; display: inline-block;"></span>
+              {% else %}
+              <span style="position: absolute; top: -1px; right: -2px; width: 7px; height: 7px; background-color: #9ca3af; border-radius: 50%; display: inline-block;"></span>
+              {% endif %}
+            </i>
+            <span class="nav-label-text">WhatsApp</span>
+            <i class="bi bi-chevron-down" style="font-size: 0.8em; margin-left: 2px;" aria-hidden="true"></i>
+          </button>
+          <div class="nav-dropdown-menu" id="whatsapp-menu">
+            <a class="nav-dropdown-item {% active_if 'whatsapp_dashboard' %}" href="{% url 'core:whatsapp_dashboard' %}">
+              <i class="bi bi-speedometer2 text-success" aria-hidden="true"></i> Tableau de bord
+            </a>
+            <div class="dropdown-divider my-1"></div>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_groups' 'whatsapp_group_detail' 'whatsapp_group_edit' %}" href="{% url 'core:whatsapp_groups' %}">
+              <i class="bi bi-people-fill text-primary" aria-hidden="true"></i> Registre des groupes
+            </a>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_group_send' %}" href="{% url 'core:whatsapp_group_send' %}">
+              <i class="bi bi-send-fill text-success" aria-hidden="true"></i> Envoyer à des groupes
+            </a>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_group_discover' %}" href="{% url 'core:whatsapp_group_discover' %}">
+              <i class="bi bi-search text-info" aria-hidden="true"></i> Scanner & Importer
+            </a>
+            <div class="dropdown-divider my-1"></div>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_templates' 'whatsapp_template_create' 'whatsapp_template_edit' %}" href="{% url 'core:whatsapp_templates' %}">
+              <i class="bi bi-file-earmark-text-fill text-warning" aria-hidden="true"></i> Modèles de messages
+            </a>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_automations' 'whatsapp_automation_create' 'whatsapp_automation_edit' 'whatsapp_automation_runs' %}" href="{% url 'core:whatsapp_automations' %}">
+              <i class="bi bi-robot text-info" aria-hidden="true"></i> Automatisations
+            </a>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_history' 'whatsapp_group_job' %}" href="{% url 'core:whatsapp_history' %}">
+              <i class="bi bi-journal-text text-secondary" aria-hidden="true"></i> Historique des envois
+            </a>
+            <div class="dropdown-divider my-1"></div>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_payment_reminders' %}" href="{% url 'core:whatsapp_payment_reminders' %}">
+              <i class="bi bi-cash-coin text-warning" aria-hidden="true"></i> Rappels de paiement
+            </a>
+            <a class="nav-dropdown-item {% active_if 'whatsapp_absence_notifications' %}" href="{% url 'core:whatsapp_absence_notifications' %}">
+              <i class="bi bi-person-x-fill text-danger" aria-hidden="true"></i> Alertes d'absence
+            </a>
+          </div>
+        </div>
 
         <!-- Analytiques & Rapports Dropdown -->
         {% comment %} <div class="nav-dropdown">
@@ -1846,9 +1879,24 @@
         <i class="bi bi-calculator-fill" aria-hidden="true"></i> Paie professeurs
       </a>
 
-      <div class="mobile-nav-section-label">Communication</div>
+      <div class="mobile-nav-section-label">Communication & WhatsApp</div>
       <a class="mobile-nav-link {% active_if 'whatsapp_dashboard' %}" href="{% url 'core:whatsapp_dashboard' %}">
-        <i class="bi bi-whatsapp" aria-hidden="true"></i> Tableau de bord WhatsApp
+        <i class="bi bi-speedometer2" aria-hidden="true"></i> Tableau de bord WhatsApp
+      </a>
+      <a class="mobile-nav-link {% active_if 'whatsapp_groups' %}" href="{% url 'core:whatsapp_groups' %}">
+        <i class="bi bi-people-fill" aria-hidden="true"></i> Registre des groupes
+      </a>
+      <a class="mobile-nav-link {% active_if 'whatsapp_group_send' %}" href="{% url 'core:whatsapp_group_send' %}">
+        <i class="bi bi-send-fill" aria-hidden="true"></i> Envoyer à des groupes
+      </a>
+      <a class="mobile-nav-link {% active_if 'whatsapp_templates' %}" href="{% url 'core:whatsapp_templates' %}">
+        <i class="bi bi-file-earmark-text-fill" aria-hidden="true"></i> Modèles de messages
+      </a>
+      <a class="mobile-nav-link {% active_if 'whatsapp_automations' %}" href="{% url 'core:whatsapp_automations' %}">
+        <i class="bi bi-robot" aria-hidden="true"></i> Automatisations
+      </a>
+      <a class="mobile-nav-link {% active_if 'whatsapp_history' %}" href="{% url 'core:whatsapp_history' %}">
+        <i class="bi bi-journal-text" aria-hidden="true"></i> Historique WhatsApp
       </a>
       <a class="mobile-nav-link {% active_if 'whatsapp_payment_reminders' %}"
         href="{% url 'core:whatsapp_payment_reminders' %}">
@@ -1857,10 +1905,6 @@
       <a class="mobile-nav-link {% active_if 'whatsapp_absence_notifications' %}"
         href="{% url 'core:whatsapp_absence_notifications' %}">
         <i class="bi bi-person-x-fill" aria-hidden="true"></i> Notifications d'absence
-      </a>
-      <a class="mobile-nav-link {% active_if 'whatsapp_bulk_announcements' %}"
-        href="{% url 'core:whatsapp_bulk_announcements' %}">
-        <i class="bi bi-megaphone-fill" aria-hidden="true"></i> Annonces groupées
       </a>
 
       <div class="mobile-nav-section-label">Analytiques</div>

@@ -1,0 +1,106 @@
+{% extends 'core/base.html' %}
+{% block title %}Historique d'exécution — {{ automation.name }} — WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_automations' %}" class="text-decoration-none text-secondary">Automatisations</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">{{ automation.name }} (Historique)</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <h1 class="h3 fw-bold text-dark mb-0">{{ automation.name }}</h1>
+        <span class="badge bg-primary bg-opacity-10 text-primary">{{ automation.get_trigger_display }}</span>
+      </div>
+      <p class="text-secondary small mb-0">Historique d'audit des déclenchements et résultats de l'automatisation.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'core:whatsapp_automation_run_now' automation.pk %}?dry_run=1" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-play"></i> Tester en simulation
+      </a>
+      <a href="{% url 'core:whatsapp_automation_edit' automation.pk %}" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-pencil"></i> Modifier la règle
+      </a>
+      <a href="{% url 'core:whatsapp_automations' %}" class="btn btn-light btn-sm">
+        <i class="bi bi-arrow-left"></i> Retour
+      </a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white py-3 border-0">
+      <h6 class="fw-bold mb-0 text-dark">Journal des déclenchements ({{ runs.count }})</h6>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th>Date & Heure</th>
+            <th>Événement</th>
+            <th>Statut</th>
+            <th>Groupes ciblés</th>
+            <th>Campagne associée</th>
+            <th>Détails / Message d'erreur</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in runs %}
+            <tr>
+              <td>{{ r.started_at|date:"d/m/Y H:i:s" }}</td>
+              <td>
+                <span class="badge bg-light text-secondary border font-monospace">{{ r.trigger_event }}</span>
+              </td>
+              <td>
+                {% if r.status == 'SUCCESS' %}
+                  <span class="badge bg-success"><i class="bi bi-check-circle"></i> Succès</span>
+                {% elif r.status == 'DRY_RUN' %}
+                  <span class="badge bg-info text-dark"><i class="bi bi-shield"></i> Simulation</span>
+                {% elif r.status == 'SKIPPED' %}
+                  <span class="badge bg-warning text-dark"><i class="bi bi-skip-forward"></i> Ignoré</span>
+                {% else %}
+                  <span class="badge bg-danger"><i class="bi bi-x-circle"></i> Échec</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border">{{ r.groups_targeted }} groupe(s)</span>
+              </td>
+              <td>
+                {% if r.job %}
+                  <a href="{% url 'core:whatsapp_group_job' r.job.pk %}" class="fw-semibold text-dark text-decoration-none">
+                    Job #{{ r.job.pk }}
+                  </a>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.error_message %}
+                  <span class="text-danger">{{ r.error_message }}</span>
+                {% elif r.details %}
+                  <span class="text-muted font-monospace" style="font-size:0.72rem;">{{ r.details }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-center py-5 text-muted">
+                Aucun déclenchement enregistré pour cette automatisation.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

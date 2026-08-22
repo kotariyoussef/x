@@ -251,7 +251,89 @@ def enrollment_post_delete_whatsapp_sync(sender, instance, **kwargs):
             if phones:
                 WhatsAppGroupService.remove_participant(course_group, phones)
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
         from .whatsapp_logging import log_event, safe_error
         log_event(event='group_sync_failed', operation='enrollment_post_delete', result='failure', error_code='WA_INTERNAL_ERROR', **safe_error(e))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Event-Driven WhatsApp Automations
+# ──────────────────────────────────────────────────────────────────────────────
+
+@receiver(post_save, sender='core.Attendance')
+def attendance_post_save_whatsapp_automation(sender, instance, created, **kwargs):
+    """Triggers STUDENT_ABSENT WhatsApp automation when student is marked absent."""
+    if instance.is_present:
+        return
+    try:
+        from .services.group_automation import trigger_automation
+        student = instance.student
+        group = instance.course_group
+        context = {
+            'student': student,
+            'student_name': student.name,
+            'parent_name': student.parent_name or 'Parent',
+            'course_name': group.name if group else '',
+            'date': instance.date.strftime('%d/%m/%Y') if instance.date else '',
+            'level_id': student.level_id if student else None,
+        }
+        trigger_automation(
+            trigger_name='STUDENT_ABSENT',
+            context=context,
+            source_event_id=f"attendance_{instance.pk}",
+        )
+    except Exception as e:
+        from .whatsapp_logging import log_event, safe_error
+        log_event(event='automation_trigger_failed', operation='attendance_signal', result='failure', error_code='WA_INTERNAL_ERROR', **safe_error(e))
+
+
+@receiver(post_save, sender='core.Payment')
+def payment_post_save_whatsapp_automation(sender, instance, created, **kwargs):
+    """Triggers PAYMENT_RECEIVED WhatsApp automation when payment is saved as PAID."""
+    if instance.status != 'PAID':
+        return
+    try:
+        from .services.group_automation import trigger_automation
+        student = instance.student
+        from .utils import format_date_fr
+        context = {
+            'student': student,
+            'student_name': student.name if student else '',
+            'parent_name': student.parent_name or 'Parent' if student else 'Parent',
+            'amount': str(instance.amount),
+            'receipt_number': instance.receipt_number,
+            'date': instance.payment_date.strftime('%d/%m/%Y') if instance.payment_date else '',
+            'month': format_date_fr(instance.month_covered) if instance.month_covered else '',
+            'level_id': student.level_id if student else None,
+        }
+        trigger_automation(
+            trigger_name='PAYMENT_RECEIVED',
+            context=context,
+            source_event_id=f"payment_{instance.pk}",
+        )
+    except Exception as e:
+        from .whatsapp_logging import log_event, safe_error
+        log_event(event='automation_trigger_failed', operation='payment_signal', result='failure', error_code='WA_INTERNAL_ERROR', **safe_error(e))
+
+
+@receiver(post_save, sender='core.Announcement')
+def announcement_post_save_whatsapp_automation(sender, instance, created, **kwargs):
+    """Triggers ANNOUNCEMENT_PUBLISHED WhatsApp automation when announcement is saved."""
+    if not instance.is_active:
+        return
+    try:
+        from .services.group_automation import trigger_automation
+        context = {
+            'title': instance.title,
+            'content': instance.content,
+            'category': instance.get_category_display(),
+            'event_date': instance.event_date.strftime('%d/%m/%Y') if instance.event_date else '',
+        }
+        trigger_automation(
+            trigger_name='ANNOUNCEMENT_PUBLISHED',
+            context=context,
+            source_event_id=f"announcement_{instance.pk}",
+        )
+    except Exception as e:
+        from .whatsapp_logging import log_event, safe_error
+        log_event(event='automation_trigger_failed', operation='announcement_signal', result='failure', error_code='WA_INTERNAL_ERROR', **safe_error(e))
+

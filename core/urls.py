@@ -107,7 +107,39 @@ urlpatterns = [
 
     # WhatsApp Integration
     path('whatsapp/', views.whatsapp_dashboard, name='whatsapp_dashboard'),
+    path('whatsapp/history/', views.whatsapp_history, name='whatsapp_history'),
     
+    # WhatsApp Groups Management
+    path('whatsapp/groups/', views.whatsapp_groups, name='whatsapp_groups'),
+    path('whatsapp/groups/send/', views.whatsapp_group_send, name='whatsapp_group_send'),
+    path('whatsapp/groups/discover/', views.whatsapp_group_discover, name='whatsapp_group_discover'),
+    path('whatsapp/groups/import/', views.whatsapp_group_import_ajax, name='whatsapp_group_import_ajax'),
+    path('whatsapp/groups/health-check-all/', views.whatsapp_group_health_check_all_ajax, name='whatsapp_group_health_check_all_ajax'),
+    path('whatsapp/groups/<int:group_id>/', views.whatsapp_group_detail, name='whatsapp_group_detail'),
+    path('whatsapp/groups/<int:group_id>/edit/', views.whatsapp_group_edit, name='whatsapp_group_edit'),
+    path('whatsapp/groups/<int:group_id>/health-check/', views.whatsapp_group_health_check_ajax, name='whatsapp_group_health_check_ajax'),
+    path('whatsapp/groups/<int:group_id>/sync-preview/', views.whatsapp_group_sync_preview_ajax, name='whatsapp_group_sync_preview_ajax'),
+    
+    # WhatsApp Group Jobs & Deliveries
+    path('whatsapp/groups/job/<int:job_id>/', views.whatsapp_group_job, name='whatsapp_group_job'),
+    path('whatsapp/groups/job/<int:job_id>/progress/', views.whatsapp_group_job_progress_ajax, name='whatsapp_group_job_progress_ajax'),
+    path('whatsapp/groups/job/<int:job_id>/cancel/', views.whatsapp_group_job_cancel_ajax, name='whatsapp_group_job_cancel_ajax'),
+    
+    # WhatsApp Message Templates
+    path('whatsapp/templates/', views.whatsapp_templates, name='whatsapp_templates'),
+    path('whatsapp/templates/create/', views.whatsapp_template_create, name='whatsapp_template_create'),
+    path('whatsapp/templates/<int:template_id>/edit/', views.whatsapp_template_edit, name='whatsapp_template_edit'),
+    path('whatsapp/templates/<int:template_id>/delete/', views.whatsapp_template_delete, name='whatsapp_template_delete'),
+    path('whatsapp/templates/preview/', views.whatsapp_template_preview_ajax, name='whatsapp_template_preview_ajax'),
+    
+    # WhatsApp Automations Engine
+    path('whatsapp/automations/', views.whatsapp_automations, name='whatsapp_automations'),
+    path('whatsapp/automations/create/', views.whatsapp_automation_create, name='whatsapp_automation_create'),
+    path('whatsapp/automations/<int:automation_id>/edit/', views.whatsapp_automation_edit, name='whatsapp_automation_edit'),
+    path('whatsapp/automations/<int:automation_id>/toggle/', views.whatsapp_automation_toggle_ajax, name='whatsapp_automation_toggle_ajax'),
+    path('whatsapp/automations/<int:automation_id>/runs/', views.whatsapp_automation_runs, name='whatsapp_automation_runs'),
+    path('whatsapp/automations/<int:automation_id>/run-now/', views.whatsapp_automation_run_now, name='whatsapp_automation_run_now'),
+
     # WhatsApp Payment Reminders
     path('whatsapp/payment-reminders/', 
          views.whatsapp_payment_reminders, 

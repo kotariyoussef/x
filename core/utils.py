@@ -2931,6 +2931,30 @@ class WhatsAppServiceAPI:
             return {'success': False, 'error': str(e)}
 
 
+    @classmethod
+    def get_groups(cls):
+        """
+        Lists all accessible WhatsApp groups from the WhatsApp service.
+        """
+        url = f"{cls.BASE_URL}/groups"
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
+        api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
+        if api_key:
+            headers['X-API-Key'] = api_key
+
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode('utf-8'))
+            except Exception:
+                return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+
 def _instrument_whatsapp_api(method_name, original):
     """Add correlation and timing logs without logging request/response data."""
     import functools
@@ -2950,8 +2974,9 @@ def _instrument_whatsapp_api(method_name, original):
             'add_group_participants': '/group-add-participants',
             'remove_group_participants': '/group-remove-participants',
             'get_group_info': '/group-info',
+            'get_groups': '/groups',
         }.get(method_name, method_name)
-        operation_fields = {'endpoint': endpoint, 'http_method': 'POST' if method_name != 'get_group_info' else 'GET'}
+        operation_fields = {'endpoint': endpoint, 'http_method': 'POST' if method_name not in ('get_group_info', 'get_groups') else 'GET'}
         log_event(event='whatsapp_request_started', operation=method_name, correlation_id=correlation_id, request_id=correlation_id, **operation_fields)
         try:
             result = original(*args, **kwargs)
@@ -2972,7 +2997,7 @@ def _instrument_whatsapp_api(method_name, original):
 
 for _method_name in (
     'send_message', 'send_group_message', 'logout', 'restart', 'create_group',
-    'add_group_participants', 'remove_group_participants', 'get_group_info',
+    'add_group_participants', 'remove_group_participants', 'get_group_info', 'get_groups',
 ):
     _original_method = getattr(WhatsAppServiceAPI, _method_name).__func__
     setattr(WhatsAppServiceAPI, _method_name, classmethod(_instrument_whatsapp_api(_method_name, _original_method)))

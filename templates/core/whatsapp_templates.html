@@ -1,0 +1,169 @@
+{% extends 'core/base.html' %}
+{% block title %}Modèles de messages WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Modèles de messages</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <h1 class="h3 fw-bold text-dark mb-1">
+        <i class="bi bi-file-earmark-text-fill text-primary me-2"></i>Modèles de Messages WhatsApp
+      </h1>
+      <p class="text-secondary mb-0">Créez et prévisualisez des modèles de notifications standardisés avec variables dynamiques.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'core:whatsapp_template_create' %}" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-lg me-1"></i> Nouveau modèle
+      </a>
+    </div>
+  </div>
+
+  <!-- Filter & Search -->
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-3">
+      <form method="get" class="row g-2 align-items-center">
+        <div class="col-12 col-md-6">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-light"><i class="bi bi-search"></i></span>
+            <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="Rechercher un modèle...">
+          </div>
+        </div>
+        <div class="col-6 col-md-4">
+          <select name="category" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Toutes les catégories</option>
+            {% for code, label in categories %}
+              <option value="{{ code }}" {% if selected_category == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-filter"></i> Filtrer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Templates Grid -->
+  <div class="row g-3">
+    {% for tpl in templates %}
+      <div class="col-md-6 col-lg-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0 text-dark text-truncate me-2">{{ tpl.name }}</h6>
+            <span class="badge bg-primary bg-opacity-10 text-primary">{{ tpl.get_category_display }}</span>
+          </div>
+          <div class="card-body p-3">
+            <p class="text-secondary small mb-3">{{ tpl.description|default:"Aucune description." }}</p>
+            <div class="p-2 bg-light rounded font-monospace small mb-3 text-truncate-3" style="white-space: pre-wrap; max-height: 100px; overflow: hidden; color: #111b21;">
+              {{ tpl.body }}
+            </div>
+            <div class="d-flex flex-wrap gap-1 mb-2">
+              {% for var in tpl.extract_variables %}
+                <span class="badge bg-white text-secondary border font-monospace" style="font-size: 0.68rem;">
+                  &#123;&#123;{{ var }}&#125;&#125;
+                </span>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="card-footer bg-white border-0 pt-0 pb-3 d-flex justify-content-between align-items-center">
+            <button class="btn btn-outline-info btn-sm btn-preview-tpl" data-tpl-id="{{ tpl.pk }}" data-tpl-name="{{ tpl.name }}" data-tpl-body="{{ tpl.body|escapejs }}">
+              <i class="bi bi-eye"></i> Aperçu
+            </button>
+            <div class="btn-group btn-group-sm">
+              <a href="{% url 'core:whatsapp_template_edit' tpl.pk %}" class="btn btn-outline-secondary" title="Modifier">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="post" action="{% url 'core:whatsapp_template_delete' tpl.pk %}" class="d-inline" onsubmit="return confirm('Supprimer définitivement ce modèle ?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger" title="Supprimer">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12 text-center py-5 text-muted">
+        <i class="bi bi-file-earmark-text fs-1 mb-2 d-block text-secondary"></i>
+        <h6>Aucun modèle de message configuré</h6>
+        <p class="small">Créez des modèles types pour vos rappels de paiement, annonces d'absence et examens.</p>
+        <a href="{% url 'core:whatsapp_template_create' %}" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-lg me-1"></i> Créer le premier modèle
+        </a>
+      </div>
+    {% endfor %}
+  </div>
+
+</div>
+
+<!-- Template Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-success text-white">
+        <h6 class="modal-title fw-bold" id="previewModalTitle"><i class="bi bi-whatsapp me-2"></i>Aperçu du rendu WhatsApp</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4 bg-light">
+        <div class="card border-0 shadow-sm">
+          <div class="card-body p-3 font-monospace small" id="previewModalBody" style="white-space: pre-wrap; color: #111b21; border-left: 4px solid #25d366;">
+          </div>
+        </div>
+        <div class="mt-3 text-muted small" id="previewModalVars"></div>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const modalEl = document.getElementById('previewModal');
+  const previewModal = new bootstrap.Modal(modalEl);
+
+  document.querySelectorAll('.btn-preview-tpl').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const tplId = this.dataset.tplId;
+      const tplName = this.dataset.tplName;
+      const tplBody = this.dataset.tplBody;
+
+      document.getElementById('previewModalTitle').textContent = `Aperçu : ${tplName}`;
+      
+      const formData = new FormData();
+      formData.append('template_id', tplId);
+      formData.append('body', tplBody);
+
+      fetch('/whatsapp/templates/preview/', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('previewModalBody').textContent = data.rendered;
+        let varsHtml = `<strong>Variables détectées :</strong> `;
+        if (data.variables && data.variables.length > 0) {
+          varsHtml += data.variables.map(v => `<span class="badge bg-white text-secondary border font-monospace me-1">{{${v}}}</span>`).join('');
+        } else {
+          varsHtml += `<em>Aucune variable dynamique</em>`;
+        }
+        document.getElementById('previewModalVars').innerHTML = varsHtml;
+        previewModal.show();
+      });
+    });
+  });
+});
+</script>
+{% endblock %}

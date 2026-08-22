@@ -1,0 +1,115 @@
+{% extends 'core/base.html' %}
+{% block title %}Modifier {{ group.display_name }} — Groupes WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_groups' %}" class="text-decoration-none text-secondary">Groupes</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_group_detail' group.pk %}" class="text-decoration-none text-secondary">{{ group.display_name }}</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Modifier</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-0">
+          <h5 class="fw-bold mb-0 text-dark">
+            <i class="bi bi-pencil-square text-primary me-2"></i>Modifier les paramètres du groupe WhatsApp
+          </h5>
+        </div>
+        <div class="card-body p-4">
+          <form method="post">
+            {% csrf_token %}
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Nom affiché dans le système</label>
+              <input type="text" name="display_name" class="form-control" value="{{ group.display_name }}" required>
+              <div class="form-text">Nom lisible par les administrateurs pour identifier ce groupe.</div>
+            </div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Type de groupe</label>
+                <select name="group_type" class="form-select">
+                  {% for code, label in group_types %}
+                    <option value="{{ code }}" {% if group.group_type == code %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Groupe de cours lié</label>
+                <select name="course_group_id" class="form-select">
+                  <option value="">-- Aucun groupe de cours associé --</option>
+                  {% for cg in course_groups %}
+                    <option value="{{ cg.pk }}" {% if group.course_group_id == cg.pk %}selected{% endif %}>
+                      {{ cg.name }} ({{ cg.subject }})
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">ID WhatsApp (Interne)</label>
+              <input type="text" class="form-control font-monospace bg-light" value="{{ group.whatsapp_group_id }}" readonly>
+              <div class="form-text">L'identifiant unique WhatsApp est géré automatiquement.</div>
+            </div>
+
+            <hr class="my-4">
+
+            <h6 class="fw-bold mb-3 text-dark">Autorisations et Automatisation</h6>
+
+            <div class="row g-3 mb-4">
+              <div class="col-md-6">
+                <div class="form-check form-switch p-3 border rounded">
+                  <input class="form-check-input" type="checkbox" name="is_active" id="isActive" {% if group.is_active %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="isActive">Groupe actif</label>
+                  <div class="text-muted small">Permet d'utiliser ce groupe dans les envois de messages.</div>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <div class="form-check form-switch p-3 border rounded">
+                  <input class="form-check-input" type="checkbox" name="automation_enabled" id="isAutomation" {% if group.automation_enabled %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="isAutomation">Automatisation activée</label>
+                  <div class="text-muted small">Autorise les déclencheurs automatiques à cibler ce groupe.</div>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <div class="form-check form-switch p-3 border rounded">
+                  <input class="form-check-input" type="checkbox" name="sync_enabled" id="isSync" {% if group.sync_enabled %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="isSync">Synchronisation membres</label>
+                  <div class="text-muted small">Met à jour automatiquement les membres lors des inscriptions.</div>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <div class="form-check form-switch p-3 border rounded">
+                  <input class="form-check-input" type="checkbox" name="blocked" id="isBlocked" {% if group.blocked %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold text-danger" for="isBlocked">Bloquer les envois</label>
+                  <div class="text-muted small">Interdit tout envoi de message vers ce groupe.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center">
+              <a href="{% url 'core:whatsapp_group_detail' group.pk %}" class="btn btn-light">Annuler</a>
+              <button type="submit" class="btn btn-primary px-4">
+                <i class="bi bi-check-lg me-1"></i> Enregistrer les modifications
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

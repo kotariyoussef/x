@@ -1,0 +1,256 @@
+{% extends 'core/base.html' %}
+{% block title %}Envoyer un message de groupe — WhatsApp — {{ SCHOOL_NAME }}{% endblock %}
+
+{% block breadcrumb %}
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_dashboard' %}" class="text-decoration-none text-secondary"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <span class="context-bar-sep">›</span>
+  <a href="{% url 'core:whatsapp_groups' %}" class="text-decoration-none text-secondary">Groupes</a>
+  <span class="context-bar-sep">›</span>
+  <span class="context-bar-current">Envoyer un message</span>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+
+      <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+          <h1 class="h3 fw-bold text-dark mb-1">
+            <i class="bi bi-send-fill text-primary me-2"></i>Diffusion vers les Groupes WhatsApp
+          </h1>
+          <p class="text-secondary mb-0">Ciblage intelligent, aperçu en temps réel et validation stricte avant envoi.</p>
+        </div>
+        <a href="{% url 'core:whatsapp_groups' %}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left"></i> Retour aux groupes
+        </a>
+      </div>
+
+      {% if dry_run_result %}
+        <!-- Dry Run Result Alert -->
+        <div class="alert alert-info border-0 shadow-sm d-flex gap-3 align-items-center mb-4 p-3">
+          <div class="fs-2 text-info"><i class="bi bi-shield-check"></i></div>
+          <div class="flex-grow-1">
+            <h6 class="fw-bold mb-1">Résultat de la simulation (Dry-Run)</h6>
+            <p class="mb-1 small">
+              Ce message aurait été transmis à <strong>{{ dry_run_result.group_count }}</strong> groupe(s) WhatsApp autorisé(s).
+            </p>
+            <div class="small text-muted">
+              {% for g in dry_run_result.groups %}
+                <span class="badge bg-white text-dark border me-1">{{ g.display_name }} ({{ g.participant_count }} membres)</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <form method="post" id="groupSendForm">
+        {% csrf_token %}
+
+        <div class="row g-4">
+          <!-- Left Column: Targeting -->
+          <div class="col-md-5">
+            <div class="card shadow-sm border-0 h-100">
+              <div class="card-header bg-white py-3 border-0">
+                <h6 class="fw-bold mb-0 text-dark">
+                  <span class="badge bg-primary rounded-circle me-1">1</span> Définir les groupes cibles
+                </h6>
+              </div>
+              <div class="card-body p-3">
+
+                <!-- Target Type Radio Options -->
+                <div class="mb-3">
+                  <label class="form-label fw-semibold small text-uppercase text-secondary">Mode de ciblage</label>
+                  
+                  <div class="form-check mb-2 p-2 border rounded">
+                    <input class="form-check-input ms-1 me-2" type="radio" name="target_type" id="target_selected" value="GROUP_IDS" checked onchange="updateTargetUI()">
+                    <label class="form-check-label fw-semibold" for="target_selected">
+                      <i class="bi bi-check2-square text-primary"></i> Sélection manuelle de groupes
+                    </label>
+                  </div>
+
+                  <div class="form-check mb-2 p-2 border rounded">
+                    <input class="form-check-input ms-1 me-2" type="radio" name="target_type" id="target_category" value="GROUP_TYPE" onchange="updateTargetUI()">
+                    <label class="form-check-label fw-semibold" for="target_category">
+                      <i class="bi bi-tags text-success"></i> Par catégorie de groupe
+                    </label>
+                  </div>
+
+                  <div class="form-check mb-2 p-2 border rounded">
+                    <input class="form-check-input ms-1 me-2" type="radio" name="target_type" id="target_level" value="LEVEL" onchange="updateTargetUI()">
+                    <label class="form-check-label fw-semibold" for="target_level">
+                      <i class="bi bi-mortarboard text-info"></i> Par niveau scolaire
+                    </label>
+                  </div>
+
+                  <div class="form-check mb-2 p-2 border rounded">
+                    <input class="form-check-input ms-1 me-2" type="radio" name="target_type" id="target_all" value="ALL_GROUPS" onchange="updateTargetUI()">
+                    <label class="form-check-label fw-semibold text-danger" for="target_all">
+                      <i class="bi bi-broadcast"></i> Tous les groupes éligibles
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Section: Group Select Checkboxes -->
+                <div id="section_selected_groups">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="form-label fw-semibold small text-secondary mb-0">Choisir les groupes</label>
+                    <div class="btn-group btn-group-sm">
+                      <button type="button" class="btn btn-link text-decoration-none p-0 pe-2 small" onclick="toggleAllGroups(true)">Tout cocher</button>
+                      <button type="button" class="btn btn-link text-decoration-none p-0 small" onclick="toggleAllGroups(false)">Décocher</button>
+                    </div>
+                  </div>
+                  <div class="border rounded p-2" style="max-height: 240px; overflow-y: auto;">
+                    {% for g in groups %}
+                      <div class="form-check py-1 border-bottom border-light">
+                        <input class="form-check-input group-chk" type="checkbox" name="group_ids" value="{{ g.pk }}" id="chk_{{ g.pk }}"
+                               {% if preselected_group_id == g.pk|stringformat:"i" or g.pk in selected_ids %}checked{% endif %}
+                               onchange="updateRecipientCount()">
+                        <label class="form-check-label small d-flex justify-content-between align-items-center w-100" for="chk_{{ g.pk }}">
+                          <span>{{ g.display_name }}</span>
+                          <span class="badge bg-light text-secondary border font-monospace" style="font-size:0.68rem;">{{ g.participant_count }} memb.</span>
+                        </label>
+                      </div>
+                    {% empty %}
+                      <p class="text-muted small mb-0 p-2 text-center">Aucun groupe actif disponible.</p>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <!-- Section: Category Selector -->
+                <div id="section_category" class="d-none">
+                  <label class="form-label fw-semibold small text-secondary">Catégorie cible</label>
+                  <select name="group_type_value" class="form-select form-select-sm" onchange="updateRecipientCount()">
+                    {% for code, label in group_types %}
+                      <option value="{{ code }}">{{ label }} (Tous les groupes de ce type)</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <!-- Section: Level Selector -->
+                <div id="section_level" class="d-none">
+                  <label class="form-label fw-semibold small text-secondary">Niveau scolaire</label>
+                  <select name="level_value" class="form-select form-select-sm" onchange="updateRecipientCount()">
+                    {% for lvl in levels %}
+                      <option value="{{ lvl.pk }}">{{ lvl.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <!-- Section: All Groups Notice -->
+                <div id="section_all_groups" class="d-none">
+                  <div class="alert alert-warning border-0 p-2 small mb-0">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                    Cette option enverra le message à <strong>tous les groupes enregistrés</strong> ayant l'automatisation activée et non bloqués.
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Message Content & Template -->
+          <div class="col-md-7">
+            <div class="card shadow-sm border-0 h-100">
+              <div class="card-header bg-white py-3 border-0">
+                <h6 class="fw-bold mb-0 text-dark">
+                  <span class="badge bg-primary rounded-circle me-1">2</span> Rédiger le message
+                </h6>
+              </div>
+              <div class="card-body p-4">
+
+                <!-- Template Selector -->
+                <div class="mb-3">
+                  <label class="form-label fw-semibold small text-secondary">Utiliser un modèle préenregistré</label>
+                  <select id="templateSelect" name="template_id" class="form-select" onchange="applySelectedTemplate()">
+                    <option value="">-- Message personnalisé libre --</option>
+                    {% for tpl in templates %}
+                      <option value="{{ tpl.pk }}" data-body="{{ tpl.body|escapejs }}">{{ tpl.name }} ({{ tpl.get_category_display }})</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <!-- Message Body Textarea -->
+                <div class="mb-3">
+                  <label class="form-label fw-semibold">Corps du message <span class="text-danger">*</span></label>
+                  <textarea name="message" id="messageTextarea" rows="7" class="form-control font-monospace" placeholder="Saisissez votre message ici..." required oninput="updateMessagePreview()"></textarea>
+                  <div class="d-flex justify-content-between align-items-center mt-1">
+                    <div class="form-text small">Vous pouvez utiliser des emojis et retours à la ligne.</div>
+                    <div class="small text-muted" id="charCounter">0 caractères</div>
+                  </div>
+                </div>
+
+                <!-- Live Preview Card -->
+                <div class="card bg-light border-0 mb-4">
+                  <div class="card-body p-3">
+                    <div class="d-flex align-items-center gap-2 mb-2 text-success small fw-bold">
+                      <i class="bi bi-whatsapp"></i> Aperçu du rendu WhatsApp :
+                    </div>
+                    <div class="p-3 bg-white rounded shadow-sm border small font-monospace" id="livePreview" style="white-space: pre-wrap; min-height: 80px; color: #111b21;">
+                      <span class="text-muted fst-italic">L'aperçu de votre message apparaîtra ici...</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Action Controls -->
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-2 border-top">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="dry_run" value="1" id="dryRunChk">
+                    <label class="form-check-label small text-secondary" for="dryRunChk">
+                      <i class="bi bi-shield"></i> Mode simulation (Dry-Run sans envoi réel)
+                    </label>
+                  </div>
+                  <button type="submit" class="btn btn-primary px-4">
+                    Continuer vers la confirmation <i class="bi bi-arrow-right ms-1"></i>
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </form>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+function updateTargetUI() {
+  const selected = document.querySelector('input[name="target_type"]:checked').value;
+  document.getElementById('section_selected_groups').classList.toggle('d-none', selected !== 'GROUP_IDS');
+  document.getElementById('section_category').classList.toggle('d-none', selected !== 'GROUP_TYPE');
+  document.getElementById('section_level').classList.toggle('d-none', selected !== 'LEVEL');
+  document.getElementById('section_all_groups').classList.toggle('d-none', selected !== 'ALL_GROUPS');
+}
+
+function toggleAllGroups(check) {
+  document.querySelectorAll('.group-chk').forEach(c => c.checked = check);
+}
+
+function applySelectedTemplate() {
+  const sel = document.getElementById('templateSelect');
+  const opt = sel.options[sel.selectedIndex];
+  if (opt && opt.dataset.body) {
+    document.getElementById('messageTextarea').value = opt.dataset.body;
+    updateMessagePreview();
+  }
+}
+
+function updateMessagePreview() {
+  const val = document.getElementById('messageTextarea').value;
+  const preview = document.getElementById('livePreview');
+  const counter = document.getElementById('charCounter');
+  counter.textContent = `${val.length} caractère(s)`;
+  if (val.trim()) {
+    preview.textContent = val;
+  } else {
+    preview.innerHTML = '<span class="text-muted fst-italic">L\'aperçu de votre message apparaîtra ici...</span>';
+  }
+}
+</script>
+{% endblock %}
