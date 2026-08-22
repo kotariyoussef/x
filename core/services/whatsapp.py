@@ -2,6 +2,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from django.conf import settings
 from core.utils import WhatsAppUtils, WhatsAppServiceAPI
+from core.whatsapp_logging import hash_identifier, log_event, new_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +74,15 @@ class WhatsAppGroupService:
         """
         Creates a new WhatsApp group for the given CourseGroup and saves group info back to model.
         """
+        correlation_id = new_correlation_id()
+        log_event(event='group_sync_started', operation='create_group', correlation_id=correlation_id, group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=0)
         group_name = cls.generate_group_name(course_group)
         course_group.whatsapp_group_name = group_name
         course_group.save(update_fields=['whatsapp_group_name'])
 
         participants = cls.get_course_group_participants(course_group)
 
-        logger.info(f"Creating WhatsApp group '{group_name}' for CourseGroup {course_group.id} with {len(participants)} participants")
+        logger.info("Creating WhatsApp group with %s participants", len(participants))
         
         response = WhatsAppServiceAPI.create_group(name=group_name, participants=participants)
 
@@ -100,7 +103,8 @@ class WhatsAppGroupService:
                 'whatsapp_last_synced_at'
             ])
 
-            logger.info(f"Successfully created WhatsApp group {group_id} for CourseGroup {course_group.id}")
+            logger.info("Successfully created WhatsApp group")
+            log_event(event='group_create_success', operation='create_group', correlation_id=correlation_id, result='success', group_id_hash=hash_identifier(group_id, 'group'), participant_count=len(participants))
             return {
                 'success': True,
                 'group_id': group_id,
@@ -109,9 +113,10 @@ class WhatsAppGroupService:
             }
         else:
             error_msg = response.get('error', 'Unknown error during group creation')
-            logger.error(f"Failed to create WhatsApp group for CourseGroup {course_group.id}: {error_msg}")
+            logger.error("Failed to create WhatsApp group")
             course_group.whatsapp_group_status = 'FAILED'
             course_group.save(update_fields=['whatsapp_group_status'])
+            log_event(event='group_create_failed', operation='create_group', correlation_id=correlation_id, result='failure', group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=len(participants), error_code='WA_GROUP_ERROR')
             return {
                 'success': False,
                 'error': error_msg
@@ -125,7 +130,7 @@ class WhatsAppGroupService:
         automatically sends them a WhatsApp message with the group invite link.
         """
         if not course_group.whatsapp_group_id:
-            logger.warning(f"Cannot add participants: CourseGroup {course_group.id} has no whatsapp_group_id")
+            logger.warning("Cannot add participants because the group ID is missing")
             return {'success': False, 'error': 'No WhatsApp group ID'}
 
         valid_phones = []
@@ -137,7 +142,9 @@ class WhatsAppGroupService:
         if not valid_phones:
             return {'success': True, 'added': []}
 
-        logger.info(f"Adding {len(valid_phones)} participants to WhatsApp group {course_group.whatsapp_group_id}")
+        logger.info("Adding %s participants to WhatsApp group", len(valid_phones))
+        correlation_id = new_correlation_id()
+        log_event(event='group_add_participants_requested', operation='add_group_participants', correlation_id=correlation_id, group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=len(phone_numbers or []))
         response = WhatsAppServiceAPI.add_group_participants(
             group_id=course_group.whatsapp_group_id,
             participants=valid_phones
@@ -174,14 +181,15 @@ class WhatsAppGroupService:
                     send_res = WhatsAppServiceAPI.send_message(phone=phone, message=invite_msg)
                     if send_res.get('success'):
                         invite_sent.append(phone)
-                        logger.info(f"Automatically sent group invite link to {phone} for group {course_group.name}")
+                        logger.info("Automatically sent a group invite link")
                 except Exception as e:
-                    logger.error(f"Failed to auto-send invite link to {phone}: {e}")
+                    logger.error("Failed to auto-send invite link")
 
         if response.get('success'):
             from django.utils import timezone
             course_group.whatsapp_last_synced_at = timezone.now()
             course_group.save(update_fields=['whatsapp_last_synced_at'])
+            log_event(event='group_add_participants_success', operation='add_group_participants', correlation_id=correlation_id, result='success', group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=len(valid_phones), failure_count=len(failed_phones))
             return {
                 'success': True,
                 'added': valid_phones,
@@ -190,7 +198,8 @@ class WhatsAppGroupService:
             }
         else:
             error_msg = response.get('error', 'Failed to add group participants')
-            logger.error(f"Error adding participants to group {course_group.whatsapp_group_id}: {error_msg}")
+            logger.error("Error adding participants to WhatsApp group")
+            log_event(event='group_add_participants_failed', operation='add_group_participants', correlation_id=correlation_id, result='failure', group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=len(valid_phones), error_code='WA_GROUP_ERROR')
             return {'success': False, 'error': error_msg, 'invite_sent': invite_sent}
 
     @classmethod
@@ -210,7 +219,9 @@ class WhatsAppGroupService:
         if not valid_phones:
             return {'success': True, 'removed': []}
 
-        logger.info(f"Removing {len(valid_phones)} participants from WhatsApp group {course_group.whatsapp_group_id}")
+        logger.info("Removing %s participants from WhatsApp group", len(valid_phones))
+        correlation_id = new_correlation_id()
+        log_event(event='group_remove_participants_requested', operation='remove_group_participants', correlation_id=correlation_id, group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=len(phone_numbers or []))
         response = WhatsAppServiceAPI.remove_group_participants(
             group_id=course_group.whatsapp_group_id,
             participants=valid_phones
@@ -220,6 +231,7 @@ class WhatsAppGroupService:
             from django.utils import timezone
             course_group.whatsapp_last_synced_at = timezone.now()
             course_group.save(update_fields=['whatsapp_last_synced_at'])
+            log_event(event='group_remove_participants_success', operation='remove_group_participants', correlation_id=correlation_id, result='success', group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=len(valid_phones))
             return {
                 'success': True,
                 'removed': valid_phones,
@@ -227,7 +239,8 @@ class WhatsAppGroupService:
             }
         else:
             error_msg = response.get('error', 'Failed to remove group participants')
-            logger.error(f"Error removing participants from group {course_group.whatsapp_group_id}: {error_msg}")
+            logger.error("Error removing participants from WhatsApp group")
+            log_event(event='group_remove_participants_failed', operation='remove_group_participants', correlation_id=correlation_id, result='failure', group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'), participant_count=len(valid_phones), error_code='WA_GROUP_ERROR')
             return {'success': False, 'error': error_msg}
 
     @classmethod
@@ -240,6 +253,8 @@ class WhatsAppGroupService:
         4. If group ID exists, queries current participants or syncs all enrolled contacts + teacher.
         5. Returns detailed result status.
         """
+        correlation_id = new_correlation_id()
+        log_event(event='group_sync_started', operation='sync_group', correlation_id=correlation_id, group_id_hash=hash_identifier(course_group.whatsapp_group_id, 'group'))
         expected_name = cls.generate_group_name(course_group)
         course_group.whatsapp_group_name = expected_name
 
@@ -247,11 +262,13 @@ class WhatsAppGroupService:
 
         # 1. Verify WhatsApp service availability
         status_info = WhatsAppServiceAPI.get_status()
+        log_event(event='group_sync_groups_loaded', operation='sync_group', correlation_id=correlation_id, state=status_info.get('status'), result='success' if not status_info.get('offline') else 'failure', expected_count=len(target_participants))
         if status_info.get('status') != 'authenticated':
             err = f"WhatsApp service is offline or disconnected (status: {status_info.get('status', 'unknown')})"
             logger.warning(err)
             course_group.whatsapp_group_status = 'FAILED'
             course_group.save(update_fields=['whatsapp_group_status'])
+            log_event(event='group_sync_failed', operation='sync_group', correlation_id=correlation_id, result='failure', error_code='WA_NOT_READY')
             return {
                 'success': False,
                 'group_created': False,
@@ -268,6 +285,7 @@ class WhatsAppGroupService:
         if not course_group.whatsapp_group_id:
             res = cls.create_course_group(course_group)
             if res.get('success'):
+                log_event(event='group_sync_completed', operation='sync_group', correlation_id=correlation_id, result='success', added_count=len(target_participants), failed_count=0)
                 return {
                     'success': True,
                     'group_created': True,
@@ -280,6 +298,7 @@ class WhatsAppGroupService:
                     'warnings': []
                 }
             else:
+                log_event(event='group_sync_failed', operation='sync_group', correlation_id=correlation_id, result='failure', failed_count=len(target_participants))
                 return {
                     'success': False,
                     'group_created': False,
@@ -305,6 +324,7 @@ class WhatsAppGroupService:
                     already_members.append(p['user'])
 
         missing_participants = [p for p in target_participants if p not in already_members]
+        log_event(event='group_sync_diff_calculated', operation='sync_group', correlation_id=correlation_id, expected_count=len(target_participants), actual_count=len(already_members), added_count=len(missing_participants), removed_count=0)
 
         added = []
         failed = []
@@ -333,6 +353,7 @@ class WhatsAppGroupService:
 
         all_already = list(set(already_members) & set(target_participants)) if already_members else list(set(target_participants) - set(missing_participants) - set(added))
 
+        log_event(event='group_sync_database_updated', operation='sync_group', correlation_id=correlation_id, result='success' if not failed else 'failure', added_count=len(added), removed_count=0, failed_count=len(failed))
         return {
             'success': len(failed) == 0,
             'group_created': False,

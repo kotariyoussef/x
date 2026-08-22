@@ -67,7 +67,10 @@ def _notify(phone: str, message: str, student=None, message_type: str = 'session
     try:
         from .utils import WhatsAppServiceAPI
         from .models import WhatsAppSendLog
+        from .whatsapp_logging import hash_identifier, log_event, new_correlation_id, safe_error
 
+        correlation_id = new_correlation_id()
+        log_event(event='message_send_requested', operation='signal_notification', correlation_id=correlation_id, destination_hash=hash_identifier(phone, 'hash'), message_type=message_type, message_length=len(message), has_media=False)
         result = WhatsAppServiceAPI.send_message(phone, message)
         WhatsAppSendLog.objects.create(
             student=student,
@@ -77,8 +80,13 @@ def _notify(phone: str, message: str, student=None, message_type: str = 'session
             status='SENT' if result.get('success') else 'FAILED',
             error_message=result.get('error', '') if not result.get('success') else '',
         )
-    except Exception:
-        pass
+        log_event(event='message_send_success' if result.get('success') else 'message_send_failed', operation='signal_notification', correlation_id=correlation_id, destination_hash=hash_identifier(phone, 'hash'), result='success' if result.get('success') else 'failure', message_type=message_type)
+    except Exception as error:
+        try:
+            from .whatsapp_logging import log_event, safe_error
+            log_event(event='message_send_failed', operation='signal_notification', result='failure', error_code='WA_INTERNAL_ERROR', **safe_error(error))
+        except Exception:
+            pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -223,7 +231,8 @@ def enrollment_post_save_whatsapp_sync(sender, instance, created, **kwargs):
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Error in enrollment_post_save_whatsapp_sync: {e}")
+        from .whatsapp_logging import log_event, safe_error
+        log_event(event='group_sync_failed', operation='enrollment_post_save', result='failure', error_code='WA_INTERNAL_ERROR', **safe_error(e))
 
 
 @receiver(post_delete, sender='core.Enrollment')
@@ -244,4 +253,5 @@ def enrollment_post_delete_whatsapp_sync(sender, instance, **kwargs):
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Error in enrollment_post_delete_whatsapp_sync: {e}")
+        from .whatsapp_logging import log_event, safe_error
+        log_event(event='group_sync_failed', operation='enrollment_post_delete', result='failure', error_code='WA_INTERNAL_ERROR', **safe_error(e))

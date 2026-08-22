@@ -90,6 +90,8 @@ node_modules/
 
 whatsapp_service/.wwebjs_cache/
 whatsapp_service/whatsapp_session/
+whatsapp_service/logs/
+logs/
 
 .env
 .env.*

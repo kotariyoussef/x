@@ -9,7 +9,7 @@ from django.db.models import Q, Count, Sum
 from decimal import Decimal
 from datetime import timedelta, date
 
-from .models import Student, Payment, Enrollment, Room, Teacher, WhatsAppSendLog
+from .models import Student, Payment, Enrollment, Room, Teacher, WhatsAppSendLog, WhatsAppGroup, WhatsAppMessageJob
 from .utils import WhatsAppMessageTemplates, WhatsAppUtils, WhatsAppServiceAPI, _build_room_schedule, _build_teacher_schedule, _calculate_week_stats, get_dashboard_stats, generate_receipt_pdf, calculate_student_monthly_total, generate_sessions_from_coursegroups, _annotate_conflicts, load_message_template, SafeDict
 from .forms import SessionForm, StudentForm, EnrollmentForm
 from django.core.paginator import Paginator
@@ -25,6 +25,7 @@ from django.views.decorators.http import require_POST
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 import base64
 import json
 import mimetypes
@@ -2653,6 +2654,74 @@ def whatsapp_dashboard(request):
         'recent_logs': recent_logs,
     }
     return render(request, 'core/whatsapp_dashboard.html', context)
+
+
+@staff_member_required
+@require_GET
+def whatsapp_groups(request):
+    """List explicitly registered and authorized WhatsApp groups."""
+    groups = WhatsAppGroup.objects.select_related('course_group').all()
+    group_type = request.GET.get('group_type')
+    if group_type:
+        groups = groups.filter(group_type=group_type)
+    if request.GET.get('active') == '1':
+        groups = groups.filter(is_active=True)
+    if request.GET.get('automation') == '1':
+        groups = groups.filter(automation_enabled=True, blocked=False)
+    if request.GET.get('health') == 'error':
+        groups = groups.exclude(health_status='HEALTHY')
+    return render(request, 'core/whatsapp_groups.html', {
+        'groups': groups,
+        'group_types': WhatsAppGroup.TYPE_CHOICES,
+        'selected_type': group_type or '',
+    })
+
+
+@staff_member_required
+@require_http_methods(['GET', 'POST'])
+def whatsapp_group_send(request):
+    """Preview or enqueue a message to explicitly registered groups."""
+    from core.services.group_automation import enqueue_group_message
+
+    if request.method == 'POST':
+        target_type = request.POST.get('target_type', 'GROUP_IDS')
+        target_value = request.POST.get('target_value', '')
+        message = request.POST.get('message', '').strip()
+        dry_run = request.POST.get('dry_run') == '1'
+        try:
+            result = enqueue_group_message(
+                target_type=target_type,
+                target_value=target_value,
+                message=message,
+                source_event='manual_group_send',
+                created_by=request.user,
+                dry_run=dry_run,
+            )
+        except ValueError as error:
+            messages.error(request, str(error))
+        else:
+            if dry_run:
+                return render(request, 'core/whatsapp_group_send.html', {
+                    'groups': result['groups'],
+                    'preview': True,
+                    'form_data': request.POST,
+                    'group_types': WhatsAppGroup.TYPE_CHOICES,
+                })
+            messages.success(request, f"Job créé pour {result['group_count']} groupe(s). Il doit être traité par le worker WhatsApp.")
+            return redirect('core:whatsapp_group_job', job_id=result['job'].pk)
+
+    return render(request, 'core/whatsapp_group_send.html', {
+        'groups': WhatsAppGroup.objects.filter(is_active=True).order_by('display_name'),
+        'group_types': WhatsAppGroup.TYPE_CHOICES,
+        'form_data': {},
+    })
+
+
+@staff_member_required
+@require_GET
+def whatsapp_group_job(request, job_id):
+    job = get_object_or_404(WhatsAppMessageJob.objects.prefetch_related('deliveries__group'), pk=job_id)
+    return render(request, 'core/whatsapp_group_job.html', {'job': job})
 
 
 @require_POST

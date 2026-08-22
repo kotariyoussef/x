@@ -1,0 +1,112 @@
+from django.conf import settings
+from django.db import migrations, models
+import django.db.models.deletion
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ('core', '0046_coursegroup_whatsapp_group_id_and_more'),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='WhatsAppGroup',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('whatsapp_group_id', models.CharField(max_length=255, unique=True, verbose_name='ID WhatsApp')),
+                ('display_name', models.CharField(max_length=255, verbose_name='Nom affiché')),
+                ('group_type', models.CharField(choices=[('CLASS', 'Classe'), ('PARENTS', 'Parents'), ('TEACHERS', 'Professeurs'), ('ADMINISTRATION', 'Administration'), ('COURSE', 'Cours'), ('SCHOOL', 'École'), ('CUSTOM', 'Personnalisé')], default='CUSTOM', max_length=20)),
+                ('is_active', models.BooleanField(default=True)),
+                ('sync_enabled', models.BooleanField(default=True)),
+                ('automation_enabled', models.BooleanField(default=True)),
+                ('blocked', models.BooleanField(default=False)),
+                ('archived', models.BooleanField(default=False)),
+                ('health_status', models.CharField(choices=[('UNKNOWN', 'Inconnu'), ('HEALTHY', 'Accessible'), ('STALE', 'Obsolète'), ('ERROR', 'Erreur')], default='UNKNOWN', max_length=10)),
+                ('participant_count', models.PositiveIntegerField(default=0)),
+                ('last_verified_at', models.DateTimeField(blank=True, null=True)),
+                ('last_synced_at', models.DateTimeField(blank=True, null=True)),
+                ('last_message_at', models.DateTimeField(blank=True, null=True)),
+                ('last_error', models.TextField(blank=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('course_group', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='registered_whatsapp_groups', to='core.coursegroup')),
+            ],
+            options={'ordering': ['display_name']},
+        ),
+        migrations.CreateModel(
+            name='WhatsAppMessageTemplate',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(max_length=150, unique=True)),
+                ('description', models.TextField(blank=True)),
+                ('body', models.TextField()),
+                ('enabled', models.BooleanField(default=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='WhatsAppAutomation',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(max_length=150, unique=True)),
+                ('description', models.TextField(blank=True)),
+                ('enabled', models.BooleanField(default=False)),
+                ('trigger', models.CharField(choices=[('MANUAL', 'Manuel'), ('ANNOUNCEMENT_PUBLISHED', 'Annonce publiée'), ('SCHEDULED', 'Planifié')], max_length=30)),
+                ('target_type', models.CharField(choices=[('GROUP_IDS', 'Groupes sélectionnés'), ('GROUP_TYPE', 'Type de groupe'), ('ALL_GROUPS', 'Tous les groupes éligibles'), ('COURSE', 'Groupe de cours')], max_length=20)),
+                ('target_value', models.CharField(blank=True, max_length=255)),
+                ('conditions', models.JSONField(blank=True, default=dict)),
+                ('cooldown_seconds', models.PositiveIntegerField(default=0)),
+                ('last_run_at', models.DateTimeField(blank=True, null=True)),
+                ('last_result', models.CharField(blank=True, max_length=20)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL)),
+                ('template', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='core.whatsappmessagetemplate')),
+            ],
+        ),
+        migrations.CreateModel(
+            name='WhatsAppMessageJob',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('status', models.CharField(choices=[('PENDING', 'En attente'), ('RUNNING', 'En cours'), ('SUCCESS', 'Réussi'), ('PARTIAL', 'Partiel'), ('FAILED', 'Échec'), ('CANCELLED', 'Annulé')], default='PENDING', max_length=10)),
+                ('target_type', models.CharField(choices=[('GROUP_IDS', 'Groupes sélectionnés'), ('GROUP_TYPE', 'Type de groupe'), ('ALL_GROUPS', 'Tous les groupes éligibles'), ('COURSE', 'Groupe de cours')], max_length=20)),
+                ('target_value', models.CharField(blank=True, max_length=255)),
+                ('message', models.TextField(blank=True)),
+                ('message_type', models.CharField(default='group_announcement', max_length=50)),
+                ('attachment_path', models.CharField(blank=True, max_length=500)),
+                ('source_event', models.CharField(blank=True, max_length=100)),
+                ('idempotency_key', models.CharField(max_length=255, unique=True)),
+                ('correlation_id', models.CharField(max_length=64, unique=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('started_at', models.DateTimeField(blank=True, null=True)),
+                ('completed_at', models.DateTimeField(blank=True, null=True)),
+                ('retry_count', models.PositiveIntegerField(default=0)),
+                ('error_message', models.TextField(blank=True)),
+                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='WhatsAppMessageDelivery',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('status', models.CharField(choices=[('PENDING', 'En attente'), ('RUNNING', 'En cours'), ('SUCCESS', 'Réussi'), ('FAILED', 'Échec'), ('SKIPPED', 'Ignoré'), ('CANCELLED', 'Annulé')], default='PENDING', max_length=10)),
+                ('idempotency_key', models.CharField(max_length=255, unique=True)),
+                ('correlation_id', models.CharField(max_length=64, unique=True)),
+                ('provider_message_id', models.CharField(blank=True, max_length=255)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('started_at', models.DateTimeField(blank=True, null=True)),
+                ('completed_at', models.DateTimeField(blank=True, null=True)),
+                ('retry_count', models.PositiveIntegerField(default=0)),
+                ('error_code', models.CharField(blank=True, max_length=80)),
+                ('error_message', models.TextField(blank=True)),
+                ('group', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='deliveries', to='core.whatsappgroup')),
+                ('job', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='deliveries', to='core.whatsappmessagejob')),
+            ],
+            options={'indexes': [models.Index(fields=['status', 'created_at'], name='core_whatsap_status_6e9e4e_idx')]},
+        ),
+        migrations.AddIndex(model_name='whatsappgroup', index=models.Index(fields=['group_type', 'is_active'], name='core_whatsap_group_t_8b8ce1_idx')),
+        migrations.AddIndex(model_name='whatsappgroup', index=models.Index(fields=['automation_enabled', 'blocked'], name='core_whatsap_automati_7a23aa_idx')),
+    ]

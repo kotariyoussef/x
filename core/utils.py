@@ -2623,6 +2623,32 @@ class WhatsAppMessageTemplates:
 import urllib.request
 import urllib.error
 import json
+from contextvars import ContextVar
+from .whatsapp_logging import log_event, new_correlation_id, safe_error
+
+_WHATSAPP_CORRELATION_ID: ContextVar[str | None] = ContextVar('whatsapp_correlation_id', default=None)
+
+
+def _whatsapp_correlation_id() -> str:
+    return _WHATSAPP_CORRELATION_ID.get() or new_correlation_id()
+
+
+def _whatsapp_headers(headers: dict) -> dict:
+    headers['X-Correlation-ID'] = _whatsapp_correlation_id()
+    headers['X-Request-ID'] = headers['X-Correlation-ID']
+    return headers
+
+
+def _log_whatsapp_http(event, operation, correlation_id, started_at, **fields):
+    import time
+    log_event(
+        event=event,
+        operation=operation,
+        correlation_id=correlation_id,
+        request_id=correlation_id,
+        duration_ms=round((time.monotonic() - started_at) * 1000),
+        **fields,
+    )
 
 class WhatsAppServiceAPI:
     BASE_URL = f"http://localhost:{settings.WHATSAPP_SERVICE_PORT}"
@@ -2635,26 +2661,37 @@ class WhatsAppServiceAPI:
             dict: { 'offline': False, 'status': 'READY', 'qr': None, 'info': ... }
             or { 'offline': True, 'status': 'OFFLINE' }
         """
+        import time
+        operation = 'get_status'
+        correlation_id = _whatsapp_correlation_id()
+        token = _WHATSAPP_CORRELATION_ID.set(correlation_id)
+        started_at = time.monotonic()
+        log_event(event='whatsapp_request_started', operation=operation, correlation_id=correlation_id, request_id=correlation_id, endpoint='/status', http_method='GET')
         url = f"{cls.BASE_URL}/status"
         try:
-            req = urllib.request.Request(url, method='GET')
+            req = urllib.request.Request(url, headers=_whatsapp_headers({}), method='GET')
             with urllib.request.urlopen(req, timeout=2) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode('utf-8'))
                     data['offline'] = False
+                    _log_whatsapp_http('whatsapp_request_completed', operation, correlation_id, started_at, endpoint='/status', http_status=response.status, result='success')
                     return data
                 else:
+                    _log_whatsapp_http('whatsapp_request_completed', operation, correlation_id, started_at, endpoint='/status', http_status=response.status, result='failure')
                     return {
                         'offline': False,
                         'status': 'ERROR',
                         'error': f"HTTP {response.status}"
                     }
         except Exception as e:
+            _log_whatsapp_http('request_timeout' if isinstance(e, TimeoutError) else 'whatsapp_request_failed', operation, correlation_id, started_at, endpoint='/status', result='failure', **safe_error(e))
             return {
                 'offline': True,
                 'status': 'OFFLINE',
                 'error': str(e)
             }
+        finally:
+            _WHATSAPP_CORRELATION_ID.reset(token)
 
     @classmethod
     def send_message(cls, phone: str, message: str = '', attachments: Optional[List[Dict[str, str]]] = None):
@@ -2671,7 +2708,7 @@ class WhatsAppServiceAPI:
         if attachments:
             payload_data['attachments'] = attachments
         payload = json.dumps(payload_data).encode('utf-8')
-        headers = {'Content-Type': 'application/json'}
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
         api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
         if api_key:
             headers['X-API-Key'] = api_key
@@ -2703,12 +2740,36 @@ class WhatsAppServiceAPI:
             }
 
     @classmethod
+    def send_group_message(cls, group_id: str, message: str = '', attachments: Optional[List[Dict[str, str]]] = None):
+        """Send a message to one registered WhatsApp group."""
+        url = f"{cls.BASE_URL}/send-group"
+        payload_data = {'groupId': group_id, 'message': message}
+        if attachments:
+            payload_data['attachments'] = attachments
+        payload = json.dumps(payload_data).encode('utf-8')
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
+        api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
+        if api_key:
+            headers['X-API-Key'] = api_key
+        req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode('utf-8'))
+            except Exception:
+                return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
     def logout(cls):
         """
         Logs out from the active WhatsApp session.
         """
         url = f"{cls.BASE_URL}/logout"
-        headers = {'Content-Type': 'application/json'}
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
         api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
         if api_key:
             headers['X-API-Key'] = api_key
@@ -2742,7 +2803,7 @@ class WhatsAppServiceAPI:
         Restarts the WhatsApp client in the Node.js service.
         """
         url = f"{cls.BASE_URL}/restart"
-        headers = {'Content-Type': 'application/json'}
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
         api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
         if api_key:
             headers['X-API-Key'] = api_key
@@ -2777,7 +2838,7 @@ class WhatsAppServiceAPI:
         url = f"{cls.BASE_URL}/create-group"
         payload_data = {'name': name, 'participants': participants or []}
         payload = json.dumps(payload_data).encode('utf-8')
-        headers = {'Content-Type': 'application/json'}
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
         api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
         if api_key:
             headers['X-API-Key'] = api_key
@@ -2802,7 +2863,7 @@ class WhatsAppServiceAPI:
         url = f"{cls.BASE_URL}/group-add-participants"
         payload_data = {'groupId': group_id, 'participants': participants}
         payload = json.dumps(payload_data).encode('utf-8')
-        headers = {'Content-Type': 'application/json'}
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
         api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
         if api_key:
             headers['X-API-Key'] = api_key
@@ -2827,7 +2888,7 @@ class WhatsAppServiceAPI:
         url = f"{cls.BASE_URL}/group-remove-participants"
         payload_data = {'groupId': group_id, 'participants': participants}
         payload = json.dumps(payload_data).encode('utf-8')
-        headers = {'Content-Type': 'application/json'}
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
         api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
         if api_key:
             headers['X-API-Key'] = api_key
@@ -2852,7 +2913,7 @@ class WhatsAppServiceAPI:
         import urllib.parse
         encoded_gid = urllib.parse.quote(group_id)
         url = f"{cls.BASE_URL}/group-info?groupId={encoded_gid}"
-        headers = {'Content-Type': 'application/json'}
+        headers = _whatsapp_headers({'Content-Type': 'application/json'})
         api_key = getattr(settings, 'WHATSAPP_API_KEY', '')
         if api_key:
             headers['X-API-Key'] = api_key
@@ -2868,6 +2929,53 @@ class WhatsAppServiceAPI:
                 return {'success': False, 'error': f"HTTP Error {e.code}: {e.reason}"}
         except Exception as e:
             return {'success': False, 'error': str(e)}
+
+
+def _instrument_whatsapp_api(method_name, original):
+    """Add correlation and timing logs without logging request/response data."""
+    import functools
+    import time
+
+    @functools.wraps(original)
+    def wrapped(*args, **kwargs):
+        correlation_id = new_correlation_id()
+        token = _WHATSAPP_CORRELATION_ID.set(correlation_id)
+        started_at = time.monotonic()
+        endpoint = {
+            'send_message': '/send',
+            'send_group_message': '/send-group',
+            'logout': '/logout',
+            'restart': '/restart',
+            'create_group': '/create-group',
+            'add_group_participants': '/group-add-participants',
+            'remove_group_participants': '/group-remove-participants',
+            'get_group_info': '/group-info',
+        }.get(method_name, method_name)
+        operation_fields = {'endpoint': endpoint, 'http_method': 'POST' if method_name != 'get_group_info' else 'GET'}
+        log_event(event='whatsapp_request_started', operation=method_name, correlation_id=correlation_id, request_id=correlation_id, **operation_fields)
+        try:
+            result = original(*args, **kwargs)
+            successful = isinstance(result, dict) and result.get('success') is True
+            if method_name == 'get_status':
+                successful = isinstance(result, dict) and not result.get('offline', True)
+            log_event(event='whatsapp_request_completed' if successful else 'whatsapp_request_failed', operation=method_name, correlation_id=correlation_id, request_id=correlation_id, result='success' if successful else 'failure', duration_ms=round((time.monotonic() - started_at) * 1000), **operation_fields)
+            return result
+        except Exception as error:
+            event = 'request_timeout' if isinstance(error, TimeoutError) else 'whatsapp_request_failed'
+            log_event(event=event, operation=method_name, correlation_id=correlation_id, request_id=correlation_id, result='failure', duration_ms=round((time.monotonic() - started_at) * 1000), **operation_fields, **safe_error(error))
+            raise
+        finally:
+            _WHATSAPP_CORRELATION_ID.reset(token)
+
+    return wrapped
+
+
+for _method_name in (
+    'send_message', 'send_group_message', 'logout', 'restart', 'create_group',
+    'add_group_participants', 'remove_group_participants', 'get_group_info',
+):
+    _original_method = getattr(WhatsAppServiceAPI, _method_name).__func__
+    setattr(WhatsAppServiceAPI, _method_name, classmethod(_instrument_whatsapp_api(_method_name, _original_method)))
 
 
 

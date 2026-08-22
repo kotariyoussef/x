@@ -1239,6 +1239,125 @@ class WhatsAppSendLog(models.Model):
         return f"[{self.get_status_display()}] {self.get_message_type_display()} → {student_name} ({self.sent_at:%d/%m/%Y %H:%M})"
 
 
+class WhatsAppGroup(models.Model):
+    """Explicitly authorized registry entry for one WhatsApp group."""
+    TYPE_CHOICES = [
+        ('CLASS', 'Classe'),
+        ('PARENTS', 'Parents'),
+        ('TEACHERS', 'Professeurs'),
+        ('ADMINISTRATION', 'Administration'),
+        ('COURSE', 'Cours'),
+        ('SCHOOL', 'École'),
+        ('CUSTOM', 'Personnalisé'),
+    ]
+    HEALTH_CHOICES = [
+        ('UNKNOWN', 'Inconnu'),
+        ('HEALTHY', 'Accessible'),
+        ('STALE', 'Obsolète'),
+        ('ERROR', 'Erreur'),
+    ]
+
+    whatsapp_group_id = models.CharField(max_length=255, unique=True, verbose_name='ID WhatsApp')
+    display_name = models.CharField(max_length=255, verbose_name='Nom affiché')
+    group_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='CUSTOM')
+    course_group = models.ForeignKey('CourseGroup', on_delete=models.SET_NULL, null=True, blank=True, related_name='registered_whatsapp_groups')
+    is_active = models.BooleanField(default=True)
+    sync_enabled = models.BooleanField(default=True)
+    automation_enabled = models.BooleanField(default=True)
+    blocked = models.BooleanField(default=False)
+    archived = models.BooleanField(default=False)
+    health_status = models.CharField(max_length=10, choices=HEALTH_CHOICES, default='UNKNOWN')
+    participant_count = models.PositiveIntegerField(default=0)
+    last_verified_at = models.DateTimeField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_message_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['display_name']
+        indexes = [models.Index(fields=['group_type', 'is_active']), models.Index(fields=['automation_enabled', 'blocked'])]
+
+    def __str__(self):
+        return self.display_name
+
+    @property
+    def eligible_for_automation(self):
+        return self.is_active and self.automation_enabled and not self.blocked and not self.archived and bool(self.whatsapp_group_id)
+
+
+class WhatsAppMessageJob(models.Model):
+    """Persistent parent job for one or more group deliveries."""
+    STATUS_CHOICES = [('PENDING', 'En attente'), ('RUNNING', 'En cours'), ('SUCCESS', 'Réussi'), ('PARTIAL', 'Partiel'), ('FAILED', 'Échec'), ('CANCELLED', 'Annulé')]
+    TARGET_CHOICES = [('GROUP_IDS', 'Groupes sélectionnés'), ('GROUP_TYPE', 'Type de groupe'), ('ALL_GROUPS', 'Tous les groupes éligibles'), ('COURSE', 'Groupe de cours')]
+
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    target_type = models.CharField(max_length=20, choices=TARGET_CHOICES)
+    target_value = models.CharField(max_length=255, blank=True)
+    message = models.TextField(blank=True)
+    message_type = models.CharField(max_length=50, default='group_announcement')
+    attachment_path = models.CharField(max_length=500, blank=True)
+    source_event = models.CharField(max_length=100, blank=True)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    correlation_id = models.CharField(max_length=64, unique=True)
+    created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+
+
+class WhatsAppMessageDelivery(models.Model):
+    """One independently tracked, idempotent delivery within a job."""
+    STATUS_CHOICES = [('PENDING', 'En attente'), ('RUNNING', 'En cours'), ('SUCCESS', 'Réussi'), ('FAILED', 'Échec'), ('SKIPPED', 'Ignoré'), ('CANCELLED', 'Annulé')]
+    job = models.ForeignKey(WhatsAppMessageJob, on_delete=models.CASCADE, related_name='deliveries')
+    group = models.ForeignKey(WhatsAppGroup, on_delete=models.PROTECT, related_name='deliveries')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    correlation_id = models.CharField(max_length=64, unique=True)
+    provider_message_id = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    error_code = models.CharField(max_length=80, blank=True)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['status', 'created_at'])]
+
+
+class WhatsAppMessageTemplate(models.Model):
+    name = models.CharField(max_length=150, unique=True)
+    description = models.TextField(blank=True)
+    body = models.TextField()
+    enabled = models.BooleanField(default=True)
+    created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class WhatsAppAutomation(models.Model):
+    """Typed automation definition; conditions are validated JSON, never code."""
+    TRIGGER_CHOICES = [('MANUAL', 'Manuel'), ('ANNOUNCEMENT_PUBLISHED', 'Annonce publiée'), ('SCHEDULED', 'Planifié')]
+    name = models.CharField(max_length=150, unique=True)
+    description = models.TextField(blank=True)
+    enabled = models.BooleanField(default=False)
+    trigger = models.CharField(max_length=30, choices=TRIGGER_CHOICES)
+    target_type = models.CharField(max_length=20, choices=WhatsAppMessageJob.TARGET_CHOICES)
+    target_value = models.CharField(max_length=255, blank=True)
+    template = models.ForeignKey(WhatsAppMessageTemplate, on_delete=models.PROTECT)
+    conditions = models.JSONField(default=dict, blank=True)
+    cooldown_seconds = models.PositiveIntegerField(default=0)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_result = models.CharField(max_length=20, blank=True)
+    created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class MakeupSession(models.Model):
     """Suivi des séances de rattrapage"""
     original_session = models.ForeignKey(

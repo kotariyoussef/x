@@ -2,6 +2,9 @@ const express = require('express');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const path = require('path');
+const crypto = require('crypto');
+const fs = require('fs');
+const { log, errorFields, hashIdentifier } = require('./logger');
 
 const app = express();
 const port = Number(process.env.WA_PORT || 3000);
@@ -11,6 +14,50 @@ const port = Number(process.env.WA_PORT || 3000);
 // If not set, the service runs without authentication (local-only, safe for dev).
 const API_KEY = process.env.WA_API_KEY || null;
 
+const STATES = new Set([
+    'STOPPED', 'STARTING', 'INITIALIZING', 'QR_REQUIRED', 'AUTHENTICATING',
+    'AUTHENTICATED', 'READY', 'DISCONNECTED', 'RECONNECTING', 'LOGGING_OUT',
+    'RESTARTING', 'ERROR'
+]);
+let serviceState = 'STOPPED';
+let stateChangedAt = Date.now();
+let startupAt = Date.now();
+let restartCount = 0;
+
+function correlationId() {
+    return crypto.randomUUID();
+}
+
+function transitionState(nextState, reason, fields = {}) {
+    if (!STATES.has(nextState)) nextState = 'ERROR';
+    const now = Date.now();
+    const previousState = serviceState;
+    const stateDuration = now - stateChangedAt;
+    serviceState = nextState;
+    stateChangedAt = now;
+    clientStatus = nextState;
+    log('INFO', {
+        component: 'state_machine',
+        event: 'state_change',
+        operation: fields.operation || null,
+        previous_state: previousState,
+        state: nextState,
+        reason,
+        state_duration_ms: stateDuration,
+        ...fields
+    });
+}
+
+function operationLog(level, event, operation, startedAt, fields = {}) {
+    log(level, {
+        component: fields.component || 'client',
+        event,
+        operation,
+        duration_ms: startedAt ? Date.now() - startedAt : null,
+        ...fields
+    });
+}
+
 function requireApiKey(req, res, next) {
     if (!API_KEY) return next(); // No key configured – allow all
     const key = req.headers['x-api-key'];
@@ -19,6 +66,35 @@ function requireApiKey(req, res, next) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+app.use((req, res, next) => {
+    const id = req.headers['x-correlation-id'] || req.headers['x-request-id'] || correlationId();
+    req.correlationId = String(id).slice(0, 100);
+    res.setHeader('X-Correlation-ID', req.correlationId);
+    const startedAt = Date.now();
+    log('INFO', {
+        component: 'http',
+        event: 'request_received',
+        operation: `${req.method} ${req.path}`,
+        correlation_id: req.correlationId,
+        request_id: req.correlationId,
+        http_method: req.method,
+        endpoint: req.path
+    });
+    res.on('finish', () => log(res.statusCode >= 500 ? 'ERROR' : 'INFO', {
+        component: 'http',
+        event: 'request_completed',
+        operation: `${req.method} ${req.path}`,
+        correlation_id: req.correlationId,
+        request_id: req.correlationId,
+        http_method: req.method,
+        endpoint: req.path,
+        http_status: res.statusCode,
+        duration_ms: Date.now() - startedAt,
+        result: res.statusCode < 400 ? 'success' : 'failure'
+    }));
+    next();
+});
 app.use(express.json({ limit: '100mb' }));
 
 let qrCodeData = null;
@@ -29,6 +105,19 @@ let isRestarting = false;
 
 function createClient() {
     console.log('Initializing WhatsApp Client...');
+    const operationStartedAt = Date.now();
+    startupAt = startupAt || operationStartedAt;
+    transitionState('INITIALIZING', 'client_initialize_started', { operation: 'initialize' });
+    operationLog('INFO', 'client_created', 'initialize', operationStartedAt, {
+        component: 'client',
+        node_version: process.version,
+        platform: process.platform,
+        architecture: process.arch,
+        library: 'whatsapp-web.js',
+        headless: true,
+        port,
+        session_directory_exists: fs.existsSync(path.join(__dirname, 'whatsapp_session'))
+    });
     clientStatus = 'INITIALIZING';
     qrCodeData = null;
     clientInfo = null;
@@ -52,46 +141,58 @@ function createClient() {
     });
 
     newClient.on('qr', async (qr) => {
-        clientStatus = 'QR_RECEIVED';
+        transitionState('QR_REQUIRED', 'qr_received', { operation: 'authenticate', qr_available: true });
+        operationLog('INFO', 'qr_generated', 'authenticate', startupAt, { qr_available: true });
         console.log('QR Code received. Please scan on the dashboard.');
         try {
             qrCodeData = await qrcode.toDataURL(qr);
         } catch (err) {
-            console.error('Failed to generate QR data URL', err);
+            log('ERROR', { component: 'qr', event: 'qr_generation_failed', operation: 'authenticate', result: 'failure', ...errorFields(err) });
         }
     });
 
     newClient.on('authenticated', () => {
-        clientStatus = 'AUTHENTICATED';
+        transitionState('AUTHENTICATED', 'authentication_success', { operation: 'authenticate' });
+        operationLog('INFO', 'authentication_success', 'authenticate', startupAt, { authenticated: true });
         qrCodeData = null;
         console.log('Authenticated successfully with WhatsApp.');
     });
 
     newClient.on('auth_failure', (msg) => {
-        clientStatus = 'AUTHENTICATION_FAILED';
-        console.error('WhatsApp Authentication failure:', msg);
-        restartClient();
+        const fields = errorFields(new Error(String(msg || 'Authentication failed')));
+        transitionState('ERROR', 'authentication_failure', { operation: 'authenticate', ...fields });
+        operationLog('ERROR', 'authentication_failed', 'authenticate', startupAt, fields);
+        console.error('WhatsApp Authentication failure');
+        restartClient('authentication_failure');
     });
 
     newClient.on('ready', () => {
-        clientStatus = 'READY';
+        transitionState('READY', 'client_ready', { operation: 'initialize' });
+        operationLog('INFO', 'whatsapp_ready', 'initialize', startupAt, {
+            authenticated: true,
+            browser_status: 'ready',
+            client_version: newClient.info?.platform || null
+        });
         clientInfo = newClient.info;
         console.log('WhatsApp Client is fully ready!');
     });
 
     newClient.on('disconnected', (reason) => {
-        clientStatus = 'DISCONNECTED';
-        console.log('Client was logged out / disconnected:', reason);
-        restartClient();
+        transitionState('DISCONNECTED', 'client_disconnected', { operation: 'connection', disconnect_reason: String(reason || 'unknown').slice(0, 200) });
+        operationLog('WARN', 'connection_lost', 'connection', startupAt, { disconnect_reason: String(reason || 'unknown').slice(0, 200) });
+        console.log('Client was logged out / disconnected');
+        restartClient('disconnect');
     });
 
     client = newClient;
 
     client.initialize().catch(err => {
-        clientStatus = 'ERROR';
-        console.error('Failed to initialize WhatsApp client:', err);
+        const fields = errorFields(err);
+        transitionState('ERROR', 'initialization_error', { operation: 'initialize', ...fields });
+        operationLog('ERROR', 'client_initialize_failed', 'initialize', operationStartedAt, fields);
+        console.error('Failed to initialize WhatsApp client');
         // Even an init failure usually means the browser/session is wedged.
-        restartClient();
+        restartClient('initialization_error');
     });
 }
 
@@ -101,16 +202,20 @@ async function shutdown() {
     if (isShuttingDown) return;
     isShuttingDown = true;
 
+    transitionState('STOPPED', 'process_shutdown', { operation: 'shutdown' });
+    log('INFO', { component: 'process', event: 'shutdown_started', operation: 'shutdown', uptime_ms: Date.now() - startupAt });
     console.log('Shutting down WhatsApp service...');
 
     try {
         if (client) {
             await client.destroy();
             client = null;
+            log('INFO', { component: 'client', event: 'client_destroy_completed', operation: 'shutdown', result: 'success' });
             console.log('WhatsApp client destroyed.');
         }
     } catch (error) {
-        console.error('Error destroying WhatsApp client:', error);
+        log('ERROR', { component: 'client', event: 'client_destroy_failed', operation: 'shutdown', result: 'failure', ...errorFields(error) });
+        console.error('Error destroying WhatsApp client');
     }
 
     process.exit(0);
@@ -122,34 +227,42 @@ process.on('SIGINT', shutdown);
 // Tears down the dead client (if possible) and spins up a fresh one.
 // This replaces "client.initialize() on the same instance", which is
 // what was forcing a manual process restart after logout/disconnect.
-async function restartClient() {
+async function restartClient(reason = 'unspecified') {
     if (isRestarting || isShuttingDown) return;
 
     isRestarting = true;
+    restartCount += 1;
+    const operationStartedAt = Date.now();
+    transitionState('RESTARTING', reason, { operation: 'restart', trigger: reason, retry_count: restartCount });
+    operationLog('INFO', 'restart_started', 'restart', operationStartedAt, { trigger: reason, retry_count: restartCount });
 
     try {
         const old = client;
 
         if (old) {
+            operationLog('INFO', 'restart_client_destroy_started', 'restart', operationStartedAt, { trigger: reason });
             try {
                 await old.destroy();
+                operationLog('INFO', 'restart_client_destroy_completed', 'restart', operationStartedAt, { result: 'success' });
             } catch (err) {
-                console.warn(
-                    'Error destroying old client (continuing anyway):',
-                    err.message
-                );
+                operationLog('WARN', 'restart_client_destroy_failed', 'restart', operationStartedAt, { result: 'failure', ...errorFields(err) });
+                console.warn('Error destroying old client (continuing anyway)');
             }
         }
     } finally {
         isRestarting = false;
 
         if (!isShuttingDown) {
+            transitionState('RECONNECTING', 'restart_initialize_started', { operation: 'restart', trigger: reason });
             createClient();
+            operationLog('INFO', 'restart_initialize_started', 'restart', operationStartedAt, { trigger: reason });
         }
     }
 }
 
 // Initial boot
+transitionState('STARTING', 'process_start', { operation: 'startup', node_version: process.version, platform: process.platform, architecture: process.arch, configured_port: port });
+log('INFO', { component: 'process', event: 'process_started', operation: 'startup', node_version: process.version, platform: process.platform, architecture: process.arch, configured_port: port, session_directory_exists: fs.existsSync(path.join(__dirname, 'whatsapp_session')) });
 createClient();
 
 // Helper to format Moroccan or international phone number to contact ID (formatted e.g. 2126...@c.us)
@@ -170,23 +283,36 @@ function formatPhoneToChatId(phone) {
 
 // GET /status — Get status, QR code, and connected info (public, no auth needed)
 app.get('/status', (req, res) => {
+    log('INFO', { component: 'health', event: 'health_status_requested', operation: 'health_check', correlation_id: req.correlationId, state: serviceState });
     res.json({
-        status: clientStatus,
+        status: serviceState,
         qr: qrCodeData,
-        info: clientInfo
+        info: clientInfo,
+        service: 'whatsapp',
+        process: 'online',
+        api: 'online',
+        client: serviceState === 'STOPPED' ? 'stopped' : 'initialized',
+        authenticated: ['AUTHENTICATED', 'READY'].includes(serviceState),
+        ready: serviceState === 'READY'
     });
 });
 
 // POST /send — Send message to phone number
 app.post('/send', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    const operation = 'send_message';
     const { phone, message = '', attachments } = req.body;
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    const destinationHash = hashIdentifier(phone, 'hash');
+    log('INFO', { component: 'message', event: 'message_send_requested', operation, correlation_id: req.correlationId, destination_hash: destinationHash, message_type: hasAttachments ? 'media' : 'text', message_length: typeof message === 'string' ? message.length : 0, has_media: hasAttachments, media_count: hasAttachments ? attachments.length : 0 });
 
     if (!phone || (!message && !hasAttachments)) {
+        operationLog('WARN', 'message_validation_failed', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'failure', error_code: 'WA_INVALID_REQUEST' });
         return res.status(400).json({ success: false, error: 'Phone and message or attachments are required' });
     }
 
     if (clientStatus !== 'READY') {
+        operationLog('WARN', 'message_send_failed', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'failure', error_code: 'WA_NOT_READY', state: serviceState });
         return res.status(503).json({
             success: false,
             error: 'WhatsApp client is not ready. Current status: ' + clientStatus
@@ -196,13 +322,14 @@ app.post('/send', requireApiKey, async (req, res) => {
     try {
         const chatId = formatPhoneToChatId(phone);
         if (!chatId) {
+            operationLog('WARN', 'message_validation_failed', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'failure', error_code: 'WA_INVALID_REQUEST' });
             return res.status(400).json({ success: false, error: 'Invalid phone number' });
         }
-        console.log(`Attempting to send message to: ${chatId}`);
+        log('INFO', { component: 'message', event: 'message_send_started', operation, correlation_id: req.correlationId, destination_hash: destinationHash, has_media: hasAttachments });
 
         const isRegistered = await client.isRegisteredUser(chatId);
         if (!isRegistered) {
-            console.log(`Number ${chatId} is not registered on WhatsApp`);
+            operationLog('WARN', 'message_validation_failed', operation, operationStartedAt, { correlation_id: req.correlationId, destination_hash: destinationHash, result: 'failure', error_code: 'WA_NOT_REGISTERED' });
             return res.status(400).json({
                 success: false,
                 error: `Le numéro ${phone} n'est pas enregistré sur WhatsApp.`
@@ -223,32 +350,78 @@ app.post('/send', requireApiKey, async (req, res) => {
                 }
 
                 lastResponse = await client.sendMessage(chatId, media, options);
-                console.log(`Attachment sent to ${chatId}: ${name}`);
+                log('INFO', { component: 'media', event: 'media_send_completed', operation, correlation_id: req.correlationId, destination_hash: destinationHash, file_size: Buffer.byteLength(data, 'base64'), mime_type: mime_type || 'application/octet-stream', result: 'success' });
             }
 
             if (!message) {
+                operationLog('INFO', 'message_send_success', operation, operationStartedAt, { correlation_id: req.correlationId, destination_hash: destinationHash, result: 'success', has_media: true, media_count: attachments.length });
                 res.json({ success: true, messageId: lastResponse?.id?.id || null });
             } else {
+                operationLog('INFO', 'message_send_success', operation, operationStartedAt, { correlation_id: req.correlationId, destination_hash: destinationHash, result: 'success', has_media: true, media_count: attachments.length });
                 res.json({ success: true, messageId: lastResponse?.id?.id || null });
             }
         } else {
             lastResponse = await client.sendMessage(chatId, message);
-            console.log(`Message successfully sent to ${chatId}.`);
+            console.log('Message successfully sent.');
+            operationLog('INFO', 'message_send_success', operation, operationStartedAt, { correlation_id: req.correlationId, destination_hash: destinationHash, result: 'success', has_media: false });
             res.json({ success: true, messageId: lastResponse?.id?.id || null });
         }
     } catch (error) {
-        console.error('Failed to send message:', error);
+        operationLog('ERROR', 'message_send_failed', operation, operationStartedAt, { correlation_id: req.correlationId, destination_hash: destinationHash, result: 'failure', ...errorFields(error) });
+        console.error('Failed to send message');
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /send-group - Send a message to one explicitly selected WhatsApp group
+app.post('/send-group', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    const operation = 'send_group_message';
+    const { groupId, message = '', attachments } = req.body;
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    const groupHash = hashIdentifier(groupId, 'group');
+    log('INFO', { component: 'group_message', event: 'group_message_send_requested', operation, correlation_id: req.correlationId, group_id_hash: groupHash, message_length: typeof message === 'string' ? message.length : 0, has_media: hasAttachments, media_count: hasAttachments ? attachments.length : 0 });
+
+    if (!groupId || (!message && !hasAttachments)) {
+        operationLog('WARN', 'group_message_validation_failed', operation, operationStartedAt, { correlation_id: req.correlationId, group_id_hash: groupHash, result: 'failure', error_code: 'WA_INVALID_REQUEST' });
+        return res.status(400).json({ success: false, error: 'groupId and message or attachments are required' });
+    }
+    if (serviceState !== 'READY') {
+        operationLog('WARN', 'group_message_send_failed', operation, operationStartedAt, { correlation_id: req.correlationId, group_id_hash: groupHash, result: 'failure', error_code: 'WA_NOT_READY', state: serviceState });
+        return res.status(503).json({ success: false, error: 'WhatsApp client is not ready' });
+    }
+
+    try {
+        let lastResponse = null;
+        if (hasAttachments) {
+            for (const attachment of attachments) {
+                if (!attachment || !attachment.name || !attachment.data) continue;
+                const media = new MessageMedia(attachment.mime_type || 'application/octet-stream', attachment.data, attachment.name);
+                lastResponse = await client.sendMessage(groupId, media, message ? { caption: message } : {});
+            }
+        } else {
+            lastResponse = await client.sendMessage(groupId, message);
+        }
+        operationLog('INFO', 'group_message_send_success', operation, operationStartedAt, { correlation_id: req.correlationId, group_id_hash: groupHash, result: 'success', has_media: hasAttachments, media_count: hasAttachments ? attachments.length : 0 });
+        return res.json({ success: true, messageId: lastResponse?.id?.id || null });
+    } catch (error) {
+        operationLog('ERROR', 'group_message_send_failed', operation, operationStartedAt, { correlation_id: req.correlationId, group_id_hash: groupHash, result: 'failure', ...errorFields(error) });
+        return res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // POST /create-group — Create a WhatsApp group
 app.post('/create-group', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    const operation = 'create_group';
     const { name, participants = [] } = req.body;
+    log('INFO', { component: 'group', event: 'group_create_requested', operation, correlation_id: req.correlationId, participant_count: Array.isArray(participants) ? participants.length : 0 });
     if (!name) {
+        operationLog('WARN', 'group_create_failed', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'failure', error_code: 'WA_INVALID_REQUEST' });
         return res.status(400).json({ success: false, error: 'Group name is required' });
     }
     if (clientStatus !== 'READY') {
+        operationLog('WARN', 'group_create_failed', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'failure', error_code: 'WA_NOT_READY', state: serviceState });
         return res.status(503).json({ success: false, error: 'WhatsApp client is not ready' });
     }
 
@@ -263,12 +436,12 @@ app.post('/create-group', requireApiKey, async (req, res) => {
                         participantChatIds.push(cId);
                     }
                 } catch (err) {
-                    console.warn(`Error checking registration for ${phone}:`, err.message);
+                    log('WARN', { component: 'group', event: 'participant_validation_failed', operation: 'create_group', result: 'failure', ...errorFields(err) });
                 }
             }
         }
 
-        console.log(`Creating WhatsApp group "${name}" with ${participantChatIds.length} initial participants`);
+        console.log(`Creating WhatsApp group with ${participantChatIds.length} initial participants`);
         const groupResult = await client.createGroup(name, participantChatIds);
 
         const groupId = typeof groupResult === 'string' ? groupResult : (groupResult.gid?._serialized || groupResult.gid);
@@ -283,23 +456,28 @@ app.post('/create-group', requireApiKey, async (req, res) => {
                 }
             }
         } catch (linkErr) {
-            console.warn(`Could not get invite code for group ${groupId}:`, linkErr.message);
+            log('WARN', { component: 'group', event: 'group_invite_link_failed', operation: 'create_group', result: 'failure', ...errorFields(linkErr) });
         }
 
+        operationLog('INFO', 'group_create_success', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'success', group_id_hash: hashIdentifier(groupId, 'group'), participant_count: participantChatIds.length });
         return res.json({
             success: true,
             groupId: groupId,
             inviteLink: inviteLink
         });
     } catch (error) {
-        console.error('Failed to create group:', error);
+        operationLog('ERROR', 'group_create_failed', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'failure', ...errorFields(error) });
+        console.error('Failed to create group');
         return res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // POST /group-add-participants — Add participants to an existing group
 app.post('/group-add-participants', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    const operation = 'add_group_participants';
     const { groupId, participants = [] } = req.body;
+    log('INFO', { component: 'group', event: 'group_add_participants_requested', operation, correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group'), participant_count: Array.isArray(participants) ? participants.length : 0 });
     if (!groupId || !participants || participants.length === 0) {
         return res.status(400).json({ success: false, error: 'groupId and participants array are required' });
     }
@@ -321,12 +499,13 @@ app.post('/group-add-participants', requireApiKey, async (req, res) => {
                     const isReg = await client.isRegisteredUser(cId);
                     if (isReg) participantChatIds.push(cId);
                 } catch (err) {
-                    console.warn(`Error checking registration for ${phone}:`, err.message);
+                    log('WARN', { component: 'group', event: 'participant_validation_failed', operation: 'add_group_participants', result: 'failure', ...errorFields(err) });
                 }
             }
         }
 
         if (participantChatIds.length === 0) {
+            operationLog('INFO', 'group_add_participants_success', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'success', group_id_hash: hashIdentifier(groupId, 'group'), participant_count: 0, success_count: 0, failure_count: 0 });
             return res.json({ success: true, added: [], message: 'No valid registered participants to add' });
         }
 
@@ -335,7 +514,7 @@ app.post('/group-add-participants', requireApiKey, async (req, res) => {
         try {
             addResult = await chat.addParticipants(participantChatIds);
         } catch (err) {
-            console.error(`Error in chat.addParticipants for group ${groupId}:`, err);
+            log('ERROR', { component: 'group', event: 'group_add_participants_failed', operation, correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group'), result: 'failure', ...errorFields(err) });
             addError = err;
         }
 
@@ -360,20 +539,24 @@ app.post('/group-add-participants', requireApiKey, async (req, res) => {
             }
         }
 
+        operationLog('INFO', 'group_add_participants_success', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'success', group_id_hash: hashIdentifier(groupId, 'group'), participant_count: participantChatIds.length });
         return res.json({
             success: true,
             results: results,
             raw: addResult
         });
     } catch (error) {
-        console.error(`Failed to add participants to group ${groupId}:`, error);
+        operationLog('ERROR', 'group_add_participants_failed', operation, operationStartedAt, { correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group'), result: 'failure', ...errorFields(error) });
         return res.status(500).json({ success: false, error: error.message || String(error) });
     }
 });
 
 // POST /group-remove-participants — Remove participants from an existing group
 app.post('/group-remove-participants', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    const operation = 'remove_group_participants';
     const { groupId, participants = [] } = req.body;
+    log('INFO', { component: 'group', event: 'group_remove_participants_requested', operation, correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group'), participant_count: Array.isArray(participants) ? participants.length : 0 });
     if (!groupId || !participants || participants.length === 0) {
         return res.status(400).json({ success: false, error: 'groupId and participants array are required' });
     }
@@ -402,7 +585,7 @@ app.post('/group-remove-participants', requireApiKey, async (req, res) => {
         try {
             removeResult = await chat.removeParticipants(participantChatIds);
         } catch (err) {
-            console.error(`Error in chat.removeParticipants for group ${groupId}:`, err);
+            log('ERROR', { component: 'group', event: 'group_remove_participants_failed', operation, correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group'), result: 'failure', ...errorFields(err) });
             removeError = err;
         }
 
@@ -425,20 +608,24 @@ app.post('/group-remove-participants', requireApiKey, async (req, res) => {
             }
         }
 
+        operationLog('INFO', 'group_remove_participants_success', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'success', group_id_hash: hashIdentifier(groupId, 'group'), participant_count: participantChatIds.length });
         return res.json({
             success: true,
             results: results,
             raw: removeResult
         });
     } catch (error) {
-        console.error(`Failed to remove participants from group ${groupId}:`, error);
+        operationLog('ERROR', 'group_remove_participants_failed', operation, operationStartedAt, { correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group'), result: 'failure', ...errorFields(error) });
         return res.status(500).json({ success: false, error: error.message || String(error) });
     }
 });
 
 // GET /group-info — Get group info including participants
 app.get('/group-info', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    const operation = 'group_info';
     const groupId = req.query.groupId;
+    log('INFO', { component: 'group', event: 'group_info_requested', operation, correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group') });
     if (!groupId) {
         return res.status(400).json({ success: false, error: 'groupId query parameter is required' });
     }
@@ -461,7 +648,7 @@ app.get('/group-info', requireApiKey, async (req, res) => {
                 }
             }
         } catch (err) {
-            console.warn(`Could not fetch invite code for ${groupId}:`, err.message);
+            log('WARN', { component: 'group', event: 'group_invite_link_failed', operation: 'group_info', result: 'failure', ...errorFields(err) });
         }
 
         const participants = (chat.participants || []).map(p => ({
@@ -471,6 +658,7 @@ app.get('/group-info', requireApiKey, async (req, res) => {
             isSuperAdmin: p.isSuperAdmin
         }));
 
+        operationLog('INFO', 'group_info_success', operation, operationStartedAt, { correlation_id: req.correlationId, result: 'success', group_id_hash: hashIdentifier(groupId, 'group'), participant_count: participants.length });
         return res.json({
             success: true,
             id: chat.id._serialized,
@@ -479,32 +667,51 @@ app.get('/group-info', requireApiKey, async (req, res) => {
             participants: participants
         });
     } catch (error) {
-        console.error(`Failed to fetch group info for ${groupId}:`, error);
+        operationLog('ERROR', 'group_info_failed', operation, operationStartedAt, { correlation_id: req.correlationId, group_id_hash: hashIdentifier(groupId, 'group'), result: 'failure', ...errorFields(error) });
         return res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // POST /logout — Logout session
 app.post('/logout', requireApiKey, async (req, res) => {
+    const operationStartedAt = Date.now();
+    log('INFO', { component: 'client', event: 'logout_requested', operation: 'logout', correlation_id: req.correlationId });
+    transitionState('LOGGING_OUT', 'logout_requested', { operation: 'logout' });
     try {
         console.log('Logging out from WhatsApp session...');
         await client.logout();
-        restartClient();
+        operationLog('INFO', 'logout_completed', 'logout', operationStartedAt, { correlation_id: req.correlationId, result: 'success', session_deleted: false });
+        restartClient('manual_logout');
         res.json({ success: true });
     } catch (error) {
-        console.error('Logout error:', error);
+        operationLog('ERROR', 'logout_failed', 'logout', operationStartedAt, { correlation_id: req.correlationId, result: 'failure', ...errorFields(error) });
+        console.error('Logout error');
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // POST /restart — Restart the WhatsApp client without restarting the server
 app.post('/restart', requireApiKey, async (req, res) => {
+    log('INFO', { component: 'client', event: 'restart_requested', operation: 'restart', correlation_id: req.correlationId, trigger: 'admin_request' });
     console.log('Manual restart requested via API...');
     res.json({ success: true, message: 'Restart initiated' });
-    setTimeout(() => restartClient(), 200);
+    setTimeout(() => restartClient('admin_request'), 200);
+});
+
+process.on('uncaughtException', (error) => {
+    log('ERROR', { component: 'process', event: 'uncaught_exception', operation: 'process', result: 'failure', ...errorFields(error) });
+});
+
+process.on('unhandledRejection', (error) => {
+    log('ERROR', { component: 'process', event: 'unhandled_rejection', operation: 'process', result: 'failure', ...errorFields(error) });
+});
+
+process.on('exit', (code) => {
+    log(code === 0 ? 'INFO' : 'ERROR', { component: 'process', event: 'process_exit', operation: 'process', result: code === 0 ? 'success' : 'failure', exit_code: code, uptime_ms: Date.now() - startupAt });
 });
 
 app.listen(port, '127.0.0.1', () => {
+    log('INFO', { component: 'http', event: 'process_ready', operation: 'startup', state: serviceState, configured_port: port, result: 'success' });
     console.log(`WhatsApp automation service listening at http://localhost:${port}`);
     if (API_KEY) {
         console.log('API key authentication is ENABLED.');
